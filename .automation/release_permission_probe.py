@@ -1,6 +1,6 @@
 import os
 import re
-from control import CNB, api, git
+from control import CNB, api
 
 tag = os.environ['PROBE_TAG']
 if not re.fullmatch(r'automation-permission-\d+', tag):
@@ -8,7 +8,7 @@ if not re.fullmatch(r'automation-permission-\d+', tag):
 if api(f'{CNB}/git/tags/{tag}', missing=True) is not None:
     raise ValueError('Probe tag already exists; refusing to touch it')
 release = api(f'{CNB}/releases', 'POST', {'tag_name': tag,
-    'target_commitish': git('rev-parse', 'HEAD'), 'draft': True,
+    'target_commitish': os.environ['CNB_COMMIT'], 'draft': True,
     'name': 'Temporary automation permission check', 'body': 'Temporary credential validation; never published.'})
 try:
     if not release['draft']:
