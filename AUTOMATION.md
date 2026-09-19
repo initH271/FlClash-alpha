@@ -94,3 +94,34 @@ GitHub release run 35454382586 succeeded. Source/version/ARM64 runtime and perso
 certificate checks passed for the downloaded 2026094003 APK. Main-branch protection
 and actual upstream NPC replies were also verified. Heavy CNB fallback compilation
 was not deliberately exercised because that would duplicate a successful build.
+
+## DeepSeek and GLM paired reviews
+
+Existing roles explicitly use `deepseek-v4.1-flash`. The new `GLM复核助手`
+role routes to `glm-5.3-flash` for both Issue and PR mentions, with 128k context,
+20 turns, 4096 maximum output tokens per call and a ten-minute stage timeout.
+Only its GLM stage runs; other roles run only the DeepSeek stage. Both use
+2-CPU NPC runners. These model IDs were verified against CNB's official
+npc/CodeBuddy configuration. GLM usage is billed separately in AI Credits;
+DeepSeek's current promotional zero billing does not imply free GLM usage.
+
+New upstream decision Issues ask the upstream DeepSeek role and GLM to review
+the same fixed upstream range independently. Approved clean merge candidates
+also request DeepSeek and GLM review of the exact candidate base/head in the
+existing Issue, including the draft PR link. No APK is built by either reviewer.
+
+Reports must identify commit range, evidence, blockers, disagreements and
+unverified behavior. Reviewers first inspect code themselves, then compare
+reports. They must not summon each other or loop through repeated reviews.
+Human-triggered follow-ups should name a new commit range when code changes.
+The pair is advisory: model output does not replace owner OK or deterministic
+tests, and this addition does not add an automatic model-based merge gate.
+Conflicts remain for human resolution. Existing main protections still apply.
+
+For other CNB PRs, mention 审查助手 and GLM复核助手 in the same comment with
+base/head and review scope, leaving work mode disabled. This requests two
+independent reports without granting code-write access.
+
+GLM-5.3-Flash is the default independent reviewer, including image support.
+Full GLM-5.3 may be considered for complex changes or unresolved disagreements;
+it is not automatically invoked as a third reviewer.

@@ -63,18 +63,52 @@ $:
       docker:
         image: cnbcool/default-npc:latest
       stages:
-        - type: npc:go
+        - name: DeepSeek primary review or development
+          if: '[ "$CNB_NPC_NAME" != "GLM复核助手" ]'
+          type: npc:go
           options:
             maxTurns: 60
+            model: deepseek-v4.1-flash
+            contextWindow: 1m
+            thinkingLevel: 'off'
+            supportImage: true
+        - name: GLM independent review
+          if: '[ "$CNB_NPC_NAME" = "GLM复核助手" ]'
+          type: npc:go
+          timeout: 10m
+          options:
+            model: glm-5.3-flash
+            contextWindow: 128k
+            maxTurns: 20
+            maxTokens: 4096
+            thinkingLevel: medium
+            supportImage: true
   pull_request.comment@npc:
     - name: Project NPC review
       runner: { cpus: 2 }
       docker:
         image: cnbcool/default-npc:latest
       stages:
-        - type: npc:go
+        - name: DeepSeek primary review or development
+          if: '[ "$CNB_NPC_NAME" != "GLM复核助手" ]'
+          type: npc:go
           options:
             maxTurns: 60
+            model: deepseek-v4.1-flash
+            contextWindow: 1m
+            thinkingLevel: 'off'
+            supportImage: true
+        - name: GLM independent review
+          if: '[ "$CNB_NPC_NAME" = "GLM复核助手" ]'
+          type: npc:go
+          timeout: 10m
+          options:
+            model: glm-5.3-flash
+            contextWindow: 128k
+            maxTurns: 20
+            maxTokens: 4096
+            thinkingLevel: medium
+            supportImage: true
   vscode:
     - name: FlClash cloud development
       runner: { cpus: 4 }

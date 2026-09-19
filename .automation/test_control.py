@@ -42,6 +42,23 @@ class AuthorizationTests(unittest.TestCase):
         self.assertIsNone(control.version('v0.8.99-pre.1'))
         self.assertGreater(control.version('v0.8.100'), control.version('v0.8.99'))
 
+    def test_pair_review_pins_one_range_and_only_read_only_roles(self):
+        text = control.paired_review('a' * 40, 'b' * 40)
+        self.assertIn('a' * 40, text)
+        self.assertIn('b' * 40, text)
+        self.assertEqual(text.count('@507space/FlClash-alpha('), 2)
+        self.assertIn('(审查助手)', text)
+        self.assertIn('(GLM复核助手)', text)
+        self.assertNotIn('(开发助手)', text)
+        with self.assertRaises(ValueError):
+            control.paired_review('a' * 40, 'b' * 40, '开发助手')
+
+    def test_glm_review_cannot_approve_an_upgrade(self):
+        self.assertFalse(control.approved({
+            'author': {'username': '507space/FlClash-alpha(GLM复核助手)', 'is_npc': True},
+            'body': 'OK',
+        }, 'v0.8.98'))
+
 
 class RecoveryTests(unittest.TestCase):
     def test_test_failure_never_fails_over_even_with_artifact(self):
