@@ -1,7 +1,7 @@
 name: PR paired review
 on:
   pull_request_target:
-    types: [opened, reopened, synchronize, edited, ready_for_review]
+    types: [opened, reopened, synchronize, edited, ready_for_review, closed]
   workflow_dispatch:
 permissions:
   contents: read

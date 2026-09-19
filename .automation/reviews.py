@@ -105,6 +105,7 @@ def ensure_request(request, title):
             '从 PR 公开 API 核对源仓库和提交，先独立审查实际 diff，再比较已有报告。'
             '只读；不运行 PR 中的代码、不安装依赖、不编译、不修改代码、不合并或发版，不召唤其他 NPC。'
             '提交不匹配、无法读取或审核未完成时不得通过。报告须给出文件证据、阻断问题及未验证项。'
+            '另一份报告在本 CNB Issue 中；不要 sleep、等待或轮询它，尚未发布时注明未对照并直接提交独立结论。'
             '不要将已有自动化能处理的版本递增或仅推测的问题判为已证实阻断。\n\n'
             '报告末尾必须单独一行输出以下机器结论（不要放入代码块）：\n'
             f'FLCLASH_REVIEW {sample}\n'
@@ -121,6 +122,7 @@ def ensure_request(request, title):
 
 
 def reconcile():
+    close_finished_reviews()
     github_results = {}
     for platform in ('github', 'cnb'):
         for pull in pages(f'{endpoint(platform)}/pulls?state=open', size_key='per_page' if platform == 'github' else 'page_size'):
@@ -139,6 +141,24 @@ def reconcile():
         if not current or current['state'] != status or current.get('target_url') != url:
             api(f'{GH}/statuses/{head}', 'POST', {'state': status, 'context': CONTEXT,
                 'target_url': url, 'description': 'Both independent reviewers must pass this base/head'})
+
+
+def close_finished_reviews():
+    for item in pages(f'{CNB}/issues?state=open'):
+        issue = api(f'{CNB}/issues/{item["number"]}')
+        request = request_from(issue)
+        if not request:
+            continue
+        platform = request.get('platform')
+        number = request.get('number', '')
+        if platform not in ('github', 'cnb') or not str(number).isdigit():
+            continue
+        pull = api(f'{endpoint(platform)}/pulls/{number}')
+        if pull['state'] not in ('closed', 'merged'):
+            continue
+        merged = bool(pull.get('merged') or pull.get('is_merged') or pull['state'] == 'merged')
+        api(f'{CNB}/issues/{issue["number"]}', 'PATCH', {
+            'state': 'closed', 'state_reason': 'completed' if merged else 'not_planned'})
 
 
 def require_candidate(head, base):
