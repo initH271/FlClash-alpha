@@ -1,4 +1,5 @@
 import time
+import os
 from control import CNB, api, all_issues, pages, comment, parse_request, git
 from fallback import remaining_hours
 
@@ -15,7 +16,7 @@ for issue in all_issues():
         comment(issue['number'], '自动化连接已配置：每 6 小时发现正式上游版本，每 15 分钟处理批准。'
                 '如决定跟进，请在本 Issue 回复单独的 OK；当前仍未批准升级。\n\n' + marker)
     break
-started = api(f'{CNB}/build/start', 'POST', {'branch': 'main', 'sha': git('rev-parse', 'HEAD'), 'event': 'api_trigger',
+started = api(f'{CNB}/build/start', 'POST', {'branch': os.getenv('GITHUB_REF_NAME', 'main'), 'sha': git('rev-parse', 'HEAD'), 'event': 'api_trigger',
               'sync': 'false', 'title': 'Verify automatic release mirror connection'})
 for attempt in range(40):
     status = api(f'{CNB}/build/status/{started["sn"]}')['status']

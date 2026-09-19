@@ -7,7 +7,7 @@ import time
 import urllib.parse
 import urllib.request
 
-from control import CNB, POLICY, ROOT, api, git
+from control import CNB, POLICY, ROOT, api, git, sync_branch
 
 
 class SafeRedirect(urllib.request.HTTPRedirectHandler):
@@ -68,7 +68,9 @@ def consume():
     if remaining_hours() < POLICY['fallback_min_core_hours']:
         raise ValueError('Insufficient free CNB quota for bounded fallback')
     sha = git('rev-parse', 'HEAD')
-    started = api(f'{CNB}/build/start', 'POST', {'sha': sha, 'branch': 'main',
+    branch = 'automation/build-' + sha
+    sync_branch(branch)
+    started = api(f'{CNB}/build/start', 'POST', {'sha': sha, 'branch': branch,
         'event': 'api_trigger_fallback', 'sync': 'false',
         'env': {'EXPECTED_SOURCE_SHA': sha}, 'title': f'Fallback Android {sha[:12]}'})
     sn = started['sn']
