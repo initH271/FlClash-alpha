@@ -21,7 +21,8 @@ branches before release publication. The CNB cloud development environment is
 preserved. Local CNB builds require KEYSTORE_BASE64; random benchmark signing
 keys are no longer generated.
 
-On Android, startup/manual update checks query both latest-release APIs in
+On Android, startup/manual update checks fetch both public latest-release
+update.json attachments in
 parallel. The build number is compared with the installed Android build number.
 Only personal com.follow.clash.dev ARM64 releases with valid metadata qualify.
 The download endpoint is checked with HEAD. Among reachable updates, the newest

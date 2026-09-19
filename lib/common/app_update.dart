@@ -6,13 +6,15 @@ const updateApkName = 'FlClash-alpha-arm64-v8a.apk';
 const updateSources = [
   UpdateSource(
     name: 'GitHub',
-    api: 'https://api.github.com/repos/initH271/FlClash-alpha/releases/latest',
+    api:
+        'https://github.com/initH271/FlClash-alpha/releases/latest/download/update.json',
     download: 'https://github.com/initH271/FlClash-alpha/releases/download',
   ),
   UpdateSource(
     name: 'CNB',
-    api: 'https://api.cnb.cool/507space/FlClash-alpha/-/releases/latest',
-    download: 'https://api.cnb.cool/507space/FlClash-alpha/-/releases/download',
+    api:
+        'https://cnb.cool/507space/FlClash-alpha/-/releases/latest/download/update.json',
+    download: 'https://cnb.cool/507space/FlClash-alpha/-/releases/download',
   ),
 ];
 
@@ -44,15 +46,20 @@ class AppUpdateChecker {
 
   factory AppUpdateChecker.network(Dio dio) => AppUpdateChecker(
     load: (source) async {
-      final response = await dio.get<Map<String, dynamic>>(
+      final response = await dio.get<String>(
         source.api,
         options: Options(
-          responseType: ResponseType.json,
+          responseType: ResponseType.plain,
           sendTimeout: const Duration(seconds: 5),
           receiveTimeout: const Duration(seconds: 5),
         ),
       );
-      return response.data!;
+      final metadata = jsonDecode(response.data!) as Map<String, dynamic>;
+      return {
+        'tag_name': metadata['tag'],
+        'body':
+            '${metadata['notes'] ?? ''}\n<!-- flclash-update ${jsonEncode(metadata)} -->',
+      };
     },
     probe: (url) async {
       await dio.head<void>(

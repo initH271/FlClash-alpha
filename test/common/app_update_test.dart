@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:dio/dio.dart';
 import 'package:fl_clash/common/app_update.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -11,6 +12,31 @@ Map<String, dynamic> release(int build) => {
 };
 
 void main() {
+  test(
+    'public update manifests and both APK endpoints work without credentials',
+    () async {
+      final dio = Dio(BaseOptions(connectTimeout: const Duration(seconds: 5)));
+      try {
+        for (final source in updateSources) {
+          final response = await dio.get<String>(
+            source.api,
+            options: Options(responseType: ResponseType.plain),
+          );
+          final metadata = jsonDecode(response.data!) as Map<String, dynamic>;
+          expect(metadata['applicationId'], 'com.follow.clash.dev');
+          final url = '${source.download}/${metadata['tag']}/$updateApkName';
+          expect((await dio.head<void>(url)).statusCode, 200);
+        }
+        final result = await AppUpdateChecker.network(dio).check(0);
+        expect(result, isNotNull);
+        expect(result?['source'], anyOf('CNB', 'GitHub'));
+      } finally {
+        dio.close(force: true);
+      }
+    },
+    skip: !const bool.fromEnvironment('RUN_UPDATE_NETWORK_TESTS'),
+  );
+
   test('selects faster reachable mirror of the same version', () async {
     final checker = AppUpdateChecker(
       load: (source) async {
@@ -50,7 +76,7 @@ void main() {
     final checker = AppUpdateChecker(
       load: (_) async => release(20),
       probe: (url) async {
-        if (url.contains('api.cnb.cool')) throw StateError('missing APK');
+        if (url.contains('cnb.cool')) throw StateError('missing APK');
       },
     );
     expect((await checker.check(19))?['source'], 'GitHub');
