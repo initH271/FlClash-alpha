@@ -43,15 +43,15 @@ check() (
 build() (
   set -e
   mkdir -p "$HOME/.android"
-  if [ ! -f "$HOME/.android/debug.keystore" ]; then
-    keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android \
-      -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
-      -dname 'CN=CNB Benchmark,O=Personal Development,C=CN'
-  fi
-  flutter build apk --release --target-platform android-arm64 --build-number 2026094000
+  test -n "${KEYSTORE_BASE64:-}"
+  printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
+  chmod 600 "$HOME/.android/debug.keystore"
+  local build_number
+  build_number=$(python3 -c "import json; print(json.load(open('.github/release.json'))['build'])")
+  flutter build apk --release --target-platform android-arm64 --build-number "$build_number"
   bash .github/scripts/sign-apk.sh build/app/outputs/flutter-apk/app-release.apk
-  cp build/app/outputs/flutter-apk/app-release.apk dist/FlClash-arm64-cnb-benchmark.apk
-  (cd dist && sha256sum FlClash-arm64-cnb-benchmark.apk > SHA256SUMS.txt)
+  cp build/app/outputs/flutter-apk/app-release.apk dist/FlClash-alpha-arm64-v8a.apk
+  python3 .github/scripts/prepare-release.py
 )
 case "${1:-all}" in
   prepare) measure prepare prepare ;;

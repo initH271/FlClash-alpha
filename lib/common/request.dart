@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/app_update.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/state.dart';
@@ -70,23 +71,14 @@ class Request {
   }
 
   Future<Map<String, dynamic>?> checkForUpdate() async {
-    try {
-      final response = await dio.get(
-        'https://api.github.com/repos/$repository/releases/latest',
-        options: Options(responseType: ResponseType.json),
-      );
-      if (response.statusCode != 200) return null;
-      final data = response.data as Map<String, dynamic>;
-      final remoteVersion = data['tag_name'];
-      final version = globalState.packageInfo.version;
-      final hasUpdate =
-          compareVersions(remoteVersion.replaceAll('v', ''), version) > 0;
-      if (!hasUpdate) return null;
-      return data;
-    } catch (e) {
-      commonPrint.log('checkForUpdate failed', logLevel: LogLevel.warning);
-      return null;
+    if (!Platform.isAndroid) return null;
+    final build = int.tryParse(globalState.packageInfo.buildNumber);
+    if (build == null) return null;
+    final result = await AppUpdateChecker.network(dio).check(build);
+    if (result != null) {
+      commonPrint.log('Update ${result['tag_name']} via ${result['source']}');
     }
+    return result;
   }
 
   final Map<String, IpInfo Function(Map<String, dynamic>)> _ipInfoSources = {

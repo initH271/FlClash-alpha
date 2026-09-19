@@ -1,52 +1,26 @@
-.android: &android
-  name: Android ARM64 build and benchmark
-  runner:
-    cpus: 8
+.mirror: &mirror
+  name: Mirror signed GitHub release to CNB
+  runner: { cpus: 1 }
   docker:
-    build: .cnb/Dockerfile
-    volumes:
-      - /root/.pub-cache:copy-on-write
-      - /root/.gradle:copy-on-write
-      - /root/go:copy-on-write
-      - /root/.cache/go-build:copy-on-write
+    image: python:3.12-slim
+  lock:
+    key: flclash-release-mirror
+    wait: true
+    cancel-in-wait: true
   stages:
-    - name: Dependencies and toolchain
-      script: bash .cnb/run.sh prepare
-      timeout: 20m
-    - name: Analyze and focused tests
-      script: bash .cnb/run.sh check
-      timeout: 20m
-    - name: Build and verify APK
-      script: bash .cnb/run.sh build
-      timeout: 45m
-    - name: Save APK and timing report
-      image: cnbcool/attachments:latest
-      settings:
-        attachments:
-          - dist/*
-        ttl: 14
+    - name: Verify and publish identical APK
+      script: python3 .cnb/mirror-release.py
+      timeout: 10m
 main:
   push:
-    - *android
+    - *mirror
+  "crontab: */15 * * * *":
+    - *mirror
 $:
   api_trigger:
-    - *android
+    - *mirror
   web_trigger:
-    - *android
-  pull_request:
-    - name: Analyze and test PR
-      runner: { cpus: 4 }
-      docker:
-        build: .cnb/Dockerfile
-        volumes:
-          - /root/.pub-cache:copy-on-write
-          - /root/go:copy-on-write
-          - /root/.cache/go-build:copy-on-write
-      stages:
-        - script: bash .cnb/run.sh prepare
-          timeout: 20m
-        - script: bash .cnb/run.sh check
-          timeout: 20m
+    - *mirror
   vscode:
     - name: FlClash cloud development
       runner: { cpus: 4 }

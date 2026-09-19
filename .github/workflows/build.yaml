@@ -4,7 +4,7 @@ on:
     branches: [main]
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 concurrency:
   group: android-${{ github.ref }}
   cancel-in-progress: true
@@ -67,26 +67,35 @@ jobs:
         run: flutter pub get
       - name: Analyze and test log export
         run: |
+          python3 .cnb/test_mirror_release.py
           flutter analyze --no-fatal-infos
           cp pubspec.yaml /tmp/flclash-pubspec.yaml
           trap 'cp /tmp/flclash-pubspec.yaml pubspec.yaml' EXIT
           sed -i 's/build_assets: true/build_assets: false/g' pubspec.yaml
-          flutter test test/common/log_history_test.dart test/core/protocol_contract_test.dart test/views/logs_view_test.dart --reporter expanded
+          flutter test test/common/app_update_test.dart test/common/log_history_test.dart test/core/protocol_contract_test.dart test/views/logs_view_test.dart --reporter expanded
       - name: Build ARM64 APK
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
-        run: flutter build apk --release --target-platform android-arm64 --build-number "$((2026093003 + GITHUB_RUN_NUMBER))"
+        run: |
+          build=$(python3 -c "import json; print(json.load(open('.github/release.json'))['build'])")
+          flutter build apk --release --target-platform android-arm64 --build-number "$build"
       - name: Sign and verify personal certificate
         run: bash .github/scripts/sign-apk.sh build/app/outputs/flutter-apk/app-release.apk
       - name: Prepare artifact
         run: |
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk dist/FlClash-arm64-log-history.apk
-          cd dist
-          sha256sum FlClash-arm64-log-history.apk > SHA256SUMS.txt
+          cp build/app/outputs/flutter-apk/app-release.apk dist/FlClash-alpha-arm64-v8a.apk
+          python3 .github/scripts/prepare-release.py
       - uses: actions/upload-artifact@v4
         with:
           name: FlClash-arm64-log-history
           path: dist/
           retention-days: 14
           if-no-files-found: error
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(python3 -c "import json; print(json.load(open('dist/update.json'))['tag'])")
+          gh release create "$tag" dist/FlClash-alpha-arm64-v8a.apk dist/SHA256SUMS.txt dist/update.json --target "$GITHUB_SHA" --title "FlClash-alpha $tag" --notes-file dist/release-notes.md --draft
+          gh release edit "$tag" --draft=false --latest

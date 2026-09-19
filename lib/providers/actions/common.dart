@@ -128,18 +128,14 @@ class CommonAction extends _$CommonAction {
         title: currentAppLocalizations.discoverNewVersion,
         message: _releaseSpan(
           context,
-          data['tag_name'] as String,
+          '${data['tag_name']} · ${data['source']}',
           data['body'] as String?,
         ),
         confirmText: currentAppLocalizations.goDownload,
         cancelText: isUser ? null : currentAppLocalizations.noLongerRemind,
       );
       if (res == true) {
-        unawaited(
-          launchUrl(
-            Uri.parse('https://github.com/$repository/releases/latest'),
-          ),
-        );
+        unawaited(launchUrl(Uri.parse(data['download_url'] as String)));
       } else if (!isUser && res == false) {
         ref
             .read(appSettingProvider.notifier)
