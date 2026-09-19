@@ -20,6 +20,7 @@ permissions:
   contents: write
   actions: read
   statuses: write
+  pull-requests: read
 concurrency:
   group: android-${{ inputs.source_ref || github.sha }}
   cancel-in-progress: false
@@ -160,6 +161,7 @@ jobs:
       - name: Publish GitHub release
         if: steps.plan.outputs.active == 'true'
         run: |
+          python3 .automation/control.py validate
           tag=$(python3 -c "import json; print(json.load(open('dist/update.json'))['tag'])")
           if gh release view "$tag" >/dev/null 2>&1; then
             test "$(gh release view "$tag" --json isDraft --jq .isDraft)" = true

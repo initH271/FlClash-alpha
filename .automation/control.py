@@ -174,7 +174,7 @@ def source_tree():
         pathlib.Path(path).unlink(missing_ok=True)
 
 
-def validate_source():
+def validate_source(check_reviews=True):
     head = git('rev-parse', 'HEAD')
     main = api(f'{GH}/git/ref/heads/main')['object']['sha']
     if head == main:
@@ -188,6 +188,9 @@ def validate_source():
         raise ValueError('Upgrade approval was withdrawn or changed')
     if not any(approved(c, request['tag']) for c in pages(f'{CNB}/issues/{candidate["issue"]}/comments')):
         raise ValueError('Owner approval is missing')
+    if check_reviews:
+        from reviews import require_candidate
+        require_candidate(head, main)
     return candidate
 
 
@@ -231,17 +234,22 @@ def resume_candidate(sha, branch, number):
     if verify(envelope)['issue'] != str(number):
         return
     try:
-        validate_source()
-    except ValueError:
-        message = '候选分支已修改、main 已前进或批准已撤回，自动构建暂停，请在 PR 中重新审查。'
-        if not any(c['body'] == message for c in pages(f'{CNB}/issues/{number}/comments')):
-            comment(number, message)
+        validate_source(check_reviews=False)
+    except ValueError as error:
+        print(f'Candidate authorization invalid: {error}')
         return
     sync_branch(branch)
     pulls = api(f'{GH}/pulls?state=open&head={POLICY["github"].split("/")[0]}:{branch}')
     if not pulls:
         api(f'{GH}/pulls', 'POST', {'head': branch, 'base': 'main', 'draft': True,
             'title': f'Resume approved {branch}', 'body': f'Approved in CNB Issue #{number}.'})
+    from reviews import reconcile
+    reconcile()
+    try:
+        validate_source()
+    except ValueError as error:
+        print(f'Candidate waiting: {error}')
+        return
     dispatch(sha)
 
 
@@ -291,9 +299,9 @@ def prepare_candidate(request, number, branch):
     pr = api(f'{GH}/pulls', 'POST', {'head': branch, 'base': 'main', 'draft': True,
              'title': f'Follow approved upstream {request["tag"]}',
              'body': f'Approved in CNB Issue #{number}. Preserve personal logging and update features; tests gate publication.'})
-    comment(number, f'已按本次 OK 批准准备升级分支：{pr["html_url"]}。正在运行测试并构建；全部通过后自动发布。\n\n'
-            + paired_review(base, git('rev-parse', 'HEAD')))
-    dispatch(git('rev-parse', 'HEAD'))
+    comment(number, f'已按本次 OK 批准准备升级分支：{pr["html_url"]}。等待 PR 双模型审核通过后，再测试、构建并发布。')
+    from reviews import reconcile
+    reconcile()
 
 
 def sync_branch(branch):

@@ -14,8 +14,9 @@ fixed version. NPC comments, other users, quoted/longer messages, and modified
 signed records cannot approve. Closing the Issue withdraws pending approval.
 
 A clean merge creates an upgrade branch and draft PR. The candidate source tree
-is signed, then tested and compiled once. All Flutter tests run for candidates.
-Publication rechecks the source tree, owner approval and unchanged main. Only then
+is signed, then waits for both independent PR reviews before testing and compiling once.
+All Flutter tests run for candidates.
+Publication rechecks the source tree, owner approval, unchanged main and PR reviews. Only then
 is main fast-forwarded, synchronized to CNB, and the fixed-key APK released.
 Conflicts and upstream changes to automation/CI require a draft PR and human
 review; the development NPC works on a branch. Failed tests stop publication and
@@ -23,10 +24,10 @@ create an Issue for the review NPC. No phone installation is automated.
 
 ## NPC roles and permissions
 
-`.cnb/settings.yml` defines 上游更新助手, 开发助手, 审查助手. Platform-default
-CodeBuddy model selection preserves CNB's currently advertised free model offer;
-no custom paid model endpoint is configured. NPC tasks use 2 CPUs and at most 60
-turns. Main is protected on CNB: ordinary developers/NPCs cannot push directly;
+`.cnb/settings.yml` defines 上游更新助手, 开发助手, 审查助手 and GLM复核助手.
+DeepSeek roles explicitly use deepseek-v4.1-flash; the independent reviewer uses
+glm-5.3-flash. NPC tasks use 2 CPUs, with 60 turns for DeepSeek and 20 for GLM.
+Main is protected on CNB: ordinary developers/NPCs cannot push directly;
 PRs require administrator approval and passing checks. The owner account's scoped
 automation token may synchronize main. Personal signing stays on GitHub.
 
@@ -63,7 +64,7 @@ GitHub Actions Secrets:
 - ANDROID_DEBUG_KEYSTORE: existing personal signing key.
 - UPSTREAM_APPROVAL_KEY: authorization-record integrity key; generated once.
 - CNB_AUTOMATION_TOKEN: scoped to 507space/FlClash-alpha, with code/Issue/comment
-  read/write, build trigger/history and Release read permissions. Quota inspection
+  read/write, PR read/comment write, build trigger/history and Release read permissions. Quota inspection
   additionally needs group-resource:r. It is never committed or printed.
 
 Notifications are CNB Issues assigned to Aharon and their comments, with an
@@ -72,7 +73,7 @@ Webhook or external messaging account has been configured. Approval is entered
 on the relevant CNB Issue. Expired/insufficient tokens fail the workflow visibly.
 
 Manual controls live in GitHub Actions:
-- upstream.yaml: watch / approvals / scheduler / all.
+- upstream.yaml: watch / approvals / scheduler / reviews / all.
 - build.yaml: source_ref (exact approved SHA), reuse_run or cnb_fallback.
 
 Validation: `python -m unittest discover -s .automation -p 'test_*.py'` plus the
@@ -106,21 +107,38 @@ npc/CodeBuddy configuration. GLM usage is billed separately in AI Credits;
 DeepSeek's current promotional zero billing does not imply free GLM usage.
 
 New upstream decision Issues ask the upstream DeepSeek role and GLM to review
-the same fixed upstream range independently. Approved clean merge candidates
-also request DeepSeek and GLM review of the exact candidate base/head in the
-existing Issue, including the draft PR link. No APK is built by either reviewer.
+the same fixed upstream range independently. Every open GitHub or CNB PR receives
+a separate signed review Issue for its platform, PR number and exact base/head.
+The PR receives a link to the two reports. No APK is built by either reviewer.
 
 Reports must identify commit range, evidence, blockers, disagreements and
 unverified behavior. Reviewers first inspect code themselves, then compare
 reports. They must not summon each other or loop through repeated reviews.
 Human-triggered follow-ups should name a new commit range when code changes.
-The pair is advisory: model output does not replace owner OK or deterministic
-tests, and this addition does not add an automatic model-based merge gate.
-Conflicts remain for human resolution. Existing main protections still apply.
+Upstream decision reports remain advisory. PR reports are required gates, in
+addition to owner OK and deterministic tests. Only reports authored by each exact
+NPC identity, with the matching request digest and a machine-readable pass with
+zero blockers, can pass. Missing, malformed or blocking reports cannot pass.
+Closing a review Issue blocks that scope rather than silently requesting it again.
+Conflicts remain for human resolution.
 
-For other CNB PRs, mention 审查助手 and GLM复核助手 in the same comment with
-base/head and review scope, leaving work mode disabled. This requests two
-independent reports without granting code-write access.
+GitHub PR opened/reopened/synchronize/edited events trigger a trusted-main
+controller. The 15-minute controller also discovers CNB PRs, bot-created GitHub
+PRs and base changes, and refreshes results without rerunning existing requests.
+New base/head means a new review; old passes cannot authorize candidate promotion.
+GitHub main requires the FlClash/paired-review status and an up-to-date branch.
+CNB pull_request.target runs the target branch's gate, waiting up to 30 minutes
+for both reports. Its existing required-status-check protection blocks merging.
+After a timeout or a corrected blocking report, rerun the CNB PR gate. No automatic
+repair loop or review retry is enabled. The one-CPU waiting runner can consume up
+to 0.5 core-hours per CNB PR event; GitHub result polling uses the existing schedule.
+
+Candidate construction no longer dispatches a release build immediately. The
+controller resumes it only after both reports pass, and promotion checks the
+reports again. GitHub PR status writes and reviews run without checking out or
+executing PR code. CNB gates accept requests only from the configured owner; the
+GitHub controller additionally verifies their HMAC. Owner/admin credentials remain
+trusted, as they already control repository settings and release automation.
 
 GLM-5.3-Flash is the default independent reviewer, including image support.
 Full GLM-5.3 may be considered for complex changes or unresolved disagreements;

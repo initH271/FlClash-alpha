@@ -17,6 +17,15 @@ main:
   "crontab: */15 * * * *":
     - *mirror
 $:
+  pull_request.target:
+    - name: Paired review gate
+      runner: { cpus: 1 }
+      docker:
+        image: python:3.12-slim
+      stages:
+        - name: Require both independent reviews for current PR
+          script: python3 .automation/reviews.py cnb-gate
+          timeout: 32m
   api_trigger:
     - *mirror
   web_trigger:

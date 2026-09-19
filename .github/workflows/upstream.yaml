@@ -7,13 +7,14 @@ on:
     inputs:
       operation:
         type: choice
-        options: [all, watch, approvals, scheduler, preflight]
+        options: [all, watch, approvals, scheduler, reviews, preflight]
         default: all
 permissions:
   contents: write
   actions: write
   pull-requests: write
   checks: read
+  statuses: write
 concurrency:
   group: flclash-upstream-controller
   cancel-in-progress: false
@@ -41,6 +42,9 @@ jobs:
       - name: Notify new stable upstream release
         if: github.event.schedule == '17 */6 * * *' || inputs.operation == 'all' || inputs.operation == 'watch'
         run: python3 .automation/control.py watch
+      - name: Reconcile PR review gates
+        if: inputs.operation != 'preflight'
+        run: python3 .automation/reviews.py reconcile
       - name: Process owner approvals
         if: github.event.schedule == '*/15 * * * *' || inputs.operation == 'all' || inputs.operation == 'approvals'
         run: python3 .automation/control.py approvals

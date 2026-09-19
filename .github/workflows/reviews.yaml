@@ -1,0 +1,26 @@
+name: PR paired review
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, edited, ready_for_review]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pull-requests: write
+  statuses: write
+concurrency:
+  group: flclash-upstream-controller
+  cancel-in-progress: false
+jobs:
+  review:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CNB_AUTOMATION_TOKEN: ${{ secrets.CNB_AUTOMATION_TOKEN }}
+      UPSTREAM_APPROVAL_KEY: ${{ secrets.UPSTREAM_APPROVAL_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - run: python3 .automation/reviews.py reconcile
