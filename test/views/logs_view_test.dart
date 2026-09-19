@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:fl_clash/core/controller.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
@@ -5,8 +8,11 @@ import 'package:fl_clash/views/views.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
 
 import '../helpers/test_app.dart';
+
+class _HistoryCore extends Mock implements CoreController {}
 
 void main() {
   const logCount = 200;
@@ -18,13 +24,17 @@ void main() {
     (i) => Log(payload: 'log $i', dateTime: '2024-01-01 12:00:$i'),
   );
 
-  Future<void> pumpLogsView(WidgetTester tester) async {
+  Future<void> pumpLogsView(WidgetTester tester, {CoreController? core}) async {
     tester.view.physicalSize = const Size(1400, 1000);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    container = ProviderContainer();
+    container = ProviderContainer(
+      overrides: [
+        if (core != null) coreHandlerProvider.overrideWithValue(core),
+      ],
+    );
     addTearDown(container.dispose);
     globalState.container = container;
 
@@ -45,6 +55,29 @@ void main() {
   const hintKey = ValueKey('scrollbarHintPill');
 
   Finder hintFinder() => find.byKey(hintKey);
+
+  testWidgets(
+    'single complete export prevents duplicate taps and recovers on failure',
+    (tester) async {
+      final core = _HistoryCore();
+      final pending = Completer<String>();
+      when(() => core.exportLogHistory()).thenAnswer((_) => pending.future);
+      await pumpLogsView(tester, core: core);
+      final history = find.widgetWithIcon(IconButton, Icons.save_as_outlined);
+      expect(
+        find.widgetWithIcon(IconButton, Icons.folder_zip_outlined),
+        findsNothing,
+      );
+      await tester.tap(history);
+      await tester.pump();
+      expect(tester.widget<IconButton>(history).onPressed, isNull);
+      verify(() => core.exportLogHistory()).called(1);
+      pending.completeError(StateError('storage full'));
+      await tester.pumpAndSettle();
+      expect(tester.widget<IconButton>(history).onPressed, isNotNull);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('dragging the list floats the time hint next to the scrollbar', (
     tester,

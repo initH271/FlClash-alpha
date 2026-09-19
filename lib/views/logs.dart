@@ -51,6 +51,7 @@ class LogsView extends ConsumerStatefulWidget {
 class _LogsViewState extends ConsumerState<LogsView> {
   final _listController = LogListController();
   late final ScrollController _scrollController;
+  bool _exportingHistory = false;
 
   @override
   void initState() {
@@ -66,9 +67,7 @@ class _LogsViewState extends ConsumerState<LogsView> {
     return [
       IconButton(
         tooltip: context.appLocalizations.exportLogs,
-        onPressed: () {
-          _handleExport();
-        },
+        onPressed: _exportingHistory ? null : _handleExportHistory,
         icon: const Icon(Icons.save_as_outlined),
       ),
     ];
@@ -81,18 +80,25 @@ class _LogsViewState extends ConsumerState<LogsView> {
     super.dispose();
   }
 
-  Future<void> _handleExport() async {
-    final appLocalizations = context.appLocalizations;
-    final res = await globalState.safeRun<bool>(() async {
-      return ref.read(logsProvider.notifier).exportLogs();
-    }, title: appLocalizations.exportLogs);
-    if (res != true) return;
-    unawaited(
-      dialogs.showMessage(
-        title: appLocalizations.tip,
-        message: TextSpan(text: appLocalizations.exportSuccess),
-      ),
-    );
+  Future<void> _handleExportHistory() async {
+    if (_exportingHistory) return;
+    setState(() => _exportingHistory = true);
+    final l = context.appLocalizations;
+    try {
+      final result = await globalState.safeRun<bool>(() async {
+        return ref.read(logsProvider.notifier).exportLogs();
+      }, title: l.exportLogs);
+      if (result == true && mounted) {
+        unawaited(
+          dialogs.showMessage(
+            title: l.tip,
+            message: TextSpan(text: l.exportSuccess),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _exportingHistory = false);
+    }
   }
 
   void updateLogsThrottler() {

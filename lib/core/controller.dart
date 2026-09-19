@@ -234,6 +234,8 @@ class CoreController {
     _interface.stopLog();
   }
 
+  Future<String> exportLogHistory() => _interface.exportLogHistory();
+
   Future<void> requestGc() async {
     await _interface.forceGc();
   }

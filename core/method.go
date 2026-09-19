@@ -252,6 +252,16 @@ var methodHandlers = map[CoreMethod]methodHandler{
 		handleStartLog()
 		response.success(true)
 	}),
+	exportLogHistoryMethod: withoutArguments(func(response MethodResponse) {
+		safeGo(response, func() {
+			path, err := handleExportLogHistory()
+			if err != nil {
+				response.failure("log_history_export_failed", err.Error(), nil)
+				return
+			}
+			response.success(path)
+		})
+	}),
 	stopLogMethod: withoutArguments(func(response MethodResponse) {
 		handleStopLog()
 		response.success(true)

@@ -265,7 +265,7 @@
   "noHotKey": "Горячих клавиш пока нет",
   "noNetwork": "Нет сети",
   "ipv6InboundDesc": "Разрешить входящий IPv6",
-  "exportLogs": "Экспорт логов",
+  "exportLogs": "Экспортировать все журналы",
   "exportSuccess": "Экспорт выполнен",
   "iconStyle": "Стиль значков",
   "onlyIcon": "Только значок",

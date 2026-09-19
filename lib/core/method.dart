@@ -27,6 +27,7 @@ enum CoreMethod {
   updateExternalProvider,
   sideLoadExternalProvider,
   startLog,
+  exportLogHistory,
   stopLog,
   startListener,
   stopListener,

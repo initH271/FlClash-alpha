@@ -265,7 +265,7 @@
   "noHotKey": "暂无快捷键",
   "noNetwork": "无网络",
   "ipv6InboundDesc": "允许IPv6入站",
-  "exportLogs": "导出日志",
+  "exportLogs": "导出全部日志",
   "exportSuccess": "导出成功",
   "iconStyle": "图标样式",
   "onlyIcon": "仅图标",

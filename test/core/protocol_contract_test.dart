@@ -78,6 +78,7 @@ class _RecordingCoreHandler extends CoreHandlerInterface {
         'rule': ['MATCH,DIRECT'],
       },
       CoreMethod.getMemory => 2048,
+      CoreMethod.exportLogHistory => '/home/log-history-export.zip',
       _ => '',
     };
     return result as T;
@@ -220,6 +221,8 @@ void main() {
       'rule': ['MATCH,DIRECT'],
     });
     expect(await handler.getMemory(), 2048);
+    expect(await handler.exportLogHistory(), '/home/log-history-export.zip');
+    expect(handler.calls[CoreMethod.exportLogHistory], isNull);
   });
 
   test('getConfig preserves structured core errors', () async {

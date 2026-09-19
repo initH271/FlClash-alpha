@@ -5,6 +5,8 @@ import 'package:fl_clash/providers/app.dart';
 import 'package:fl_clash/state.dart';
 import 'package:material_ui/material_ui.dart';
 
+import 'log_history.dart';
+
 String compactError(Object error) {
   if (error is DioException) {
     final statusCode = error.response?.statusCode;
@@ -27,6 +29,7 @@ class CommonPrint {
 
   void log(String? text, {LogLevel logLevel = LogLevel.info}) {
     final payload = '[APP] $text';
+    appLogHistory.add(logLevel.name, payload);
     debugPrint(payload);
     if (!globalState.isAttach) {
       return;

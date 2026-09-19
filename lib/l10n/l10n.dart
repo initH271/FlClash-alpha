@@ -2055,9 +2055,14 @@ class AppLocalizations {
     );
   }
 
-  /// `Export logs`
+  /// `Export all logs`
   String get exportLogs {
-    return Intl.message('Export logs', name: 'exportLogs', desc: '', args: []);
+    return Intl.message(
+      'Export all logs',
+      name: 'exportLogs',
+      desc: '',
+      args: [],
+    );
   }
 
   /// `Export successful`

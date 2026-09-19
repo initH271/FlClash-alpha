@@ -355,7 +355,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "expectedStatus": MessageLookupByLibrary.simpleMessage("期待するステータス"),
     "expireTime": MessageLookupByLibrary.simpleMessage("有効期限"),
     "exportFile": MessageLookupByLibrary.simpleMessage("ファイルをエクスポート"),
-    "exportLogs": MessageLookupByLibrary.simpleMessage("ログをエクスポート"),
+    "exportLogs": MessageLookupByLibrary.simpleMessage("すべてのログをエクスポート"),
     "exportSuccess": MessageLookupByLibrary.simpleMessage("エクスポートが完了しました"),
     "expressiveScheme": MessageLookupByLibrary.simpleMessage("エクスプレッシブ"),
     "externalController": MessageLookupByLibrary.simpleMessage("外部コントローラー"),

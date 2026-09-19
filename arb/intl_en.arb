@@ -265,7 +265,7 @@
   "noHotKey": "No hotkeys yet",
   "noNetwork": "No network",
   "ipv6InboundDesc": "Allow IPv6 inbound",
-  "exportLogs": "Export logs",
+  "exportLogs": "Export all logs",
   "exportSuccess": "Export successful",
   "iconStyle": "Icon style",
   "onlyIcon": "Icon only",

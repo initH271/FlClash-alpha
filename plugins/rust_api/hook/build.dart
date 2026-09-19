@@ -23,12 +23,20 @@ Map<String, String> _bindgenEnvironment(BuildInput input) {
       input.config.code.targetOS != OS.android) {
     return const {};
   }
+  final overridePath = Platform.environment['LIBCLANG_PATH'];
+  if (overridePath != null) {
+    final directory = Directory(overridePath);
+    if (directory.existsSync() && directory.listSync().any(_isLibclang)) {
+      return {'LIBCLANG_PATH': directory.path};
+    }
+    throw StateError('LIBCLANG_PATH does not contain libclang: $overridePath');
+  }
   final compiler = input.config.code.cCompiler?.compiler;
   if (compiler == null) {
     return const {};
   }
   final llvmRoot = File.fromUri(compiler).parent.parent;
-  for (final name in const ['lib', 'lib64']) {
+  for (final name in const ['lib', 'lib64', 'bin']) {
     final directory = Directory(
       '${llvmRoot.path}${Platform.pathSeparator}$name',
     );
@@ -37,7 +45,7 @@ Map<String, String> _bindgenEnvironment(BuildInput input) {
     }
   }
   throw StateError(
-    'No libclang under ${llvmRoot.path} (lib or lib64); the NDK Flutter '
+    'No libclang under ${llvmRoot.path} (lib, lib64, or bin); the NDK Flutter '
     'passed cannot run bindgen for rquickjs',
   );
 }

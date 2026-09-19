@@ -4,6 +4,7 @@ import 'dart:ui' show Locale;
 
 import 'package:dio/dio.dart';
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/log_history.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/core.dart';
@@ -38,13 +39,17 @@ class Logs extends _$Logs with AutoDisposeNotifierMixin {
   }
 
   Future<bool> exportLogs() async {
-    final logString = await encodeLogsTask(value.list);
-    final tempFilePath = await appPath.tempFilePath;
-    final file = File(tempFilePath);
-    await file.safeWriteAsString(logString);
-    bool res = false;
-    res = await picker.saveFileWithPath(logFileName, tempFilePath) != null;
-    return res;
+    final path = await ref.read(coreHandlerProvider).exportLogHistory();
+    String? archive;
+    try {
+      final recent = await encodeLogsTask(value.list);
+      archive = await appLogHistory.exportAll(path, recent);
+      final name = 'FlClash_logs_${DateTime.now().millisecondsSinceEpoch}.zip';
+      return await picker.saveFileWithPath(name, archive) != null;
+    } finally {
+      await File(path).safeDelete();
+      if (archive != null) await File(archive).safeDelete();
+    }
   }
 }
 

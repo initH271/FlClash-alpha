@@ -140,7 +140,10 @@ void main() {
       expect(request.target, Target.androidArm64);
       expect(
         request.androidToolchain!.clangFor(Target.androidArm64),
-        p.join(bin, 'aarch64-linux-android23-clang'),
+        p.join(
+          bin,
+          'aarch64-linux-android23-clang${Platform.isWindows ? '.cmd' : ''}',
+        ),
       );
     });
 

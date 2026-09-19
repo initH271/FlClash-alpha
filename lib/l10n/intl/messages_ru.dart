@@ -449,7 +449,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "expectedStatus": MessageLookupByLibrary.simpleMessage("Ожидаемый статус"),
     "expireTime": MessageLookupByLibrary.simpleMessage("Срок действия"),
     "exportFile": MessageLookupByLibrary.simpleMessage("Экспорт файла"),
-    "exportLogs": MessageLookupByLibrary.simpleMessage("Экспорт логов"),
+    "exportLogs": MessageLookupByLibrary.simpleMessage(
+      "Экспортировать все журналы",
+    ),
     "exportSuccess": MessageLookupByLibrary.simpleMessage("Экспорт выполнен"),
     "expressiveScheme": MessageLookupByLibrary.simpleMessage("Экспрессивная"),
     "externalController": MessageLookupByLibrary.simpleMessage(
@@ -565,9 +567,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "inputRuleContent": MessageLookupByLibrary.simpleMessage(
       "Введите содержимое правила",
     ),
-    "installedAppsPermissionDeniedMessage": MessageLookupByLibrary.simpleMessage(
-      "Разрешение на список приложений отклонено, поэтому установленные приложения недоступны. Предоставьте его вручную в системных настройках.",
-    ),
+    "installedAppsPermissionDeniedMessage":
+        MessageLookupByLibrary.simpleMessage(
+          "Разрешение на список приложений отклонено, поэтому установленные приложения недоступны. Предоставьте его вручную в системных настройках.",
+        ),
     "installedAppsPermissionDesc": MessageLookupByLibrary.simpleMessage(
       "Эта система не выдаёт список установленных приложений без разрешения. Предоставьте его, чтобы настроить прокси для отдельных приложений.",
     ),

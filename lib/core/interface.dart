@@ -62,6 +62,8 @@ mixin CoreInterface {
 
   FutureOr<void> startLog();
 
+  Future<String> exportLogHistory();
+
   FutureOr<void> stopLog();
 
   Future<bool> crash();
@@ -329,6 +331,14 @@ abstract class CoreHandlerInterface with CoreInterface {
   @override
   FutureOr<void> stopLog() {
     _invokeMethod<bool>(method: CoreMethod.stopLog);
+  }
+
+  @override
+  Future<String> exportLogHistory() {
+    return _invokeMessage(
+      method: CoreMethod.exportLogHistory,
+      timeout: const Duration(seconds: 75),
+    );
   }
 
   @override
