@@ -393,6 +393,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "inputCorrectHotkey": MessageLookupByLibrary.simpleMessage("请输入正确的快捷键"),
     "inputProxyGroupName": MessageLookupByLibrary.simpleMessage("输入策略组名称"),
     "inputRuleContent": MessageLookupByLibrary.simpleMessage("输入规则内容"),
+    "installUpdate": MessageLookupByLibrary.simpleMessage("安装更新"),
     "installedAppsPermissionDeniedMessage":
         MessageLookupByLibrary.simpleMessage(
           "读取应用列表权限已被拒绝，无法获取已安装的应用。请前往系统设置手动开启。",
@@ -532,6 +533,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "palette": MessageLookupByLibrary.simpleMessage("调色板"),
     "password": MessageLookupByLibrary.simpleMessage("密码"),
     "paste": MessageLookupByLibrary.simpleMessage("粘贴"),
+    "personalForkDescription": MessageLookupByLibrary.simpleMessage(
+      "FlClash-alpha 由 Aharon（initH271）维护，基于 chen08209/FlClash，增强了滚动日志记录和双渠道更新。",
+    ),
     "pickFromAlbum": MessageLookupByLibrary.simpleMessage("从相册选择"),
     "pinWindow": MessageLookupByLibrary.simpleMessage("窗口置顶"),
     "pleaseBindWebDAV": MessageLookupByLibrary.simpleMessage("请绑定WebDAV"),
@@ -837,7 +841,21 @@ class MessageLookup extends MessageLookupByLibrary {
     "unnamed": MessageLookupByLibrary.simpleMessage("未命名"),
     "unpinWindow": MessageLookupByLibrary.simpleMessage("取消置顶"),
     "update": MessageLookupByLibrary.simpleMessage("更新"),
+    "updateDownloadFailed": MessageLookupByLibrary.simpleMessage(
+      "更新下载、校验或打开安装界面失败，请重试。",
+    ),
+    "updateDownloading": MessageLookupByLibrary.simpleMessage("正在下载安装包…"),
+    "updateInstallPermission": MessageLookupByLibrary.simpleMessage(
+      "请在系统设置中允许本应用安装更新，然后返回此页面。",
+    ),
+    "updateInstallerOpened": MessageLookupByLibrary.simpleMessage(
+      "已打开系统安装界面，请在系统界面确认安装。",
+    ),
+    "updateReady": MessageLookupByLibrary.simpleMessage("下载和校验已完成，点击“安装更新”继续。"),
+    "updateRetry": MessageLookupByLibrary.simpleMessage("重试"),
+    "updateVerifying": MessageLookupByLibrary.simpleMessage("正在校验安装包…"),
     "upload": MessageLookupByLibrary.simpleMessage("上传"),
+    "upstreamProject": MessageLookupByLibrary.simpleMessage("上游项目"),
     "url": MessageLookupByLibrary.simpleMessage("URL"),
     "urlDesc": MessageLookupByLibrary.simpleMessage("通过URL获取配置文件"),
     "urlTip": m29,

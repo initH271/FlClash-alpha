@@ -617,5 +617,15 @@
   "authorize": "Authorize",
   "installedAppsPermissionRequired": "App list permission required",
   "installedAppsPermissionDesc": "This system hides the installed app list until the permission is granted. Authorize it to configure the per-app proxy.",
-  "installedAppsPermissionDeniedMessage": "The app list permission was denied, so installed apps cannot be listed. Please grant it manually in system settings."
+  "installedAppsPermissionDeniedMessage": "The app list permission was denied, so installed apps cannot be listed. Please grant it manually in system settings.",
+  "upstreamProject": "Upstream project",
+  "personalForkDescription": "FlClash-alpha is maintained by Aharon (initH271), based on chen08209/FlClash. Includes rolling log history and dual-channel updates.",
+  "updateDownloading": "Downloading update…",
+  "updateVerifying": "Verifying the installation package…",
+  "updateReady": "Download verified. Tap Install update to continue.",
+  "installUpdate": "Install update",
+  "updateInstallPermission": "Allow this app to install updates in system settings, then return here.",
+  "updateInstallerOpened": "The system installer is open. Confirm installation there.",
+  "updateDownloadFailed": "The update could not be downloaded, verified, or opened. Please retry.",
+  "updateRetry": "Retry"
 }

@@ -617,5 +617,15 @@
   "authorize": "授权",
   "installedAppsPermissionRequired": "需要读取应用列表权限",
   "installedAppsPermissionDesc": "当前系统在授权前不会提供已安装的应用列表，授权后即可配置分应用代理。",
-  "installedAppsPermissionDeniedMessage": "读取应用列表权限已被拒绝，无法获取已安装的应用。请前往系统设置手动开启。"
+  "installedAppsPermissionDeniedMessage": "读取应用列表权限已被拒绝，无法获取已安装的应用。请前往系统设置手动开启。",
+  "upstreamProject": "上游项目",
+  "personalForkDescription": "FlClash-alpha 由 Aharon（initH271）维护，基于 chen08209/FlClash，增强了滚动日志记录和双渠道更新。",
+  "updateDownloading": "正在下载安装包…",
+  "updateVerifying": "正在校验安装包…",
+  "updateReady": "下载和校验已完成，点击“安装更新”继续。",
+  "installUpdate": "安装更新",
+  "updateInstallPermission": "请在系统设置中允许本应用安装更新，然后返回此页面。",
+  "updateInstallerOpened": "已打开系统安装界面，请在系统界面确认安装。",
+  "updateDownloadFailed": "更新下载、校验或打开安装界面失败，请重试。",
+  "updateRetry": "重试"
 }

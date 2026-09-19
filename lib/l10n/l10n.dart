@@ -5119,6 +5119,101 @@ class AppLocalizations {
       args: [],
     );
   }
+
+  /// `Upstream project`
+  String get upstreamProject {
+    return Intl.message(
+      'Upstream project',
+      name: 'upstreamProject',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `FlClash-alpha is maintained by Aharon (initH271), based on chen08209/FlClash. Includes rolling log history and dual-channel updates.`
+  String get personalForkDescription {
+    return Intl.message(
+      'FlClash-alpha is maintained by Aharon (initH271), based on chen08209/FlClash. Includes rolling log history and dual-channel updates.',
+      name: 'personalForkDescription',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Downloading update…`
+  String get updateDownloading {
+    return Intl.message(
+      'Downloading update…',
+      name: 'updateDownloading',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Verifying the installation package…`
+  String get updateVerifying {
+    return Intl.message(
+      'Verifying the installation package…',
+      name: 'updateVerifying',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Download verified. Tap Install update to continue.`
+  String get updateReady {
+    return Intl.message(
+      'Download verified. Tap Install update to continue.',
+      name: 'updateReady',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Install update`
+  String get installUpdate {
+    return Intl.message(
+      'Install update',
+      name: 'installUpdate',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Allow this app to install updates in system settings, then return here.`
+  String get updateInstallPermission {
+    return Intl.message(
+      'Allow this app to install updates in system settings, then return here.',
+      name: 'updateInstallPermission',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The system installer is open. Confirm installation there.`
+  String get updateInstallerOpened {
+    return Intl.message(
+      'The system installer is open. Confirm installation there.',
+      name: 'updateInstallerOpened',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The update could not be downloaded, verified, or opened. Please retry.`
+  String get updateDownloadFailed {
+    return Intl.message(
+      'The update could not be downloaded, verified, or opened. Please retry.',
+      name: 'updateDownloadFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Retry`
+  String get updateRetry {
+    return Intl.message('Retry', name: 'updateRetry', desc: '', args: []);
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<AppLocalizations> {

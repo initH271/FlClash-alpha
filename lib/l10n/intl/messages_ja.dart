@@ -451,6 +451,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "プロキシグループ名を入力してください",
     ),
     "inputRuleContent": MessageLookupByLibrary.simpleMessage("ルールの内容を入力してください"),
+    "installUpdate": MessageLookupByLibrary.simpleMessage("更新をインストール"),
     "installedAppsPermissionDeniedMessage":
         MessageLookupByLibrary.simpleMessage(
           "アプリ一覧の権限が拒否されたため、インストール済みアプリを取得できません。システム設定から手動で許可してください。",
@@ -616,6 +617,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "palette": MessageLookupByLibrary.simpleMessage("パレット"),
     "password": MessageLookupByLibrary.simpleMessage("パスワード"),
     "paste": MessageLookupByLibrary.simpleMessage("貼り付け"),
+    "personalForkDescription": MessageLookupByLibrary.simpleMessage(
+      "FlClash-alpha は Aharon（initH271）が保守する chen08209/FlClash の派生版です。ログの継続保存と2つの配信元からの更新に対応します。",
+    ),
     "pickFromAlbum": MessageLookupByLibrary.simpleMessage("アルバムから選択"),
     "pinWindow": MessageLookupByLibrary.simpleMessage("最前面に固定"),
     "pleaseBindWebDAV": MessageLookupByLibrary.simpleMessage("WebDAVを連携してください"),
@@ -969,7 +973,23 @@ class MessageLookup extends MessageLookupByLibrary {
     "unnamed": MessageLookupByLibrary.simpleMessage("名称未設定"),
     "unpinWindow": MessageLookupByLibrary.simpleMessage("固定を解除"),
     "update": MessageLookupByLibrary.simpleMessage("更新"),
+    "updateDownloadFailed": MessageLookupByLibrary.simpleMessage(
+      "更新のダウンロード、検証、またはインストール画面の表示に失敗しました。再試行してください。",
+    ),
+    "updateDownloading": MessageLookupByLibrary.simpleMessage("更新をダウンロード中…"),
+    "updateInstallPermission": MessageLookupByLibrary.simpleMessage(
+      "システム設定でこのアプリによる更新のインストールを許可し、この画面に戻ってください。",
+    ),
+    "updateInstallerOpened": MessageLookupByLibrary.simpleMessage(
+      "システムのインストール画面でインストールを確認してください。",
+    ),
+    "updateReady": MessageLookupByLibrary.simpleMessage(
+      "ダウンロードと検証が完了しました。「更新をインストール」を押してください。",
+    ),
+    "updateRetry": MessageLookupByLibrary.simpleMessage("再試行"),
+    "updateVerifying": MessageLookupByLibrary.simpleMessage("インストールパッケージを検証中…"),
     "upload": MessageLookupByLibrary.simpleMessage("アップロード"),
+    "upstreamProject": MessageLookupByLibrary.simpleMessage("元のプロジェクト"),
     "url": MessageLookupByLibrary.simpleMessage("URL"),
     "urlDesc": MessageLookupByLibrary.simpleMessage("URLからプロファイルを取得します"),
     "urlTip": m29,

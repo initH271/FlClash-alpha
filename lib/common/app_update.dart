@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 
 const updateApkName = 'FlClash-alpha-arm64-v8a.apk';
+const updateCertificate =
+    '4cc5094e24f4a4cfde3a37d6c839ae376bd74c50075d8ee6bc73e25682e9afad';
 const updateSources = [
   UpdateSource(
     name: 'GitHub',
@@ -83,7 +85,17 @@ class AppUpdateChecker {
             ? version
             : (a['latency'] as int).compareTo(b['latency'] as int);
       });
-    return available.firstOrNull;
+    if (available.isEmpty) return null;
+    final selected = available.first;
+    return {
+      ...selected,
+      'download_urls': [
+        for (final item in available)
+          if (item['build'] == selected['build'] &&
+              item['sha256'] == selected['sha256'])
+            item['download_url'],
+      ],
+    };
   }
 
   Future<Map<String, dynamic>?> _candidate(
@@ -106,7 +118,10 @@ class AppUpdateChecker {
       if (build is! int ||
           build <= installedBuild ||
           metadata['applicationId'] != 'com.follow.clash.dev' ||
-          metadata['apk'] != updateApkName) {
+          metadata['apk'] != updateApkName ||
+          metadata['certificateSha256'] != updateCertificate ||
+          metadata['sha256'] is! String ||
+          !RegExp(r'^[0-9a-f]{64}$').hasMatch(metadata['sha256'] as String)) {
         return null;
       }
       final tag = release['tag_name'];
@@ -121,6 +136,7 @@ class AppUpdateChecker {
         'source': source.name,
         'download_url': url,
         'latency': watch.elapsedMicroseconds,
+        'sha256': metadata['sha256'],
       };
     } catch (_) {
       return null;

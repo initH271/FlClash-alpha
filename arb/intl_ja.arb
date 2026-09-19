@@ -617,5 +617,15 @@
   "authorize": "許可",
   "installedAppsPermissionRequired": "アプリ一覧の権限が必要です",
   "installedAppsPermissionDesc": "このシステムでは、許可するまでインストール済みアプリの一覧が提供されません。許可すると、アプリごとのプロキシを設定できます。",
-  "installedAppsPermissionDeniedMessage": "アプリ一覧の権限が拒否されたため、インストール済みアプリを取得できません。システム設定から手動で許可してください。"
+  "installedAppsPermissionDeniedMessage": "アプリ一覧の権限が拒否されたため、インストール済みアプリを取得できません。システム設定から手動で許可してください。",
+  "upstreamProject": "元のプロジェクト",
+  "personalForkDescription": "FlClash-alpha は Aharon（initH271）が保守する chen08209/FlClash の派生版です。ログの継続保存と2つの配信元からの更新に対応します。",
+  "updateDownloading": "更新をダウンロード中…",
+  "updateVerifying": "インストールパッケージを検証中…",
+  "updateReady": "ダウンロードと検証が完了しました。「更新をインストール」を押してください。",
+  "installUpdate": "更新をインストール",
+  "updateInstallPermission": "システム設定でこのアプリによる更新のインストールを許可し、この画面に戻ってください。",
+  "updateInstallerOpened": "システムのインストール画面でインストールを確認してください。",
+  "updateDownloadFailed": "更新のダウンロード、検証、またはインストール画面の表示に失敗しました。再試行してください。",
+  "updateRetry": "再試行"
 }

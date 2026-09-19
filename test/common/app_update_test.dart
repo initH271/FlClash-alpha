@@ -5,11 +5,20 @@ import 'package:dio/dio.dart';
 import 'package:fl_clash/common/app_update.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-Map<String, dynamic> release(int build) => {
-  'tag_name': 'alpha-$build',
-  'body':
-      'Changes\n<!-- flclash-update ${jsonEncode({'build': build, 'applicationId': 'com.follow.clash.dev', 'apk': updateApkName})} -->',
-};
+Map<String, dynamic> release(int build) {
+  final metadata = {
+    'build': build,
+    'applicationId': 'com.follow.clash.dev',
+    'apk': updateApkName,
+    'certificateSha256': updateCertificate,
+    'sha256':
+        '0000000000000000000000000000000000000000000000000000000000000000',
+  };
+  return {
+    'tag_name': 'alpha-$build',
+    'body': 'Changes\n<!-- flclash-update ${jsonEncode(metadata)} -->',
+  };
+}
 
 void main() {
   test(

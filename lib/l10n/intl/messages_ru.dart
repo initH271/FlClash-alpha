@@ -567,6 +567,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "inputRuleContent": MessageLookupByLibrary.simpleMessage(
       "Введите содержимое правила",
     ),
+    "installUpdate": MessageLookupByLibrary.simpleMessage(
+      "Установить обновление",
+    ),
     "installedAppsPermissionDeniedMessage":
         MessageLookupByLibrary.simpleMessage(
           "Разрешение на список приложений отклонено, поэтому установленные приложения недоступны. Предоставьте его вручную в системных настройках.",
@@ -778,6 +781,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "palette": MessageLookupByLibrary.simpleMessage("Палитра"),
     "password": MessageLookupByLibrary.simpleMessage("Пароль"),
     "paste": MessageLookupByLibrary.simpleMessage("Вставить"),
+    "personalForkDescription": MessageLookupByLibrary.simpleMessage(
+      "FlClash-alpha поддерживается Aharon (initH271) и основан на chen08209/FlClash. Добавлены постоянные журналы и обновления из двух источников.",
+    ),
     "pickFromAlbum": MessageLookupByLibrary.simpleMessage("Выбрать из галереи"),
     "pinWindow": MessageLookupByLibrary.simpleMessage(
       "Закрепить поверх всех окон",
@@ -1219,7 +1225,27 @@ class MessageLookup extends MessageLookupByLibrary {
     "unnamed": MessageLookupByLibrary.simpleMessage("Без названия"),
     "unpinWindow": MessageLookupByLibrary.simpleMessage("Открепить окно"),
     "update": MessageLookupByLibrary.simpleMessage("Обновить"),
+    "updateDownloadFailed": MessageLookupByLibrary.simpleMessage(
+      "Не удалось загрузить, проверить обновление или открыть установщик. Повторите попытку.",
+    ),
+    "updateDownloading": MessageLookupByLibrary.simpleMessage(
+      "Загрузка обновления…",
+    ),
+    "updateInstallPermission": MessageLookupByLibrary.simpleMessage(
+      "Разрешите этому приложению установку обновлений в системных настройках и вернитесь сюда.",
+    ),
+    "updateInstallerOpened": MessageLookupByLibrary.simpleMessage(
+      "Открыт системный установщик. Подтвердите установку в нём.",
+    ),
+    "updateReady": MessageLookupByLibrary.simpleMessage(
+      "Загрузка и проверка завершены. Нажмите «Установить обновление».",
+    ),
+    "updateRetry": MessageLookupByLibrary.simpleMessage("Повторить"),
+    "updateVerifying": MessageLookupByLibrary.simpleMessage(
+      "Проверка установочного пакета…",
+    ),
     "upload": MessageLookupByLibrary.simpleMessage("Отдача"),
+    "upstreamProject": MessageLookupByLibrary.simpleMessage("Исходный проект"),
     "url": MessageLookupByLibrary.simpleMessage("URL"),
     "urlDesc": MessageLookupByLibrary.simpleMessage("Получить профиль по URL"),
     "urlTip": m29,

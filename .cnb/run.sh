@@ -41,7 +41,7 @@ check() (
   if [ -f .automation/candidate.json ]; then
     flutter test --reporter expanded
   else
-    flutter test test/common/app_update_test.dart test/common/log_history_test.dart test/core/protocol_contract_test.dart test/views/logs_view_test.dart --reporter expanded
+    flutter test test/common/app_update_test.dart test/common/update_download_test.dart test/widgets/app_update_dialog_test.dart test/views/about_view_test.dart test/common/log_history_test.dart test/core/protocol_contract_test.dart test/views/logs_view_test.dart --reporter expanded
   fi
 )
 build() (

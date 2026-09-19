@@ -551,6 +551,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "inputRuleContent": MessageLookupByLibrary.simpleMessage(
       "Enter the rule content",
     ),
+    "installUpdate": MessageLookupByLibrary.simpleMessage("Install update"),
     "installedAppsPermissionDeniedMessage":
         MessageLookupByLibrary.simpleMessage(
           "The app list permission was denied, so installed apps cannot be listed. Please grant it manually in system settings.",
@@ -750,6 +751,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "palette": MessageLookupByLibrary.simpleMessage("Palette"),
     "password": MessageLookupByLibrary.simpleMessage("Password"),
     "paste": MessageLookupByLibrary.simpleMessage("Paste"),
+    "personalForkDescription": MessageLookupByLibrary.simpleMessage(
+      "FlClash-alpha is maintained by Aharon (initH271), based on chen08209/FlClash. Includes rolling log history and dual-channel updates.",
+    ),
     "pickFromAlbum": MessageLookupByLibrary.simpleMessage("Choose from album"),
     "pinWindow": MessageLookupByLibrary.simpleMessage("Pin window"),
     "pleaseBindWebDAV": MessageLookupByLibrary.simpleMessage(
@@ -1163,7 +1167,27 @@ class MessageLookup extends MessageLookupByLibrary {
     "unnamed": MessageLookupByLibrary.simpleMessage("Unnamed"),
     "unpinWindow": MessageLookupByLibrary.simpleMessage("Unpin window"),
     "update": MessageLookupByLibrary.simpleMessage("Update"),
+    "updateDownloadFailed": MessageLookupByLibrary.simpleMessage(
+      "The update could not be downloaded, verified, or opened. Please retry.",
+    ),
+    "updateDownloading": MessageLookupByLibrary.simpleMessage(
+      "Downloading update…",
+    ),
+    "updateInstallPermission": MessageLookupByLibrary.simpleMessage(
+      "Allow this app to install updates in system settings, then return here.",
+    ),
+    "updateInstallerOpened": MessageLookupByLibrary.simpleMessage(
+      "The system installer is open. Confirm installation there.",
+    ),
+    "updateReady": MessageLookupByLibrary.simpleMessage(
+      "Download verified. Tap Install update to continue.",
+    ),
+    "updateRetry": MessageLookupByLibrary.simpleMessage("Retry"),
+    "updateVerifying": MessageLookupByLibrary.simpleMessage(
+      "Verifying the installation package…",
+    ),
     "upload": MessageLookupByLibrary.simpleMessage("Upload"),
+    "upstreamProject": MessageLookupByLibrary.simpleMessage("Upstream project"),
     "url": MessageLookupByLibrary.simpleMessage("URL"),
     "urlDesc": MessageLookupByLibrary.simpleMessage(
       "Obtain a profile from a URL",

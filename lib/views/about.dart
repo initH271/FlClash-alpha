@@ -12,15 +12,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 @immutable
 class Contributor {
-  final String avatar;
+  final String? avatar;
   final String name;
   final String link;
 
-  const Contributor({
-    required this.avatar,
-    required this.name,
-    required this.link,
-  });
+  const Contributor({this.avatar, required this.name, required this.link});
 }
 
 class AboutView extends ConsumerWidget {
@@ -55,10 +51,22 @@ class AboutView extends ConsumerWidget {
           trailing: const Icon(Icons.launch),
         ),
         ListItem(
-          title: Text(appLocalizations.project),
+          title: Text('${appLocalizations.project} · GitHub'),
           onTap: () {
             dialogs.openUrl('https://github.com/$repository');
           },
+          trailing: const Icon(Icons.launch),
+        ),
+        ListItem(
+          title: Text('${appLocalizations.project} · CNB'),
+          onTap: () =>
+              dialogs.openUrl('https://cnb.cool/507space/FlClash-alpha'),
+          trailing: const Icon(Icons.launch),
+        ),
+        ListItem(
+          title: Text(appLocalizations.upstreamProject),
+          subtitle: const Text('FlClash · chen08209'),
+          onTap: () => dialogs.openUrl('https://github.com/chen08209/FlClash'),
           trailing: const Icon(Icons.launch),
         ),
         ListItem(
@@ -76,6 +84,10 @@ class AboutView extends ConsumerWidget {
 
   List<Widget> _buildContributorsSection(AppLocalizations appLocalizations) {
     const contributors = [
+      Contributor(
+        name: 'Aharon (initH271)',
+        link: 'https://github.com/initH271',
+      ),
       Contributor(
         avatar: 'assets/images/avatar/june2.jpg',
         name: 'June2',
@@ -134,11 +146,11 @@ class AboutView extends ConsumerWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            appName,
+                            'FlClash-alpha',
                             style: Theme.of(context).textTheme.headlineSmall,
                           ),
                           Text(
-                            globalState.packageInfo.version,
+                            '${globalState.packageInfo.version} (${globalState.packageInfo.buildNumber})',
                             style: Theme.of(context).textTheme.labelLarge,
                           ),
                         ],
@@ -159,7 +171,7 @@ class AboutView extends ConsumerWidget {
             ),
             const SizedBox(height: 24),
             Text(
-              appLocalizations.desc,
+              appLocalizations.personalForkDescription,
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
@@ -187,13 +199,19 @@ class Avatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
+      onTap: () => dialogs.openUrl(contributor.link),
       child: Column(
         children: [
           SizedBox(
             width: 36,
             height: 36,
             child: CircleAvatar(
-              foregroundImage: AssetImage(contributor.avatar),
+              foregroundImage: contributor.avatar == null
+                  ? null
+                  : AssetImage(contributor.avatar!),
+              child: contributor.avatar == null
+                  ? Text(contributor.name[0])
+                  : null,
             ),
           ),
           const SizedBox(height: 4),

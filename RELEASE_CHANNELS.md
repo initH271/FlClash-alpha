@@ -29,11 +29,14 @@ The download endpoint is checked with HEAD. Among reachable updates, the newest
 build wins; equal builds are ordered by metadata plus APK HEAD response latency.
 Each metadata/probe operation has a six-second deadline. This measures response
 latency, not sustained download bandwidth. One broken channel does not block the
-other. Clicking Download opens the selected version-specific APK URL; Android
-still asks before installation. The dialog includes the selected channel.
+other. The Android update dialog downloads the selected version-specific APK inside the app,
+with progress, same-version cache reuse, and fallback to an identical mirror. SHA-256
+and native package/version/signing-certificate checks gate the Install update button.
+Android confirms installation; unknown-source authorization opens this app's settings
+and resumes after permission is granted. The dialog shows the active channel.
 
-Old installed builds still use the upstream updater. Install this release once
-manually to activate the dual-channel checker. Official FlClash packages and
+Older installed builds keep their existing updater. Install build 2026094004 once
+manually to activate the in-app download and installation flow. Official FlClash packages and
 signatures are incompatible with this personal .dev upgrade path.
 
 Verified release: alpha-0.8.97-2026094002 (2026-09-19). GitHub build
