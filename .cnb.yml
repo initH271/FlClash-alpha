@@ -12,6 +12,44 @@
       script: python3 .cnb/mirror-release.py
       timeout: 10m
 main:
+  pull_request:
+    - name: Dependency vulnerability gate
+      runner: { cpus: 1 }
+      stages:
+        - name: Block new high-risk dependency vulnerabilities
+          image: cnbcool/sca-vulnerability:latest
+          settings:
+            failOnSeverity: high
+    - name: Go dependency regression tests
+      runner: { cpus: 2 }
+      docker:
+        image: golang:1.26.4
+      stages:
+        - name: Verify core with resolved dependencies
+          script: |
+            git submodule update --init --recursive
+            cd core
+            CGO_ENABLED=0 go test . ./internal/logstore
+            CGO_ENABLED=0 go vet . ./internal/logstore
+          timeout: 15m
+        - name: Rescan actual versions and verify repaired dependency
+          script: |
+            apt-get update -qq
+            apt-get install -y --no-install-recommends python3
+            python3 .automation/security_scan.py . /tmp/security-pr-report.json --repair-branch "$CNB_PULL_REQUEST_BRANCH"
+          timeout: 10m
+    - name: Rust dependency regression tests
+      runner: { cpus: 2 }
+      docker:
+        image: rust:1.95-bookworm
+      stages:
+        - name: Verify desktop helper and Rust API
+          script: |
+            apt-get update -qq
+            apt-get install -y --no-install-recommends libx11-dev libxkbcommon-dev
+            cargo test --locked --manifest-path services/helper/Cargo.toml
+            cargo test --locked --manifest-path plugins/rust_api/rust/Cargo.toml
+          timeout: 20m
   push:
     - *mirror
   "crontab: */15 * * * *":
