@@ -1,8 +1,8 @@
 # FlClash-alpha
 
-**English** · [简体中文](README_zh_CN.md)
+**English** · [简体中文](translations/README_zh_CN.md)
 
-A personal FlClash fork maintained by **Aharon ([initH271 on GitHub](https://github.com/initH271), [Aharon on CNB](https://cnb.cool/u/Aharon))**, based on [chen08209/FlClash](https://github.com/chen08209/FlClash). It focuses on persistent diagnostic logs, app updates, and maintaining personal enhancements across upstream releases.
+A FlClash fork focused on persistent diagnostic logs, in-app updates, and dual-channel releases, based on [chen08209/FlClash](https://github.com/chen08209/FlClash).
 
 This is an independently maintained fork, not an official upstream distribution. Prebuilt packages currently target **Android ARM64**.
 

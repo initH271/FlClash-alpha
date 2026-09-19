@@ -1,8 +1,8 @@
 # FlClash-alpha
 
-[English](README.md) · **简体中文**
+[English](../README.md) · **简体中文**
 
-由 **Aharon（GitHub: [initH271](https://github.com/initH271)，CNB: [Aharon](https://cnb.cool/u/Aharon)）** 维护的 FlClash 个人增强版，基于 [chen08209/FlClash](https://github.com/chen08209/FlClash)。保留上游代理客户端能力，重点改进日志回顾、应用更新和个人维护流程。
+基于 [chen08209/FlClash](https://github.com/chen08209/FlClash) 的增强版，重点改进持久化日志、应用内更新和双渠道发布。
 
 这是独立维护的派生项目，并非上游官方发行版。目前本项目提供 **Android ARM64** 安装包。
 
@@ -35,11 +35,11 @@
 
 ## 维护与开发
 
-- [日志实现与保留策略](ROLLING_LOG_HISTORY.md)
-- [双渠道发布和更新机制](RELEASE_CHANNELS.md)
-- [上游批准、NPC 和构建调度](AUTOMATION.md)
-- [CNB 开发环境](CNB_DEVELOPMENT.md)
-- [构建与测试命令](.agents/commands.md)
+- [日志实现与保留策略](../ROLLING_LOG_HISTORY.md)
+- [双渠道发布和更新机制](../RELEASE_CHANNELS.md)
+- [上游批准、NPC 和构建调度](../AUTOMATION.md)
+- [CNB 开发环境](../CNB_DEVELOPMENT.md)
+- [构建与测试命令](../.agents/commands.md)
 
 正式包由 GitHub 优先构建和签名，CNB 同步同一份产物；故障恢复优先复用产物。签名私钥与自动化令牌不包含在源码中。
 
@@ -49,7 +49,7 @@
 
 原项目：[chen08209/FlClash](https://github.com/chen08209/FlClash)。感谢原作者、June2、Arue 及全部上游贡献者。本派生项目的日志、更新和维护流程增强由 Aharon（initH271）维护。
 
-本项目沿用 **GNU GPL v3（GPL-3.0）** 开源协议，完整条款见 [LICENSE](LICENSE)。使用、修改与分发时请遵守许可证要求，保留必要的版权及许可证声明。项目按许可证规定提供，不附带保证。
+本项目沿用 **GNU GPL v3（GPL-3.0）** 开源协议，完整条款见 [LICENSE](../LICENSE)。使用、修改与分发时请遵守许可证要求，保留必要的版权及许可证声明。项目按许可证规定提供，不附带保证。
 
 ## 使用声明
 
