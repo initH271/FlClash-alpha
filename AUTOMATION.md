@@ -84,3 +84,13 @@ v0.8.98, assigned it to Aharon, and left approval pending. The upstream NPC ran
 successfully using deepseek-v4.1-flash: 0 billed AI Credits, about 0.03 development
 core-hours. The `preflight` manual controller operation checks CNB release read,
 quota, Issue/comment access and mirror trigger/status permissions without building.
+
+Final integration verification: GitHub run 35455547751 passed the complete CNB
+preflight, including creating and deleting a temporary unpublished Release/tag
+through a delegated runner token. No extra token permissions were required.
+The earlier immediate mirror returned HTTP 403; the scheduled recovery published
+2026094003 successfully. Error reports now identify the host and sanitized reason.
+GitHub release run 35454382586 succeeded. Source/version/ARM64 runtime and personal
+certificate checks passed for the downloaded 2026094003 APK. Main-branch protection
+and actual upstream NPC replies were also verified. Heavy CNB fallback compilation
+was not deliberately exercised because that would duplicate a successful build.
