@@ -1,4 +1,4 @@
-# Rolling core log history
+# FlClash-alpha — Rolling core log history
 
 This personal build is based on FlClash v0.8.97. The live log view keeps its
 5,000-record limit; core history is independent of that view and its subscription.
@@ -75,7 +75,7 @@ when invoked directly. Device verification remains pending.
 
 ## GitHub Actions
 
-The private repository `initH271/FlClash-log-history` builds the Android ARM64 APK
+The private repository `initH271/FlClash-alpha` builds the Android ARM64 APK
 on pushes to `main` and manual workflow dispatches. The workflow pins the upstream
 Flutter 3.47.1, Go 1.26.4, NDK r28c, Java 17, and Rust 1.95.0 toolchains. It runs
 core tests, Go vet, Flutter analysis, and the focused log export tests before
