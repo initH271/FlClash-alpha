@@ -5130,10 +5130,10 @@ class AppLocalizations {
     );
   }
 
-  /// `FlClash-alpha is maintained by Aharon (initH271), based on chen08209/FlClash. Includes rolling log history and dual-channel updates.`
+  /// `FlClash-alpha is maintained by Aharon, based on chen08209/FlClash. Includes rolling log history and dual-channel updates.`
   String get personalForkDescription {
     return Intl.message(
-      'FlClash-alpha is maintained by Aharon (initH271), based on chen08209/FlClash. Includes rolling log history and dual-channel updates.',
+      'FlClash-alpha is maintained by Aharon, based on chen08209/FlClash. Includes rolling log history and dual-channel updates.',
       name: 'personalForkDescription',
       desc: '',
       args: [],

@@ -1,6 +1,6 @@
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/about.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
@@ -28,7 +28,14 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.text('Aharon (initH271)'), findsOneWidget);
+      expect(find.text('Aharon'), findsOneWidget);
+      expect(
+        tester
+            .widget<CircleAvatar>(find.byType(CircleAvatar).first)
+            .foregroundImage,
+        const AssetImage('assets/images/avatar/aharon.png'),
+      );
+      expect(find.textContaining('initH271'), findsNothing);
       expect(find.textContaining('· GitHub'), findsOneWidget);
       expect(find.textContaining('· CNB'), findsOneWidget);
       expect(find.text('FlClash · chen08209'), findsOneWidget);
@@ -38,3 +45,4 @@ void main() {
     },
   );
 }
+

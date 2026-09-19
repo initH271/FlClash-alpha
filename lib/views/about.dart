@@ -85,7 +85,8 @@ class AboutView extends ConsumerWidget {
   List<Widget> _buildContributorsSection(AppLocalizations appLocalizations) {
     const contributors = [
       Contributor(
-        name: 'Aharon (initH271)',
+        avatar: 'assets/images/avatar/aharon.png',
+        name: 'Aharon',
         link: 'https://github.com/initH271',
       ),
       Contributor(
@@ -209,9 +210,12 @@ class Avatar extends StatelessWidget {
               foregroundImage: contributor.avatar == null
                   ? null
                   : AssetImage(contributor.avatar!),
-              child: contributor.avatar == null
-                  ? Text(contributor.name[0])
-                  : null,
+              onForegroundImageError: contributor.avatar == null
+                  ? null
+                  : (_, _) => commonPrint.log(
+                      'Contributor avatar could not be loaded',
+                    ),
+              child: Text(contributor.name[0]),
             ),
           ),
           const SizedBox(height: 4),

@@ -782,7 +782,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "password": MessageLookupByLibrary.simpleMessage("Пароль"),
     "paste": MessageLookupByLibrary.simpleMessage("Вставить"),
     "personalForkDescription": MessageLookupByLibrary.simpleMessage(
-      "FlClash-alpha поддерживается Aharon (initH271) и основан на chen08209/FlClash. Добавлены постоянные журналы и обновления из двух источников.",
+      "FlClash-alpha поддерживается Aharon и основан на chen08209/FlClash. Добавлены постоянные журналы и обновления из двух источников.",
     ),
     "pickFromAlbum": MessageLookupByLibrary.simpleMessage("Выбрать из галереи"),
     "pinWindow": MessageLookupByLibrary.simpleMessage(
