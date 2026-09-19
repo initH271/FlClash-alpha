@@ -76,6 +76,8 @@ jobs:
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
         run: flutter build apk --release --target-platform android-arm64 --build-number "$((2026093003 + GITHUB_RUN_NUMBER))"
+      - name: Sign and verify personal certificate
+        run: bash .github/scripts/sign-apk.sh build/app/outputs/flutter-apk/app-release.apk
       - name: Prepare artifact
         run: |
           mkdir -p dist

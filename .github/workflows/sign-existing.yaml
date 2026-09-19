@@ -1,0 +1,47 @@
+name: Sign existing Android artifact
+on:
+  workflow_dispatch:
+    inputs:
+      source_run:
+        description: Successful build run ID to sign
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+jobs:
+  sign:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/download-artifact@v4
+        with:
+          name: FlClash-arm64-log-history
+          path: dist
+          run-id: ${{ inputs.source_run }}
+          github-token: ${{ github.token }}
+      - name: Restore personal signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE }}
+        run: |
+          test -n "$KEYSTORE_BASE64"
+          mkdir -p "$HOME/.android"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
+          chmod 600 "$HOME/.android/debug.keystore"
+      - name: Sign and verify APK
+        run: |
+          bash .github/scripts/sign-apk.sh dist/FlClash-arm64-log-history.apk
+          cd dist
+          sha256sum FlClash-arm64-log-history.apk > SHA256SUMS.txt
+          rm -f FlClash-arm64-log-history.apk.idsig
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FlClash-arm64-log-history
+          path: dist/
+          retention-days: 14
+          if-no-files-found: error
