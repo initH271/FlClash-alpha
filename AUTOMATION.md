@@ -13,6 +13,15 @@ Every 15 minutes the controller checks pending decisions. An exact standalone
 fixed version. NPC comments, other users, quoted/longer messages, and modified
 signed records cannot approve. Closing the Issue withdraws pending approval.
 
+CNB issue.comment also wakes the GitHub controller after an owner OK or a final
+report from a known reviewer. The bridge only dispatches upstream.yaml on main;
+GitHub independently rechecks signed approval and review records. Ordinary comments
+do not dispatch. The 15-minute schedule remains a fallback for delayed/lost events.
+The CNB KeyStore `507space/FlClash-alpha-secrets/github-dispatch.yml` must contain
+CNB_GITHUB_DISPATCH_TOKEN: a fine-grained GitHub token limited to this repository
+with Actions read/write. Follow `.cnb/github-dispatch.example.yml` for import
+restrictions. Never place the actual token in the public repository or NPC stages.
+
 A clean merge creates an upgrade branch and draft PR. The candidate source tree
 is signed, then waits for both independent PR reviews before testing and compiling once.
 All Flutter tests run for candidates.
@@ -113,6 +122,11 @@ Issue titles show the platform, PR number and PR title. Deduplication uses the
 signed record in the body, so renaming an Issue cannot invalidate its review or
 trigger duplicate reviewers. Existing titles follow subsequent PR title changes.
 The PR receives a link to the two reports. No APK is built by either reviewer.
+GitHub PR closed events run cleanup immediately. Every controller reconciliation
+also closes signed review Issues whose GitHub/CNB PR is merged or closed, including
+older review scopes. Reports remain available; unrelated/upstream Issues are not
+closed. CNB closure detection uses the scheduled fallback. Reopening a PR with the
+same commits requires reopening its review Issue; manual closures are not undone.
 
 Reports must identify commit range, evidence, blockers, disagreements and
 unverified behavior. Reviewers first inspect code themselves, then compare

@@ -1,0 +1,7 @@
+allow_slugs:
+  - 507space/FlClash-alpha
+allow_branches:
+  - main
+allow_events:
+  - issue.comment
+CNB_GITHUB_DISPATCH_TOKEN: REPLACE_IN_CNB_KEYSTORE_ONLY

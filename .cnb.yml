@@ -17,6 +17,16 @@ main:
   "crontab: */15 * * * *":
     - *mirror
 $:
+  issue.comment:
+    - name: Wake GitHub controller after approval or review
+      runner: { cpus: 1 }
+      docker:
+        image: python:3.12-slim
+      stages:
+        - name: Validate comment and request controller run
+          imports: https://cnb.cool/507space/FlClash-alpha-secrets/-/blob/main/github-dispatch.yml
+          script: python3 .automation/wake.py
+          timeout: 2m
   pull_request.target:
     - name: Paired review gate
       runner: { cpus: 1 }
