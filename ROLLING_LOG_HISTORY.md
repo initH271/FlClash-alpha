@@ -69,12 +69,23 @@ The Android ARM64 core also compiled successfully as a shared library with
 `with_gvisor`, using the host's Go 1.25.1 and NDK 27.1.12297006. This is a platform
 compile check, not a release build with the upstream pinned toolchains.
 
-No APK has been produced or installed on the phone. The initial Gradle download
-was corrupt; it was replaced with the official SHA-256-verified distribution.
-The APK retry failed compiling the unchanged `android/settings.gradle.kts`,
-reporting unresolved Kotlin DSL references including `run`, `file`, and `plugins`.
-Additional prerequisites were checked: this Windows host has no Cargo/Rust
-installation and only Android NDK
-27.1.12297006, while the checkout requests NDK 28.2.13676358 and Rust 1.95.0.
-The Rust bindgen hook also needs a host-loadable libclang in its searched NDK
-directories. Complete that environment before attempting device verification.
+The Windows toolchain prerequisites are now installed, but the local APK build
+still fails in the Rust native-assets hook. Android Rust cross-compilation passed
+when invoked directly. Device verification remains pending.
+
+## GitHub Actions
+
+The private repository `initH271/FlClash-log-history` builds the Android ARM64 APK
+on pushes to `main` and manual workflow dispatches. The workflow pins the upstream
+Flutter 3.47.1, Go 1.26.4, NDK r28c, Java 17, and Rust 1.95.0 toolchains. It runs
+core tests, Go vet, Flutter analysis, and the focused log export tests before
+building. The APK and SHA-256 checksum are retained as an Actions artifact for
+14 days. The original multi-platform workflow is preserved outside the active
+workflow directory at `.github/upstream-build.yaml`.
+
+The release build keeps the upstream `.dev` application ID behavior. A dedicated
+personal signing key is restored from the `ANDROID_DEBUG_KEYSTORE` repository
+secret, allowing subsequent CI builds to update the same custom application.
+The private key is not committed. Build numbers increase with the workflow run
+number. Backups retain the upstream format; restore and background logging must
+still be checked on the phone.
