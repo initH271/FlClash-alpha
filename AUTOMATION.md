@@ -99,7 +99,7 @@ was not deliberately exercised because that would duplicate a successful build.
 
 Existing roles explicitly use `deepseek-v4.1-flash`. The new `GLM复核助手`
 role routes to `glm-5.3-flash` for both Issue and PR mentions, with 128k context,
-20 turns, 4096 maximum output tokens per call and a ten-minute stage timeout.
+20 turns, the platform minimum 48k maxTokens setting and a ten-minute stage timeout.
 Only its GLM stage runs; other roles run only the DeepSeek stage. Both use
 2-CPU NPC runners. These model IDs were verified against CNB's official
 npc/CodeBuddy configuration. GLM usage is billed separately in AI Credits;

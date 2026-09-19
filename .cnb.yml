@@ -80,7 +80,7 @@ $:
             model: glm-5.3-flash
             contextWindow: 128k
             maxTurns: 20
-            maxTokens: 4096
+            maxTokens: 48k
             thinkingLevel: medium
             supportImage: true
   pull_request.comment@npc:
@@ -106,7 +106,7 @@ $:
             model: glm-5.3-flash
             contextWindow: 128k
             maxTurns: 20
-            maxTokens: 4096
+            maxTokens: 48k
             thinkingLevel: medium
             supportImage: true
   vscode:
