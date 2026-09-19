@@ -35,3 +35,13 @@ still asks before installation. The dialog includes the selected channel.
 Old installed builds still use the upstream updater. Install this release once
 manually to activate the dual-channel checker. Official FlClash packages and
 signatures are incompatible with this personal .dev upgrade path.
+
+Verified release: alpha-0.8.97-2026094002 (2026-09-19). GitHub build
+35451576550 and CNB mirror cnb-jkm-1k2t4m267 both succeeded. Anonymous manifest
+GET and APK HEAD requests passed against both public hosts using the app's Dio
+client. APK certificate and package ID were verified locally. The CNB OpenAPI
+host requires authentication even for this public repository, so the app uses
+cnb.cool public release attachments instead; CI alone uses api.cnb.cool.
+
+To run the optional live endpoint test after disabling native hooks for tests:
+`flutter test --dart-define=RUN_UPDATE_NETWORK_TESTS=true test/common/app_update_test.dart`
