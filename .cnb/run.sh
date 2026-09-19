@@ -21,16 +21,17 @@ prepare() {
   java -version
   flutter pub get
 }
-check() {
+check() (
+  set -e
   (cd core && CGO_ENABLED=0 go test . ./internal/logstore && CGO_ENABLED=0 go vet . ./internal/logstore)
   flutter analyze --no-fatal-infos
   local backup
   backup=$(mktemp)
   cp pubspec.yaml "$backup"
-  trap 'cp "$backup" pubspec.yaml; rm -f "$backup"' RETURN
+  trap 'cp "$backup" pubspec.yaml; rm -f "$backup"' EXIT
   sed -i 's/build_assets: true/build_assets: false/g' pubspec.yaml
   flutter test test/common/log_history_test.dart test/core/protocol_contract_test.dart test/views/logs_view_test.dart --reporter expanded
-}
+)
 build() {
   mkdir -p "$HOME/.android"
   if [ ! -f "$HOME/.android/debug.keystore" ]; then
