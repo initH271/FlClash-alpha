@@ -48,3 +48,12 @@ cnb.cool public release attachments instead; CI alone uses api.cnb.cool.
 
 To run the optional live endpoint test after disabling native hooks for tests:
 `flutter test --dart-define=RUN_UPDATE_NETWORK_TESTS=true test/common/app_update_test.dart`
+
+Build 2026094004 adds in-app Android download and installation. Local verification
+passed 34 focused tests, including live public endpoint access, cache reuse,
+corrupt-download fallback, cancellation cleanup, install-tap deduplication and
+permission-return behavior. GitHub run 35457609580 completed the Android build
+and publication. Both public channels served identical APK bytes. Package ID,
+version code, fixed certificate, REQUEST_INSTALL_PACKAGES and the private update
+FileProvider were verified in the APK. The real S24 installer interaction remains
+to be exercised after the one-time bootstrap installation of this version.
