@@ -13,14 +13,15 @@ measure() {
   printf '%s,%s,%s\n' "$name" "$((end-start))" "$code" | tee -a dist/timings.csv
   return "$code"
 }
-prepare() {
+prepare() (
+  set -e
   git submodule update --init --recursive
   flutter --version
   go version
   rustc --version
   java -version
   flutter pub get
-}
+)
 check() (
   set -e
   (cd core && CGO_ENABLED=0 go test . ./internal/logstore && CGO_ENABLED=0 go vet . ./internal/logstore)
@@ -32,7 +33,8 @@ check() (
   sed -i 's/build_assets: true/build_assets: false/g' pubspec.yaml
   flutter test test/common/log_history_test.dart test/core/protocol_contract_test.dart test/views/logs_view_test.dart --reporter expanded
 )
-build() {
+build() (
+  set -e
   mkdir -p "$HOME/.android"
   if [ ! -f "$HOME/.android/debug.keystore" ]; then
     keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android \
@@ -43,7 +45,7 @@ build() {
   bash .github/scripts/sign-apk.sh build/app/outputs/flutter-apk/app-release.apk
   cp build/app/outputs/flutter-apk/app-release.apk dist/FlClash-arm64-cnb-benchmark.apk
   (cd dist && sha256sum FlClash-arm64-cnb-benchmark.apk > SHA256SUMS.txt)
-}
+)
 case "${1:-all}" in
   prepare) measure prepare prepare ;;
   check) measure checks check ;;
