@@ -22,6 +22,17 @@ class ReviewGateTests(unittest.TestCase):
         self.assertEqual('pending', reviews.result(self.request, self.issue, reports[:1]))
         self.assertEqual('success', reviews.result(self.request, self.issue, reports))
 
+    def test_renaming_issue_preserves_signed_identity_and_avoids_duplicate_review(self):
+        with patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'}):
+            issue = {'number': '3', 'title': '人工修改过的标题',
+                     'author': {'username': reviews.POLICY['approver'], 'is_npc': False},
+                     'body': '<!-- flclash-pr-review ' + json.dumps(reviews.sign(self.request)) + ' -->'}
+            with patch.object(reviews, 'all_issues', return_value=[issue]), patch.object(reviews, 'api', return_value=issue) as api:
+                self.assertEqual(issue, reviews.ensure_request(self.request, '提高 GLM 审核轮次'))
+                self.assertEqual('PATCH', api.call_args.args[1])
+                self.assertEqual({'title': '[PR审核] GitHub #1：提高 GLM 审核轮次'}, api.call_args.args[2])
+                self.assertFalse(any(len(c.args) > 1 and c.args[1] == 'POST' for c in api.call_args_list))
+
     def test_fake_author_stale_range_and_closed_issue_never_pass(self):
         reports = [self.report(r) for r in reviews.ROLES]
         reports[0]['author']['is_npc'] = False

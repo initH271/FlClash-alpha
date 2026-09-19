@@ -69,8 +69,6 @@ def result(request, issue, comments):
 
 def find_request(request, signed=True):
     for issue in all_issues():
-        if issue.get('title') != f'[PR审核] {identity(request)}':
-            continue
         detail = api(f'{CNB}/issues/{issue["number"]}')
         if request_from(detail, signed) == request:
             return detail
@@ -84,9 +82,18 @@ def state(request, signed=True):
     return result(request, issue, list(pages(f'{CNB}/issues/{issue["number"]}/comments')))
 
 
-def ensure_request(request):
+def review_title(request, title):
+    platform = 'GitHub' if request['platform'] == 'github' else 'CNB'
+    description = ' '.join(title.split()).replace('@', '＠')[:100] or '审核代码变更'
+    return f'[PR审核] {platform} #{request["number"]}：{description}'
+
+
+def ensure_request(request, title):
     issue = find_request(request)
+    display_title = review_title(request, title)
     if issue:
+        if issue['title'] != display_title:
+            api(f'{CNB}/issues/{issue["number"]}', 'PATCH', {'title': display_title})
         return issue
     platform, number = request['platform'], request['number']
     url = (f'https://github.com/{POLICY["github"]}/pull/{number}' if platform == 'github'
@@ -104,7 +111,7 @@ def ensure_request(request):
             '只有完成审查且没有阻断问题才能使用 pass / blockers=0；'
             '否则使用 verdict=block，blockers 为正整数。request 原样保留。\n\n'
             + '\n\n'.join(f'@{POLICY["cnb"]}({r}) 请独立审核上述 PR。' for r in ROLES))
-    issue = api(f'{CNB}/issues', 'POST', {'title': f'[PR审核] {identity(request)}',
+    issue = api(f'{CNB}/issues', 'POST', {'title': display_title,
                 'body': body, 'work_mode': False, 'assignees': [POLICY['approver']]})
     comment_url = (f'{GH}/issues/{number}/comments' if platform == 'github'
                    else f'{CNB}/pulls/{number}/comments')
@@ -119,7 +126,7 @@ def reconcile():
         for pull in pages(f'{endpoint(platform)}/pulls?state=open', size_key='per_page' if platform == 'github' else 'page_size'):
             pull = api(f'{endpoint(platform)}/pulls/{pull["number"]}')
             request = scope(platform, pull)
-            issue = ensure_request(request)
+            issue = ensure_request(request, pull['title'])
             status = result(request, issue, list(pages(f'{CNB}/issues/{issue["number"]}/comments')))
             if platform == 'github':
                 url = f'https://cnb.cool/{POLICY["cnb"]}/-/issues/{issue["number"]}'
