@@ -1,0 +1,91 @@
+name: Dependency security
+on:
+  schedule:
+    - cron: '43 3 * * *'
+  workflow_dispatch:
+  pull_request:
+    types: [opened, reopened, synchronize]
+permissions:
+  contents: read
+concurrency:
+  group: security-${{ github.event.pull_request.number || 'main' }}
+  cancel-in-progress: true
+jobs:
+  scan:
+    name: Dependency vulnerability scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: tools
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          path: source
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+      - name: Check dependency scope
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ -z "$BASE_SHA" ] || git -C source diff --name-only "$BASE_SHA" HEAD -- ':(glob)**/go.mod' ':(glob)**/go.sum' ':(glob)**/Cargo.lock' ':(glob)**/Cargo.toml' .gitmodules core/Clash.Meta | grep -q .; then
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-go@v5
+        if: steps.scope.outputs.changed == 'true'
+        with:
+          go-version: '1.26.4'
+          cache-dependency-path: source/core/go.sum
+      - uses: actions/checkout@v4
+        if: steps.scope.outputs.changed == 'true' && github.event_name == 'pull_request'
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: baseline
+          submodules: recursive
+          persist-credentials: false
+      - name: Scan baseline dependencies
+        if: steps.scope.outputs.changed == 'true' && github.event_name == 'pull_request'
+        run: python3 tools/.automation/security_scan.py baseline baseline-security.json
+      - name: Scan current dependencies
+        if: steps.scope.outputs.changed == 'true'
+        env:
+          PR_EVENT: ${{ github.event_name == 'pull_request' }}
+        run: |
+          if [ "$PR_EVENT" = true ]; then
+            python3 tools/.automation/security_scan.py source security-report.json --baseline baseline-security.json
+          else
+            python3 tools/.automation/security_scan.py source security-report.json
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.scope.outputs.changed == 'true'
+        with:
+          name: dependency-security-report
+          path: '*security*.json'
+          if-no-files-found: error
+          retention-days: 14
+  track:
+    if: github.event_name != 'pull_request'
+    needs: scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    concurrency:
+      group: flclash-upstream-controller
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: dependency-security-report
+      - name: Track findings and request bounded repair PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CNB_AUTOMATION_TOKEN: ${{ secrets.CNB_AUTOMATION_TOKEN }}
+          UPSTREAM_APPROVAL_KEY: ${{ secrets.UPSTREAM_APPROVAL_KEY }}
+        run: python3 .automation/security_watch.py security-report.json
