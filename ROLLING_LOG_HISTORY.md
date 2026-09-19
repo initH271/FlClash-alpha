@@ -89,3 +89,19 @@ secret, allowing subsequent CI builds to update the same custom application.
 The private key is not committed. Build numbers increase with the workflow run
 number. Backups retain the upstream format; restore and background logging must
 still be checked on the phone.
+
+## Verified CI artifact (2026-09-19)
+
+Build run 35438550695 completed successfully, including the focused tests and
+release APK. Signing run 35439886063 re-signed that artifact with the dedicated
+personal key and verified its certificate. The build workflow now performs that
+explicit signing check before every upload. The signing-only workflow can also
+process an existing build without recompiling.
+
+The downloaded APK passed SHA-256 and Android signature verification. Its package
+is `com.follow.clash.dev`, version 0.8.97, version code 2026093006, and size
+61,636,426 bytes. App, Flutter, Go core, and Rust libraries target ARM64; some
+transitive Android dependencies also contain unused libraries for other ABIs.
+The signing certificate SHA-256 is
+`4cc5094e24f4a4cfde3a37d6c839ae376bd74c50075d8ee6bc73e25682e9afad`.
+The phone was disconnected at delivery, so no installation or device test was run.
