@@ -1,0 +1,6 @@
+workspace:
+  launch:
+    cpus: 4
+    button:
+      name: FlClash 云开发
+      description: Flutter、Go、Rust 与 Android SDK 开发环境

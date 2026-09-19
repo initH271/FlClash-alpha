@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+set -euo pipefail
+mkdir -p dist
+measure() {
+  local name="$1" start end code
+  shift
+  start=$(date +%s)
+  set +e
+  "$@"
+  code=$?
+  set -e
+  end=$(date +%s)
+  printf '%s,%s,%s\n' "$name" "$((end-start))" "$code" | tee -a dist/timings.csv
+  return "$code"
+}
+prepare() (
+  set -e
+  git submodule update --init --recursive
+  flutter --version
+  go version
+  rustc --version
+  java -version
+  flutter pub get
+)
+check() (
+  set -e
+  (
+    cd core
+    CGO_ENABLED=0 go test -c -o /tmp/flclash-core-tests .
+    install -d -o nobody -g nogroup /tmp/flclash-test-home
+    runuser -u nobody -- env HOME=/tmp/flclash-test-home /tmp/flclash-core-tests -test.timeout=10m
+    CGO_ENABLED=0 go test ./internal/logstore
+    CGO_ENABLED=0 go vet . ./internal/logstore
+  )
+  flutter analyze --no-fatal-infos
+  local backup
+  backup=$(mktemp)
+  cp pubspec.yaml "$backup"
+  trap 'cp "$backup" pubspec.yaml; rm -f "$backup"' EXIT
+  sed -i 's/build_assets: true/build_assets: false/g' pubspec.yaml
+  flutter test test/common/log_history_test.dart test/core/protocol_contract_test.dart test/views/logs_view_test.dart --reporter expanded
+)
+build() (
+  set -e
+  mkdir -p "$HOME/.android"
+  if [ ! -f "$HOME/.android/debug.keystore" ]; then
+    keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android \
+      -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+      -dname 'CN=CNB Benchmark,O=Personal Development,C=CN'
+  fi
+  flutter build apk --release --target-platform android-arm64 --build-number 2026094000
+  bash .github/scripts/sign-apk.sh build/app/outputs/flutter-apk/app-release.apk
+  cp build/app/outputs/flutter-apk/app-release.apk dist/FlClash-arm64-cnb-benchmark.apk
+  (cd dist && sha256sum FlClash-arm64-cnb-benchmark.apk > SHA256SUMS.txt)
+)
+case "${1:-all}" in
+  prepare) measure prepare prepare ;;
+  check) measure checks check ;;
+  build) measure apk build ;;
+  all) measure prepare prepare; measure checks check; measure apk build ;;
+  *) echo 'Usage: run.sh prepare|check|build|all' >&2; exit 2 ;;
+esac
