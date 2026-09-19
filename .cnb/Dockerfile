@@ -12,6 +12,7 @@ ENV PATH=/opt/flutter/bin:/usr/local/go/bin:/opt/cargo/bin:/opt/android-sdk/cmdl
 RUN curl -fsSL --retry 3 https://go.dev/dl/go1.26.4.linux-amd64.tar.gz | tar -xz -C /usr/local
 RUN curl -fsSL --retry 3 https://sh.rustup.rs -o /tmp/rustup.sh && \
     sh /tmp/rustup.sh -y --profile minimal --default-toolchain 1.95.0 --target aarch64-linux-android && rm /tmp/rustup.sh
+ENV TAR_OPTIONS=--no-same-owner
 RUN git clone --depth 1 --branch 3.47.1 https://github.com/flutter/flutter.git /opt/flutter && \
     git config --global --add safe.directory /opt/flutter && \
     flutter config --no-analytics && flutter precache --android
