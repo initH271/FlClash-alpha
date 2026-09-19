@@ -24,7 +24,14 @@ prepare() (
 )
 check() (
   set -e
-  (cd core && CGO_ENABLED=0 go test . ./internal/logstore && CGO_ENABLED=0 go vet . ./internal/logstore)
+  (
+    cd core
+    CGO_ENABLED=0 go test -c -o /tmp/flclash-core-tests .
+    install -d -o nobody -g nogroup /tmp/flclash-test-home
+    runuser -u nobody -- env HOME=/tmp/flclash-test-home /tmp/flclash-core-tests -test.timeout=10m
+    CGO_ENABLED=0 go test ./internal/logstore
+    CGO_ENABLED=0 go vet . ./internal/logstore
+  )
   flutter analyze --no-fatal-infos
   local backup
   backup=$(mktemp)
