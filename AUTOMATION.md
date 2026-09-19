@@ -26,7 +26,7 @@ create an Issue for the review NPC. No phone installation is automated.
 
 `.cnb/settings.yml` defines 上游更新助手, 开发助手, 审查助手 and GLM复核助手.
 DeepSeek roles explicitly use deepseek-v4.1-flash; the independent reviewer uses
-glm-5.3-flash. NPC tasks use 2 CPUs, with 60 turns for DeepSeek and 20 for GLM.
+glm-5.3-flash. NPC tasks use 2 CPUs, with a maximum of 60 turns per reviewer.
 Main is protected on CNB: ordinary developers/NPCs cannot push directly;
 PRs require administrator approval and passing checks. The owner account's scoped
 automation token may synchronize main. Personal signing stays on GitHub.
@@ -100,7 +100,7 @@ was not deliberately exercised because that would duplicate a successful build.
 
 Existing roles explicitly use `deepseek-v4.1-flash`. The new `GLM复核助手`
 role routes to `glm-5.3-flash` for both Issue and PR mentions, with 128k context,
-20 turns, the platform minimum 48k maxTokens setting and a ten-minute stage timeout.
+60 turns, the platform minimum 48k maxTokens setting and a ten-minute stage timeout.
 Only its GLM stage runs; other roles run only the DeepSeek stage. Both use
 2-CPU NPC runners. These model IDs were verified against CNB's official
 npc/CodeBuddy configuration. GLM usage is billed separately in AI Credits;
@@ -143,3 +143,8 @@ trusted, as they already control repository settings and release automation.
 GLM-5.3-Flash is the default independent reviewer, including image support.
 Full GLM-5.3 may be considered for complex changes or unresolved disagreements;
 it is not automatically invoked as a third reviewer.
+
+GLM should finish evidence gathering by approximately turn 45 or eight minutes,
+then reserve the remaining budget for its report. Batch related reads and reuse
+verified facts. An incomplete review must report uncertainty and cannot pass;
+this is a prompt-level stopping strategy, not a guaranteed pre-timeout callback.
