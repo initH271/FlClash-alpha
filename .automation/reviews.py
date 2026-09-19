@@ -121,6 +121,7 @@ def ensure_request(request, title):
 
 
 def reconcile():
+    close_finished_reviews()
     github_results = {}
     for platform in ('github', 'cnb'):
         for pull in pages(f'{endpoint(platform)}/pulls?state=open', size_key='per_page' if platform == 'github' else 'page_size'):
@@ -139,6 +140,24 @@ def reconcile():
         if not current or current['state'] != status or current.get('target_url') != url:
             api(f'{GH}/statuses/{head}', 'POST', {'state': status, 'context': CONTEXT,
                 'target_url': url, 'description': 'Both independent reviewers must pass this base/head'})
+
+
+def close_finished_reviews():
+    for item in pages(f'{CNB}/issues?state=open'):
+        issue = api(f'{CNB}/issues/{item["number"]}')
+        request = request_from(issue)
+        if not request:
+            continue
+        platform = request.get('platform')
+        number = request.get('number', '')
+        if platform not in ('github', 'cnb') or not str(number).isdigit():
+            continue
+        pull = api(f'{endpoint(platform)}/pulls/{number}')
+        if pull['state'] not in ('closed', 'merged'):
+            continue
+        merged = bool(pull.get('merged') or pull.get('is_merged') or pull['state'] == 'merged')
+        api(f'{CNB}/issues/{issue["number"]}', 'PATCH', {
+            'state': 'closed', 'state_reason': 'completed' if merged else 'not_planned'})
 
 
 def require_candidate(head, base):
