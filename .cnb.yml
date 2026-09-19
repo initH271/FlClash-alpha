@@ -32,6 +32,12 @@ main:
             CGO_ENABLED=0 go test . ./internal/logstore
             CGO_ENABLED=0 go vet . ./internal/logstore
           timeout: 15m
+        - name: Rescan actual versions and verify repaired dependency
+          script: |
+            apt-get update -qq
+            apt-get install -y --no-install-recommends python3
+            python3 .automation/security_scan.py . /tmp/security-pr-report.json --repair-branch "$CNB_PULL_REQUEST_BRANCH"
+          timeout: 10m
     - name: Rust dependency regression tests
       runner: { cpus: 2 }
       docker:

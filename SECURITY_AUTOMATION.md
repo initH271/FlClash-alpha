@@ -21,6 +21,11 @@ a human decision. It cannot ignore findings, disable checks, merge or release.
 
 CNB PRs run the official incremental SCA plugin (new High/Critical findings block),
 Go regression tests, Rust helper/API tests, and the existing paired review gate.
+The Go pipeline also runs a full OSV scan. For generated `security/fix-<group>`
+branches, the targeted dependency group must be clear of advisories and unindexed
+replacements before this check passes; unrelated historical findings remain visible
+without preventing that focused repair. All unresolved findings for the target
+group require a human decision rather than silently merging a partial repair.
 GitHub PRs with dependency changes compare complete OSV scans of base and head;
 new advisory matches fail the scan, including findings with unknown severity. GitHub scans
 use the scanner from trusted main and never give PR code the monitoring secrets.

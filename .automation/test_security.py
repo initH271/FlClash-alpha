@@ -46,3 +46,12 @@ class SecurityTests(unittest.TestCase):
 
     def test_concatenated_go_module_json_is_parsed(self):
         self.assertEqual([{'Path': 'a'}, {'Path': 'b'}], list(scan.json_stream(' {"Path":"a"}\n {"Path":"b"}\n')))
+
+    def test_repair_group_requires_clean_indexed_dependency(self):
+        item = self.finding()
+        prefix = scan.key(item)[:12]
+        with self.assertRaises(ValueError):
+            scan.require_clean_group({'findings': [item], 'unscanned': []}, prefix)
+        with self.assertRaises(ValueError):
+            scan.require_clean_group({'findings': [], 'unscanned': [item]}, prefix)
+        scan.require_clean_group({'findings': [], 'unscanned': []}, prefix)

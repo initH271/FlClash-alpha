@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import pathlib
+import re
 import subprocess
 import tomllib
 
@@ -94,16 +95,29 @@ def new_findings(base, head):
     return [f for f in head['findings'] if not any((key(f), a) in old for a in f['aliases'])]
 
 
+def require_clean_group(report, prefix):
+    if not re.fullmatch('[0-9a-f]{12}', prefix):
+        raise ValueError('Invalid security repair group')
+    unresolved = [f for f in report['findings'] + report['unscanned'] if key(f).startswith(prefix)]
+    if unresolved:
+        raise ValueError('Target dependency still has advisories or an unindexed replacement: '
+                         + ', '.join(f.get('id', f['name']) for f in unresolved))
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('root', type=pathlib.Path)
     parser.add_argument('output', type=pathlib.Path)
     parser.add_argument('--baseline', type=pathlib.Path)
+    parser.add_argument('--repair-branch', default='')
     args = parser.parse_args()
     report = scan(args.root.resolve())
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
     print(f'Scanned {len(report["packages"])} resolved versions; {len(report["findings"])} advisory matches; '
           f'{len(report["unscanned"])} local/git dependencies require manual assessment')
+    branch = args.repair_branch.removeprefix('refs/heads/')
+    if branch.startswith('security/fix-'):
+        require_clean_group(report, branch.removeprefix('security/fix-'))
     if args.baseline:
         additions = new_findings(json.loads(args.baseline.read_text(encoding='utf-8')), report)
         if additions:
