@@ -27,4 +27,17 @@ for attempt in range(40):
     time.sleep(3)
 else:
     raise TimeoutError(f'Mirror still pending; inspect CNB build {started["sn"]}')
+probe = api(f'{CNB}/build/start', 'POST', {'branch': os.getenv('GITHUB_REF_NAME', 'main'),
+    'sha': git('rev-parse', 'HEAD'), 'event': 'api_trigger_permissions', 'sync': 'false',
+    'env': {'PROBE_TAG': 'automation-permission-' + os.environ['GITHUB_RUN_ID']},
+    'title': 'Verify Release write scope without publishing'})
+for attempt in range(40):
+    state = api(f'{CNB}/build/status/{probe["sn"]}')['status']
+    if state == 'success':
+        break
+    if state in ('error', 'cancel', 'failed'):
+        raise RuntimeError(f'Release write probe failed; inspect CNB build {probe["sn"]}')
+    time.sleep(3)
+else:
+    raise TimeoutError('Release permission probe is still pending')
 print('CNB Issue/comments, releases, quota and build trigger/status permissions verified')

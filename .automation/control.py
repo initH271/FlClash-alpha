@@ -37,7 +37,14 @@ def api(url, method='GET', data=None, missing=False):
     except urllib.error.HTTPError as error:
         if missing and error.code == 404:
             return None
-        raise RuntimeError(f'{method} {host} returned HTTP {error.code}') from None
+        try:
+            detail = json.loads(error.read())
+            reason = str(detail.get('message', detail.get('errmsg', '')))[:300]
+        except (ValueError, AttributeError):
+            reason = ''
+        if token:
+            reason = reason.replace(token, '***')
+        raise RuntimeError(f'{method} {host} returned HTTP {error.code}: {reason}') from None
 
 
 def pages(url, page_key='page', size_key='page_size'):

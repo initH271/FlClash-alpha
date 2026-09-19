@@ -49,6 +49,14 @@ $:
             flutter build apk --release --target-platform android-arm64 --dart-define=APP_ENV=stable --build-number "$build"
             python3 .automation/fallback.py produce
           timeout: 45m
+  api_trigger_permissions:
+    - name: Verify temporary Release permissions
+      runner: { cpus: 1 }
+      docker:
+        image: python:3.12-slim
+      stages:
+        - script: python3 .automation/release_permission_probe.py
+          timeout: 2m
   issue.comment@npc:
     - name: Project NPC
       runner: { cpus: 2 }
