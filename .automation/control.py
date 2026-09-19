@@ -195,6 +195,7 @@ def validate_source(check_reviews=True):
 
 
 def approvals():
+    import reviews
     for issue in pages(f'{CNB}/issues?state=open'):
         if not issue['title'].startswith('[上游升级] '):
             continue
@@ -223,15 +224,26 @@ def approvals():
 
 
 def resume_candidate(sha, branch, number):
+    from reviews import reconcile
     runs = api(f'{GH}/actions/workflows/build.yaml/runs?per_page=100')['workflow_runs']
-    if any(sha in run['display_title'] for run in runs):
+    if any(sha in run['display_title'] and run['status'] != 'completed' for run in runs):
         return
     git('fetch', 'origin', branch)
     git('checkout', '-B', branch, 'FETCH_HEAD')
+    if git('rev-parse', 'HEAD') != sha:
+        print('Candidate branch advanced while fetching; retry next controller pass')
+        return
     if not (ROOT / '.automation/candidate.json').exists():
         return
     envelope = json.loads((ROOT / '.automation/candidate.json').read_text())
-    if verify(envelope)['issue'] != str(number):
+    candidate = verify(envelope)
+    if candidate['issue'] != str(number):
+        return
+    main = api(f'{GH}/git/ref/heads/main')['object']['sha']
+    if candidate['base'] != main:
+        refresh_candidate(candidate, sha, branch, number, main)
+        return
+    if any(sha in run['display_title'] for run in runs):
         return
     try:
         validate_source(check_reviews=False)
@@ -243,7 +255,6 @@ def resume_candidate(sha, branch, number):
     if not pulls:
         api(f'{GH}/pulls', 'POST', {'head': branch, 'base': 'main', 'draft': True,
             'title': f'Resume approved {branch}', 'body': f'Approved in CNB Issue #{number}.'})
-    from reviews import reconcile
     reconcile()
     try:
         validate_source()
@@ -253,7 +264,41 @@ def resume_candidate(sha, branch, number):
     dispatch(sha)
 
 
-def prepare_candidate(request, number, branch):
+def refresh_candidate(candidate, sha, branch, number, main):
+    if candidate['tree'] != source_tree():
+        print('Candidate contains unsigned changes; automatic refresh refused')
+        return
+    issue = api(f'{CNB}/issues/{number}')
+    request = parse_request(issue['body'])
+    if (issue['state'] != 'open' or not request
+            or request.get('upstream') != POLICY['upstream']
+            or request['sha'] != candidate['upstream_sha']
+            or not any(approved(c, request['tag']) for c in pages(f'{CNB}/issues/{number}/comments'))):
+        print('Candidate approval was withdrawn or changed; refresh refused')
+        return
+    if upstream_commit(request['tag']) != request['sha']:
+        print('Upstream tag moved; refresh refused')
+        return
+    git('fetch', 'origin', 'main')
+    if git('rev-parse', 'origin/main') != main:
+        print('Main advanced again; retry next controller pass')
+        return
+    if git('merge-base', '--is-ancestor', candidate['base'], main, check=False).returncode:
+        print('Main history was rewritten; manual review required')
+        return
+    prepare_candidate(request, number, branch, previous=sha)
+
+
+def commit_candidate(branch, base, previous=None):
+    git('commit', '-m', 'feat(upstream): prepare approved upstream candidate')
+    if previous:
+        sha = git('commit-tree', git('rev-parse', 'HEAD^{tree}'), '-p', previous, '-p', base,
+                  '-m', 'chore(upstream): refresh approved candidate on latest main')
+        git('checkout', '-B', branch, sha)
+
+
+def prepare_candidate(request, number, branch, previous=None):
+    from reviews import reconcile
     git('fetch', 'origin', 'main')
     git('checkout', '-B', branch, 'origin/main')
     base = git('rev-parse', 'HEAD')
@@ -264,6 +309,11 @@ def prepare_candidate(request, number, branch):
     protected = [p for p in touched if any(p == x or p.startswith(x) for x in POLICY['protected_paths'])]
     if result.returncode or conflicts or protected:
         git('merge', '--abort', check=False)
+        if previous:
+            message = f'候选刷新暂停：main `{base}` 与已批准上游存在冲突或受保护文件改动，原分支未覆盖。'
+            if not any(c['body'] == message for c in pages(f'{CNB}/issues/{number}/comments')):
+                comment(number, message)
+            return
         report = ROOT / 'UPSTREAM_REVIEW.md'
         report.write_text(f'# Upstream {request["tag"]} needs review\n\n'
                           f'Upstream commit: {request["sha"]}\n\n'
@@ -273,7 +323,7 @@ def prepare_candidate(request, number, branch):
         git('commit', '-m', f'docs(upstream): record conflicts for {request["tag"]}')
         git('push', 'origin', branch)
         pr = api(f'{GH}/pulls', 'POST', {'head': branch, 'base': 'main', 'draft': True,
-                 'title': f'Upstream {request["tag"]}: manual resolution required',
+                 'title': f'跟进上游 {request["tag"]}：需要处理合并冲突',
                  'body': f'Owner approved CNB Issue #{number}. No automatic merge: inspect UPSTREAM_REVIEW.md.'})
         sync_branch(branch)
         comment(number, f'自动合并已停止，待处理 PR：{pr["html_url"]}\n升级分支：`{branch}`。\n\n'
@@ -293,14 +343,14 @@ def prepare_candidate(request, number, branch):
     payload = {'issue': str(number), 'base': base, 'tree': tree, 'upstream_sha': request['sha']}
     (ROOT / '.automation/candidate.json').write_text(json.dumps(sign(payload), indent=2) + '\n')
     git('add', '.automation/candidate.json')
-    git('commit', '-m', f'feat(upstream): follow approved {request["tag"]}')
+    commit_candidate(branch, base, previous)
     git('push', 'origin', branch)
     sync_branch(branch)
-    pr = api(f'{GH}/pulls', 'POST', {'head': branch, 'base': 'main', 'draft': True,
-             'title': f'Follow approved upstream {request["tag"]}',
-             'body': f'Approved in CNB Issue #{number}. Preserve personal logging and update features; tests gate publication.'})
+    pulls = api(f'{GH}/pulls?state=open&head={POLICY["github"].split("/")[0]}:{branch}')
+    pr = pulls[0] if pulls else api(f'{GH}/pulls', 'POST', {'head': branch, 'base': 'main', 'draft': True,
+             'title': f'跟进上游 {request["tag"]}，保留个人增强功能',
+             'body': f'Approved in CNB Issue #{number}. Preserve personal logging and update features; tests and paired reviews gate publication.'})
     comment(number, f'已按本次 OK 批准准备升级分支：{pr["html_url"]}。等待 PR 双模型审核通过后，再测试、构建并发布。')
-    from reviews import reconcile
     reconcile()
 
 

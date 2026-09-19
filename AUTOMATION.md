@@ -31,6 +31,18 @@ Conflicts and upstream changes to automation/CI require a draft PR and human
 review; the development NPC works on a branch. Failed tests stop publication and
 create an Issue for the review NPC. No phone installation is automated.
 
+If main advances before publication, the controller refreshes an unchanged signed
+candidate using the latest main and the same approved upstream SHA. It rechecks
+owner approval, tag identity and main ancestry, regenerates version metadata and
+the signed tree, and updates the existing PR using a normal fast-forward push.
+The new commit retains the previous candidate and current main as parents; the
+tree is freshly prepared from current main, not copied from the stale branch.
+Unsigned edits, withdrawn approvals, rewritten main history, conflicts or protected
+upstream changes stop refresh. Active builds finish before refresh is attempted.
+New commits require new reviews and new builds; previous reports/artifacts cannot
+authorize the refreshed source. Already-started runs for an unchanged SHA are not
+duplicated. A concurrent branch update makes the normal push fail safely.
+
 ## NPC roles and permissions
 
 `.cnb/settings.yml` defines 上游更新助手, 开发助手, 审查助手 and GLM复核助手.
