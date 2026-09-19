@@ -21,6 +21,52 @@ $:
     - *mirror
   web_trigger:
     - *mirror
+  api_trigger_fallback:
+    - name: Compile fallback artifact without personal signing key
+      runner: { cpus: 8 }
+      docker:
+        build: .cnb/Dockerfile
+        volumes:
+          - /root/.pub-cache:copy-on-write
+          - /root/.gradle:copy-on-write
+          - /root/go:copy-on-write
+          - /root/.cache/go-build:copy-on-write
+      lock:
+        key: flclash-fallback-build
+        wait: true
+      stages:
+        - name: Verify source and prepare
+          script: |
+            test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_SHA"
+            bash .cnb/run.sh prepare
+          timeout: 20m
+        - name: Analyze and test
+          script: bash .cnb/run.sh check
+          timeout: 20m
+        - name: Compile temporary artifact
+          script: |
+            build=$(python3 -c "import json; print(json.load(open('.github/release.json'))['build'])")
+            flutter build apk --release --target-platform android-arm64 --dart-define=APP_ENV=stable --build-number "$build"
+            python3 .automation/fallback.py produce
+          timeout: 45m
+  issue.comment@npc:
+    - name: Project NPC
+      runner: { cpus: 2 }
+      docker:
+        image: cnbcool/default-npc:latest
+      stages:
+        - type: npc:go
+          options:
+            maxTurns: 60
+  pull_request.comment@npc:
+    - name: Project NPC review
+      runner: { cpus: 2 }
+      docker:
+        image: cnbcool/default-npc:latest
+      stages:
+        - type: npc:go
+          options:
+            maxTurns: 60
   vscode:
     - name: FlClash cloud development
       runner: { cpus: 4 }

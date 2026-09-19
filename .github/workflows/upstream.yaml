@@ -1,0 +1,45 @@
+name: Upstream decisions and build scheduling
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        options: [all, watch, approvals, scheduler]
+        default: all
+permissions:
+  contents: write
+  actions: write
+  pull-requests: write
+concurrency:
+  group: flclash-upstream-controller
+  cancel-in-progress: false
+jobs:
+  control:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CNB_AUTOMATION_TOKEN: ${{ secrets.CNB_AUTOMATION_TOKEN }}
+      UPSTREAM_APPROVAL_KEY: ${{ secrets.UPSTREAM_APPROVAL_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check credentials
+        run: |
+          test -n "$CNB_AUTOMATION_TOKEN" || { echo 'Configure CNB_AUTOMATION_TOKEN before enabling controller'; exit 1; }
+          test -n "$UPSTREAM_APPROVAL_KEY"
+          git config user.name FlClash-Automation
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+      - name: Notify new stable upstream release
+        if: github.event.schedule == '17 */6 * * *' || inputs.operation == 'all' || inputs.operation == 'watch'
+        run: python3 .automation/control.py watch
+      - name: Process owner approvals
+        if: github.event.schedule == '*/15 * * * *' || inputs.operation == 'all' || inputs.operation == 'approvals'
+        run: python3 .automation/control.py approvals
+      - name: Reuse artifacts or dispatch infrastructure fallback
+        if: github.event.schedule == '*/15 * * * *' || inputs.operation == 'all' || inputs.operation == 'scheduler'
+        run: python3 .automation/scheduler.py

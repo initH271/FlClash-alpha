@@ -1,0 +1,11 @@
+{
+  "github": "initH271/FlClash-alpha",
+  "cnb": "507space/FlClash-alpha",
+  "approver": "Aharon",
+  "upstream": "chen08209/FlClash",
+  "upstream_tag": "v0.8.97",
+  "upstream_sha": "db0388057962e83958dd355bc41fc22bfa1e901a",
+  "queue_timeout_minutes": 10,
+  "fallback_min_core_hours": 7,
+  "protected_paths": [".github/", ".cnb/", ".cnb.yml", ".automation/"]
+}

@@ -1,62 +1,91 @@
-name: Android log history
+name: Android release
+run-name: Android ${{ inputs.source_ref || github.sha }}${{ (inputs.reuse_run || inputs.cnb_fallback == 'true') && ' recovery' || '' }}
 on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Exact approved source commit (empty uses main)
+        type: string
+      reuse_run:
+        description: Reuse an existing successful APK artifact from this run
+        type: string
+      cnb_fallback:
+        description: Compile on CNB, then sign and publish on GitHub
+        type: choice
+        options: ['false', 'true']
+        default: 'false'
 permissions:
   contents: write
+  actions: read
+  statuses: write
 concurrency:
-  group: android-${{ github.ref }}
-  cancel-in-progress: true
+  group: android-${{ inputs.source_ref || github.sha }}
+  cancel-in-progress: false
 env:
   RUSTUP_TOOLCHAIN: '1.95.0'
 jobs:
   android:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 70
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CNB_AUTOMATION_TOKEN: ${{ secrets.CNB_AUTOMATION_TOKEN }}
+      UPSTREAM_APPROVAL_KEY: ${{ secrets.UPSTREAM_APPROVAL_KEY }}
+      REUSE_RUN: ${{ inputs.reuse_run }}
+      CNB_FALLBACK: ${{ inputs.cnb_fallback }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+      - name: Validate source and plan artifact reuse
+        id: plan
+        run: python3 .automation/build_plan.py
+      - name: Record source build status
+        run: python3 .automation/control.py status
       - name: Free runner disk space
+        if: steps.plan.outputs.compile == 'true'
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/ndk /opt/ghc /usr/local/.ghcup /usr/local/swift /opt/hostedtoolcache/CodeQL
           df -h /
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - uses: actions/setup-go@v5
+        if: steps.plan.outputs.compile == 'true'
         with:
           go-version: '1.26.4'
           cache-dependency-path: core/go.sum
       - uses: actions/setup-java@v4
+        if: steps.plan.outputs.active == 'true'
         with:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v6
+        if: steps.plan.outputs.compile == 'true'
       - uses: subosito/flutter-action@v2
+        if: steps.plan.outputs.compile == 'true'
         with:
           channel: master
           flutter-version: '3.47.1'
           cache: true
       - uses: nttld/setup-ndk@v1
+        if: steps.plan.outputs.compile == 'true'
         id: ndk
         with:
           ndk-version: r28c
           add-to-path: true
           link-to-sdk: true
       - name: Setup Rust
+        if: steps.plan.outputs.compile == 'true'
         run: rustup toolchain install 1.95.0 --profile minimal --target aarch64-linux-android
       - uses: Swatinem/rust-cache@v2
+        if: steps.plan.outputs.compile == 'true'
         with:
           workspaces: plugins/rust_api/rust
           cache-directories: .dart_tool/hooks_runner
-      - name: Restore stable personal signing key
-        env:
-          KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE }}
-        run: |
-          test -n "$KEYSTORE_BASE64"
-          mkdir -p "$HOME/.android"
-          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
-          chmod 600 "$HOME/.android/debug.keystore"
       - name: Test core logs
+        if: steps.plan.outputs.compile == 'true'
         working-directory: core
         env:
           CGO_ENABLED: '0'
@@ -64,38 +93,86 @@ jobs:
           go test . ./internal/logstore
           go vet . ./internal/logstore
       - name: Install Flutter dependencies
+        if: steps.plan.outputs.compile == 'true'
         run: flutter pub get
-      - name: Analyze and test log export
+      - name: Analyze and test
+        if: steps.plan.outputs.compile == 'true'
         run: |
           python3 .cnb/test_mirror_release.py
+          python3 -m unittest discover -s .automation -p 'test_*.py'
           flutter analyze --no-fatal-infos
           cp pubspec.yaml /tmp/flclash-pubspec.yaml
           trap 'cp /tmp/flclash-pubspec.yaml pubspec.yaml' EXIT
           sed -i 's/build_assets: true/build_assets: false/g' pubspec.yaml
-          flutter test test/common/app_update_test.dart test/common/log_history_test.dart test/core/protocol_contract_test.dart test/views/logs_view_test.dart --reporter expanded
+          if [ -f .automation/candidate.json ]; then
+            flutter test --reporter expanded
+          else
+            flutter test test/common/app_update_test.dart test/common/log_history_test.dart test/core/protocol_contract_test.dart test/views/logs_view_test.dart --reporter expanded
+          fi
       - name: Build ARM64 APK
+        if: steps.plan.outputs.compile == 'true'
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
         run: |
           build=$(python3 -c "import json; print(json.load(open('.github/release.json'))['build'])")
-          flutter build apk --release --target-platform android-arm64 --build-number "$build"
+          flutter build apk --release --target-platform android-arm64 --dart-define=APP_ENV=stable --build-number "$build"
+      - uses: actions/download-artifact@v4
+        if: steps.plan.outputs.active == 'true' && inputs.reuse_run != ''
+        with:
+          name: FlClash-arm64-log-history
+          path: reused
+          run-id: ${{ inputs.reuse_run }}
+          github-token: ${{ github.token }}
+      - name: Verify reused source and artifact
+        if: steps.plan.outputs.active == 'true' && inputs.reuse_run != ''
+        run: python3 .automation/reuse.py
+      - name: Compile once on CNB fallback
+        if: steps.plan.outputs.active == 'true' && inputs.cnb_fallback == 'true'
+        run: python3 .automation/fallback.py consume
+      - name: Restore personal signing key
+        if: steps.plan.outputs.active == 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE }}
+        run: |
+          test -n "$KEYSTORE_BASE64"
+          mkdir -p "$HOME/.android"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
+          chmod 600 "$HOME/.android/debug.keystore"
       - name: Sign and verify personal certificate
+        if: steps.plan.outputs.active == 'true'
         run: bash .github/scripts/sign-apk.sh build/app/outputs/flutter-apk/app-release.apk
       - name: Prepare artifact
+        if: steps.plan.outputs.active == 'true'
         run: |
           mkdir -p dist
           cp build/app/outputs/flutter-apk/app-release.apk dist/FlClash-alpha-arm64-v8a.apk
           python3 .github/scripts/prepare-release.py
       - uses: actions/upload-artifact@v4
+        if: steps.plan.outputs.active == 'true'
         with:
           name: FlClash-arm64-log-history
           path: dist/
           retention-days: 14
           if-no-files-found: error
+      - name: Promote approved source and synchronize CNB
+        if: steps.plan.outputs.active == 'true' && env.CNB_AUTOMATION_TOKEN != ''
+        run: python3 .automation/control.py promote
       - name: Publish GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
+        if: steps.plan.outputs.active == 'true'
         run: |
           tag=$(python3 -c "import json; print(json.load(open('dist/update.json'))['tag'])")
-          gh release create "$tag" dist/FlClash-alpha-arm64-v8a.apk dist/SHA256SUMS.txt dist/update.json --target "$GITHUB_SHA" --title "FlClash-alpha $tag" --notes-file dist/release-notes.md --draft
+          if gh release view "$tag" >/dev/null 2>&1; then
+            test "$(gh release view "$tag" --json isDraft --jq .isDraft)" = true
+            gh release upload "$tag" dist/FlClash-alpha-arm64-v8a.apk dist/SHA256SUMS.txt dist/update.json --clobber
+          else
+            gh release create "$tag" dist/FlClash-alpha-arm64-v8a.apk dist/SHA256SUMS.txt dist/update.json --target "$(git rev-parse HEAD)" --title "FlClash-alpha $tag" --notes-file dist/release-notes.md --draft
+          fi
           gh release edit "$tag" --draft=false --latest
+      - name: Notify owner and trigger CNB mirror
+        if: steps.plan.outputs.active == 'true' && env.CNB_AUTOMATION_TOKEN != ''
+        run: python3 .automation/control.py notify
+      - name: Record final source status
+        if: always() && steps.plan.outcome == 'success'
+        env:
+          BUILD_STATUS: ${{ job.status }}
+        run: python3 .automation/control.py status
