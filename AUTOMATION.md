@@ -78,3 +78,9 @@ Manual controls live in GitHub Actions:
 Validation: `python -m unittest discover -s .automation -p 'test_*.py'` plus the
 existing mirror tests and CNB schema validator. Failure switching is tested with
 fixtures rather than deliberately duplicating a full build or exhausting quota.
+
+Initial verification (2026-09-20): the controller created CNB Issue #1 for upstream
+v0.8.98, assigned it to Aharon, and left approval pending. The upstream NPC ran
+successfully using deepseek-v4.1-flash: 0 billed AI Credits, about 0.03 development
+core-hours. The `preflight` manual controller operation checks CNB release read,
+quota, Issue/comment access and mirror trigger/status permissions without building.

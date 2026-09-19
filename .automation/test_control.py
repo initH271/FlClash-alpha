@@ -72,9 +72,10 @@ class RecoveryTests(unittest.TestCase):
 
     def test_recovery_run_never_recursively_retries(self):
         run = {'id': 10, 'display_title': 'Android ' + 'a' * 40 + ' recovery', 'status': 'completed', 'conclusion': 'failure'}
-        with patch.object(scheduler, 'api', return_value={'workflow_runs': [run]}), patch.object(scheduler, 'dispatch') as dispatch:
+        with patch.object(scheduler, 'api', return_value={'workflow_runs': [run]}), patch.object(scheduler, 'dispatch') as dispatch, patch.object(scheduler, 'notify_once') as notify:
             scheduler.schedule()
         dispatch.assert_not_called()
+        notify.assert_called_once()
 
     def test_manual_cancellation_is_not_restarted(self):
         run = {'id': 10, 'display_title': 'Android ' + 'a' * 40, 'status': 'completed', 'conclusion': 'cancelled'}

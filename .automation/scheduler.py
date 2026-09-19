@@ -35,7 +35,11 @@ def schedule():
     now = datetime.datetime.now(datetime.timezone.utc)
     for run in runs:
         sha_match = re.fullmatch(r'Android ([0-9a-f]{40})(?: recovery)?', run['display_title'])
-        if not sha_match or run['display_title'].endswith(' recovery'):
+        if not sha_match:
+            continue
+        if run['display_title'].endswith(' recovery'):
+            if run['status'] == 'completed' and run['conclusion'] in ('failure', 'timed_out', 'startup_failure'):
+                notify_once(run, '备用构建或产物复用流程失败，已停止自动重试，请检查日志。')
             continue
         sha = sha_match[1]
         if run['status'] == 'in_progress' or run['conclusion'] == 'success':

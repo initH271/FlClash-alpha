@@ -185,6 +185,8 @@ def approvals():
             continue
         if not request or request.get('upstream') != POLICY['upstream']:
             continue
+        if not version(request['tag']) or version(request['tag']) <= version(POLICY['upstream_tag']):
+            continue
         comments = list(pages(f'{CNB}/issues/{issue["number"]}/comments'))
         if not any(approved(c, request['tag']) for c in comments):
             continue

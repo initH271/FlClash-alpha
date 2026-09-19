@@ -7,12 +7,13 @@ on:
     inputs:
       operation:
         type: choice
-        options: [all, watch, approvals, scheduler]
+        options: [all, watch, approvals, scheduler, preflight]
         default: all
 permissions:
   contents: write
   actions: write
   pull-requests: write
+  checks: read
 concurrency:
   group: flclash-upstream-controller
   cancel-in-progress: false
@@ -34,6 +35,9 @@ jobs:
           test -n "$UPSTREAM_APPROVAL_KEY"
           git config user.name FlClash-Automation
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+      - name: Verify CNB integration permissions
+        if: inputs.operation == 'preflight'
+        run: python3 .automation/credentials.py
       - name: Notify new stable upstream release
         if: github.event.schedule == '17 */6 * * *' || inputs.operation == 'all' || inputs.operation == 'watch'
         run: python3 .automation/control.py watch
