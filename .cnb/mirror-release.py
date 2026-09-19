@@ -101,4 +101,11 @@ if __name__ == '__main__':
     try:
         main()
     except urllib.error.HTTPError as error:
-        raise SystemExit(f'Release API failed with HTTP {error.code}') from None
+        try:
+            detail = json.loads(error.read())
+            reason = detail.get('message', detail.get('errmsg', ''))
+        except (ValueError, AttributeError):
+            reason = ''
+        host = urllib.parse.urlsplit(error.url).netloc
+        reason = str(reason).replace(TOKEN, '***')[:300]
+        raise SystemExit(f'{host} returned HTTP {error.code}: {reason}') from None
