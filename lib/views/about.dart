@@ -14,9 +14,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 class Contributor {
   final String? avatar;
   final String name;
-  final String link;
+  final String? link;
 
-  const Contributor({this.avatar, required this.name, required this.link});
+  const Contributor({this.avatar, required this.name, this.link});
 }
 
 class AboutView extends ConsumerWidget {
@@ -42,13 +42,6 @@ class AboutView extends ConsumerWidget {
           onTap: () {
             _checkUpdate(context, ref);
           },
-        ),
-        ListItem(
-          title: const Text('Telegram'),
-          onTap: () {
-            dialogs.openUrl('https://t.me/FlClash');
-          },
-          trailing: const Icon(Icons.launch),
         ),
         ListItem(
           title: Text('${appLocalizations.project} · GitHub'),
@@ -89,16 +82,8 @@ class AboutView extends ConsumerWidget {
         name: 'Aharon',
         link: 'https://github.com/initH271',
       ),
-      Contributor(
-        avatar: 'assets/images/avatar/june2.jpg',
-        name: 'June2',
-        link: 'https://t.me/Jibadong',
-      ),
-      Contributor(
-        avatar: 'assets/images/avatar/arue.jpg',
-        name: 'Arue',
-        link: 'https://t.me/xrcm6868',
-      ),
+      Contributor(avatar: 'assets/images/avatar/june2.jpg', name: 'June2'),
+      Contributor(avatar: 'assets/images/avatar/arue.jpg', name: 'Arue'),
     ];
     return generateSection(
       separated: false,
@@ -200,7 +185,9 @@ class Avatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () => dialogs.openUrl(contributor.link),
+      onTap: contributor.link == null
+          ? null
+          : () => dialogs.openUrl(contributor.link!),
       child: Column(
         children: [
           SizedBox(

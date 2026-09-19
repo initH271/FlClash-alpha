@@ -29,6 +29,10 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('Aharon'), findsOneWidget);
+      expect(find.text('Telegram'), findsNothing);
+      for (final avatar in tester.widgetList<Avatar>(find.byType(Avatar))) {
+        expect(avatar.contributor.link ?? '', isNot(contains('t.me')));
+      }
       expect(
         tester
             .widget<CircleAvatar>(find.byType(CircleAvatar).first)
@@ -45,4 +49,3 @@ void main() {
     },
   );
 }
-
