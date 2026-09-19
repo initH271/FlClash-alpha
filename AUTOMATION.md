@@ -109,6 +109,9 @@ DeepSeek's current promotional zero billing does not imply free GLM usage.
 New upstream decision Issues ask the upstream DeepSeek role and GLM to review
 the same fixed upstream range independently. Every open GitHub or CNB PR receives
 a separate signed review Issue for its platform, PR number and exact base/head.
+Issue titles show the platform, PR number and PR title. Deduplication uses the
+signed record in the body, so renaming an Issue cannot invalidate its review or
+trigger duplicate reviewers. Existing titles follow subsequent PR title changes.
 The PR receives a link to the two reports. No APK is built by either reviewer.
 
 Reports must identify commit range, evidence, blockers, disagreements and
