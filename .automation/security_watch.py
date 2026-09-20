@@ -1,4 +1,3 @@
-import hashlib
 import json
 import pathlib
 import re
@@ -6,7 +5,7 @@ import sys
 
 from control import CNB, GH, POLICY, all_issues, api, comment, sign, verify
 from security_scan import key
-from security_groups import GROUPS, group_for, payload_for, repair_branch
+from security_groups import GROUPS, group_for, payload_for
 
 def record(issue):
     author = issue.get('author') or {}
@@ -112,7 +111,6 @@ def monitor(report):
         raise ValueError('Incomplete scan cannot update security tasks')
     if api(f'{GH}/git/ref/heads/main')['object']['sha'] != report['sha']:
         raise ValueError('Main changed after scanning; rerun before updating security Issues')
-    from control import pages
     active, existing, legacy = groups(report), {}, []
     risks = cnb_risks()
     for item in all_issues():
@@ -127,8 +125,7 @@ def monitor(report):
                 existing[payload['group']] = (issue, payload)
         else:
             legacy.append((issue, payload))
-    pulls = list(pages(f'{CNB}/pulls?state=open'))
-    parents, dispatched = {}, 0
+    parents = {}
     def priority(entry):
         findings = active.get(entry[0], [])
         levels = [{'fatal': 0, 'error': 1, 'warning': 2, 'info': 3}.get(risks.get((f['file'], a)), 4)
@@ -174,31 +171,10 @@ def monitor(report):
             update.update(state='open', state_reason='reopened')
         if any(issue.get(k) != v for k, v in update.items()):
             api(f'{CNB}/issues/{issue["number"]}', 'PATCH', update)
-        if not findings:
-            continue
-        branch = repair_branch(payload)
-        if any(p['head']['ref'].removeprefix('refs/heads/') == branch for p in pulls):
-            continue
-        aliases = sorted({key(f) + ':' + a for f in findings for a in f['aliases']})
-        revision = hashlib.sha256(json.dumps(aliases).encode()).hexdigest()[:16]
-        marker = '<!-- security-work-requested ' + payload['key'] + ':' + revision + ' -->'
-        comments = list(pages(f'{CNB}/issues/{issue["number"]}/comments'))
-        if active_developer(issue, comments):
-            continue
-        if dispatched >= 2 or any(marker in c.get('body', '') and c.get('author', {}).get('username') == POLICY['approver']
-                                  and c.get('author', {}).get('is_npc') is False for c in comments):
-            continue
-        comment(issue['number'], marker + '\n\n'
-            f'@{POLICY["cnb"]}(开发助手) 统一评估并修复本组依赖，复用 `{branch}` 分支和已有工作，'
-            '不要按单个包另开并行任务。先核对最新 main 的实际模块图、官方公告和平台调用路径。'
-            '一组只提交一个修复 PR；允许先修复能兼容解决的部分，逐条列出已修复、不可达、暂无修复或待确认的证据。'
-            '某条无修复版本不应阻止其他有效修复；整组需要跨大版本或变更工具链时交由人工决定。'
-            '现有 CI Go 为1.26.4；Go指令不等同于已安装工具链，根模块可通过MVS提升间接依赖。'
-            '目标必须消除至少一条旧告警、不引入新告警，并通过测试、基线/当前复扫及双模型审核。'
-            '不忽略告警、不改权限或签名、不自行合并发布；预算内优先提交阶段报告，不反复搜索或等待。', True)
-        dispatched += 1
     migrate_legacy(legacy, parents)
-    print(f'Tracked {len(parents)} repair groups; started {dispatched} tasks')
+    from security_queue import reconcile
+    reconcile()
+    print(f'Tracked {len(parents)} repair groups; reconciled worker queue')
 
 
 if __name__ == '__main__':
