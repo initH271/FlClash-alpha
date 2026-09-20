@@ -3,6 +3,10 @@ use crate::service::hub::{
 };
 
 use anyhow::{bail, Context, Result};
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::server::conn::auto::Builder;
+use hyper_util::server::graceful::GracefulShutdown;
+use hyper_util::service::TowerToHyperService;
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::future::Future;
@@ -17,7 +21,7 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::runtime::Runtime;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::time::Sleep;
-use tokio_stream::Stream;
+use tokio_stream::{Stream, StreamExt};
 
 const SERVICE_NAME: &str = "flclash-helper";
 const UNIT_PATH: &str = "/etc/systemd/system/flclash-helper.service";
@@ -278,12 +282,44 @@ fn run_service() -> Result<()> {
             }
         };
         let incoming = AuthorizedIncoming::bind(owner)?;
-        warp::serve(routes())
-            .serve_incoming_with_graceful_shutdown(incoming, shutdown)
-            .await;
+        serve_incoming_until(incoming, shutdown).await;
         release_managed_core_on_shutdown();
         Ok(())
     })
+}
+
+async fn serve_incoming_until<F>(mut incoming: AuthorizedIncoming, shutdown: F)
+where
+    F: Future<Output = ()> + Send + 'static,
+{
+    let graceful = GracefulShutdown::new();
+    tokio::pin!(shutdown);
+    loop {
+        tokio::select! {
+            biased;
+            _ = &mut shutdown => break,
+            accepted = incoming.next() => {
+                match accepted {
+                    Some(Ok(stream)) => {
+                        let service = TowerToHyperService::new(warp::service(routes()));
+                        let connection = Builder::new(TokioExecutor::new())
+                            .serve_connection_with_upgrades(TokioIo::new(stream), service)
+                            .into_owned();
+                        let watched = graceful.watch(connection);
+                        tokio::spawn(async move {
+                            if let Err(error) = watched.await {
+                                log_message(format!("Helper connection failed: {error}"));
+                            }
+                        });
+                    }
+                    Some(Err(error)) => log_message(format!("Helper accept failed: {error}")),
+                    None => break,
+                }
+            }
+        }
+    }
+    drop(incoming);
+    graceful.shutdown().await;
 }
 
 /// Connections are filtered by peer credential rather than by the socket mode
@@ -351,6 +387,84 @@ impl Stream for AuthorizedIncoming {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn authorized_http_connection_drains_on_shutdown() {
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path =
+            std::env::temp_dir().join(format!("flclash-{}-{stamp}.sock", std::process::id()));
+        let listener = UnixListener::bind(&path).unwrap();
+        let owner = Owner {
+            uid: unsafe { libc::geteuid() },
+            gid: unsafe { libc::getegid() },
+        };
+        let incoming = AuthorizedIncoming {
+            listener,
+            owner,
+            retry: None,
+        };
+        let (stop, stopped) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(serve_incoming_until(incoming, async {
+            let _ = stopped.await;
+        }));
+        let mut stream = UnixStream::connect(&path).await.unwrap();
+        stream
+            .write_all(b"GET /logs HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .await
+            .unwrap();
+        let mut reader = BufReader::new(stream);
+        let mut headers = String::new();
+        loop {
+            let mut line = String::new();
+            tokio::time::timeout(Duration::from_secs(3), reader.read_line(&mut line))
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(!line.is_empty());
+            if line == "\r\n" {
+                break;
+            }
+            headers.push_str(&line);
+        }
+        assert!(headers.starts_with("HTTP/1.1 200"));
+        assert!(headers.to_lowercase().contains("cache-control: no-store"));
+        let length: usize = headers
+            .lines()
+            .find_map(|line| {
+                line.to_lowercase()
+                    .strip_prefix("content-length:")
+                    .map(|value| value.trim().parse().unwrap())
+            })
+            .unwrap();
+        let mut body = vec![0; length];
+        reader.read_exact(&mut body).await.unwrap();
+        stop.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(3), server)
+            .await
+            .unwrap()
+            .unwrap();
+        let mut trailing = Vec::new();
+        assert_eq!(reader.read_to_end(&mut trailing).await.unwrap(), 0);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn peer_filter_rejects_another_uid() {
+        let (stream, _peer) = UnixStream::pair().unwrap();
+        let uid = unsafe { libc::geteuid() };
+        assert!(is_authorized_peer(&stream, Owner { uid, gid: 0 }));
+        assert!(!is_authorized_peer(
+            &stream,
+            Owner {
+                uid: uid.wrapping_add(1),
+                gid: 0
+            }
+        ));
+    }
 
     #[test]
     fn parses_service_commands() {
