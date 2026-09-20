@@ -18,7 +18,7 @@ class SecurityQueueTests(unittest.TestCase):
         self.payload['history'] = [{'file': 'core/go.mod', 'ecosystem': 'Go', 'name': 'x/net',
                                    'aliases': ['GO-1'], 'state': '待评估（扫描命中）'}]
         self.issue = {'number': '26', 'created_at': '2026-09-20T02:00:00Z', 'body': 'Notes'}
-        self.pull = {'number': '31', 'state': 'open', 'head': {'sha': 'a' * 40}}
+        self.pull = {'number': '31', 'state': 'open', 'head': {'sha': 'a' * 40}, 'ci_failed': True}
 
     def attempt(self, status, timestamp='2026-09-20T02:50:00Z'):
         return {'created_at': timestamp, 'statuses': {'npc': [{'context': {
@@ -38,6 +38,10 @@ class SecurityQueueTests(unittest.TestCase):
 
     def test_pr_comment_failure_is_recovered_from_same_group(self):
         self.assertEqual('resume', self.decide(pc=[self.attempt('error')], pull=self.pull)[0])
+
+    def test_old_worker_failure_does_not_restart_a_pr_with_no_current_ci_failure(self):
+        self.pull['ci_failed'] = False
+        self.assertEqual('pr-open', self.decide(pc=[self.attempt('error')], pull=self.pull)[0])
 
     def test_running_pr_worker_prevents_duplicate_issue_worker(self):
         self.assertEqual('running', self.decide(pc=[self.attempt('pending')], pull=self.pull)[0])
@@ -107,6 +111,8 @@ class SecurityQueueTests(unittest.TestCase):
                 return [self.attempt('error')]
             return [] if url.endswith('/comments') else issues
         def api(url, method='GET', data=None):
+            if url.endswith('/commit-statuses'):
+                return {'statuses': []}
             return next(i for i in issues if url.endswith('/' + i['number'])) if method == 'GET' else None
         with (patch.object(queue, 'pages', side_effect=pages), patch.object(queue, 'api', side_effect=api),
               patch.object(queue, 'comment') as comment,
