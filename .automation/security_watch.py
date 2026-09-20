@@ -162,6 +162,7 @@ def monitor(report):
         payload['component_keys'] = sorted(set(payload.get('component_keys', []))
             | {p['key'] for _, p in legacy if group_for(p) == slug} | {key(f) for f in findings})
         payload['history'] = scan_history(payload.get('history', []), findings, report['unscanned'])
+        payload['scan_sha'] = report['sha']
         unresolved = unresolved_group(payload, report)
         payload['auto_resolved'] = not unresolved
         update = {'body': snapshot_body(issue, payload, report)}

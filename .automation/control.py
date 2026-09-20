@@ -354,12 +354,12 @@ def prepare_candidate(request, number, branch, previous=None):
     reconcile()
 
 
-def sync_branch(branch):
+def sync_branch(branch, source='HEAD'):
     token = os.environ['CNB_AUTOMATION_TOKEN']
     encoded = base64.b64encode(f'cnb:{token}'.encode()).decode()
     env = dict(os.environ, GIT_CONFIG_COUNT='1', GIT_CONFIG_KEY_0='http.https://cnb.cool/.extraheader',
                GIT_CONFIG_VALUE_0='Authorization: Basic ' + encoded, GIT_TERMINAL_PROMPT='0')
-    git('push', f'https://cnb.cool/{POLICY["cnb"]}.git', f'HEAD:refs/heads/{branch}', env=env)
+    git('push', f'https://cnb.cool/{POLICY["cnb"]}.git', f'{source}:refs/heads/{branch}', env=env)
 
 
 def promote():

@@ -30,6 +30,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Test trusted automation before mutations
+        run: python3 -m unittest discover -s .automation -p 'test_*.py'
       - name: Check credentials
         id: credentials
         run: |
@@ -52,6 +54,9 @@ jobs:
       - name: Continue security repairs and fill available slots
         if: always() && steps.credentials.outcome == 'success' && inputs.operation != 'preflight'
         run: python3 .automation/security_queue.py
+      - name: Finish verified compatible security repairs
+        if: always() && steps.credentials.outcome == 'success' && inputs.operation != 'preflight'
+        run: python3 .automation/security_finish.py
       - name: Process owner approvals
         if: github.event.schedule == '*/15 * * * *' || inputs.operation == 'all' || inputs.operation == 'approvals'
         run: python3 .automation/control.py approvals

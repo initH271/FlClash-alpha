@@ -3,7 +3,7 @@ import hashlib
 import json
 import re
 
-from control import CNB, POLICY, api, comment, pages, sign, verify
+from control import CNB, GH, POLICY, api, comment, pages, sign, verify
 from security_groups import GROUPS, repair_branch
 from security_scan import key
 from security_watch import record
@@ -54,8 +54,13 @@ def checkpoints(comments, scope):
 def decision(payload, issue, comments, pull, pull_comments, now):
     rev = revision(payload)
     scope = payload['key'] + ':' + (rev or 'none')
-    history = attempts([issue] + comments + pull_comments)
+    items = [issue] + comments + pull_comments
+    if pull and pull.get('is_merged') and pull.get('included_in_scan'):
+        items = [item for item in items if item.get('created_at', '') > pull['updated_at']]
+    history = attempts(items)
     runs = checkpoints(comments, scope)
+    if pull and pull.get('included_in_scan') and runs and runs[-1][0] <= pull['updated_at']:
+        return 'attention', scope, None
     latest = history[-1] if history else None
     running = [a for a in history if a[1] not in TERMINAL]
     if running:
@@ -66,7 +71,13 @@ def decision(payload, issue, comments, pull, pull_comments, now):
         age = now - datetime.datetime.fromisoformat(runs[-1][0].replace('Z', '+00:00'))
         return ('dispatch-stalled' if age.total_seconds() > 1800 else 'awaiting-start'), scope, latest
     if pull and pull.get('is_merged'):
-        return 'rescan', scope, latest
+        if not pull.get('included_in_scan'):
+            return 'rescan', scope, latest
+        if not rev:
+            return 'assessment', scope, latest
+        if not history and not runs:
+            return 'start', scope, latest
+        pull = None
     if pull and pull['state'] != 'open':
         return 'attention', scope, latest
     if not rev:
@@ -125,6 +136,9 @@ def reconcile():
         matching = [p for p in pulls if p['head']['ref'].removeprefix('refs/heads/') == repair_branch(payload)
                     and p['head']['repo']['path'] == POLICY['cnb']]
         pull = max(matching, key=lambda p: int(p['number']), default=None)
+        if pull and pull.get('is_merged') and re.fullmatch(r'[a-f0-9]{40}', payload.get('scan_sha', '')):
+            comparison = api(f'{GH}/compare/{pull["head"]["sha"]}...{payload["scan_sha"]}')
+            pull['included_in_scan'] = comparison['status'] in {'ahead', 'identical'}
         comments = list(pages(f'{CNB}/issues/{issue["number"]}/comments'))
         pc = list(pages(f'{CNB}/pulls/{pull["number"]}/comments')) if pull else []
         phase, scope, latest = decision(payload, issue, comments, pull, pc, now)
@@ -146,7 +160,11 @@ def reconcile():
                 checkpoint = {'scope': scope, 'phase': phase, 'head': head,
                               'previous_run': latest[2] if latest else None}
                 marker = '<!-- flclash-security-run ' + json.dumps(sign(checkpoint)) + ' -->'
-                target = f'关联 PR #{pull["number"]}，先读最新 CI 失败和已有提交。' if pull else '已有远端分支时先读取断点。'
+                if pull and pull.get('is_merged'):
+                    target = (f'上一轮 PR #{pull["number"]} 已合并且正式复扫仍有剩余项。'
+                              '先合入最新 main，再为本轮剩余问题创建一个后续 PR，不更新已关闭 PR，不强推。')
+                else:
+                    target = f'关联 PR #{pull["number"]}，先读最新 CI 失败和已有提交。' if pull else '已有远端分支时先读取断点。'
                 comment(issue['number'], marker + '\n\n'
                     f'@{POLICY["cnb"]}(开发助手) {target}复用 `{repair_branch(payload)}`。'
                     '本轮只交付一个可验证的阶段：先核对现状，再做最小兼容修复，最后提交报告。'
