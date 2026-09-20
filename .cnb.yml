@@ -11,6 +11,17 @@
     - name: Verify and publish identical APK
       script: python3 .cnb/mirror-release.py
       timeout: 10m
+
+.controller-wake: &controller-wake
+  name: Wake task controller
+  runner: { cpus: 1 }
+  docker:
+    image: python:3.12-slim
+  stages:
+    - name: Dispatch reconciliation from trusted branch
+      imports: https://cnb.cool/507space/FlClash-alpha-secrets/-/blob/main/github-dispatch.yml
+      script: python3 .automation/wake.py
+      timeout: 2m
 main:
   pull_request:
     - name: Dependency vulnerability gate
@@ -65,6 +76,7 @@ main:
     - *mirror
   "crontab: */15 * * * *":
     - *mirror
+    - *controller-wake
 $:
   issue.comment:
     - name: Wake GitHub controller after approval or review
@@ -77,6 +89,7 @@ $:
           script: python3 .automation/wake.py
           timeout: 2m
   pull_request.target:
+    - *controller-wake
     - name: Paired review gate
       runner: { cpus: 1 }
       docker:

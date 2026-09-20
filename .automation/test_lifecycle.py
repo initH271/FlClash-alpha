@@ -8,6 +8,21 @@ import wake
 
 
 class LifecycleTests(unittest.TestCase):
+    def test_watchdog_and_trusted_pr_event_wake_full_controller(self):
+        for event in ('crontab: */15 * * * *', 'pull_request.target'):
+            with (patch.dict(os.environ, {'CNB_EVENT': event}),
+                  patch.object(wake, 'dispatch') as dispatch, patch.object(wake, 'api') as api):
+                wake.wake()
+                dispatch.assert_called_once()
+                api.assert_not_called()
+
+    def test_security_developer_report_wakes_but_owner_dispatch_does_not_loop(self):
+        issue = {'state': 'open', 'body': '<!-- flclash-security-group {} -->'}
+        for author, expected in (({'username': '507space/FlClash-alpha(开发助手)', 'is_npc': True}, True),
+                                 ({'username': 'Aharon', 'is_npc': False}, False),
+                                 ({'username': 'visitor', 'is_npc': True}, False)):
+            self.assertEqual(expected, wake.should_wake(issue, {'author': author, 'body': '阶段报告'}))
+
     def test_only_owner_approval_or_known_npc_report_wakes_controller(self):
         issue = {'state': 'open', 'body': '<!-- flclash-upstream {"tag":"v0.8.98"} -->'}
         owner = {'username': 'Aharon', 'is_npc': False}

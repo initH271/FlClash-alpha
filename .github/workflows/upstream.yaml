@@ -31,6 +31,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Check credentials
+        id: credentials
         run: |
           test -n "$CNB_AUTOMATION_TOKEN" || { echo 'Configure CNB_AUTOMATION_TOKEN before enabling controller'; exit 1; }
           test -n "$UPSTREAM_APPROVAL_KEY"
@@ -46,8 +47,11 @@ jobs:
         if: inputs.operation != 'preflight'
         run: python3 .automation/reviews.py reconcile
       - name: Recover failed NPC tasks once
-        if: github.event.schedule == '*/15 * * * *' || inputs.operation == 'all' || inputs.operation == 'recovery'
+        if: always() && steps.credentials.outcome == 'success' && inputs.operation != 'preflight'
         run: python3 .automation/npc_recovery.py
+      - name: Continue security repairs and fill available slots
+        if: always() && steps.credentials.outcome == 'success' && inputs.operation != 'preflight'
+        run: python3 .automation/security_queue.py
       - name: Process owner approvals
         if: github.event.schedule == '*/15 * * * *' || inputs.operation == 'all' || inputs.operation == 'approvals'
         run: python3 .automation/control.py approvals

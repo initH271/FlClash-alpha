@@ -14,9 +14,30 @@ Old component Issues are linked and closed as consolidated (`not_planned`), neve
 reported as fixed merely because they were consolidated. Manual notes outside the
 managed scan snapshot are preserved.
 
-Each group has one branch and developer task. An open group PR or running developer
-prevents a second worker; at most two groups start per scan. Identical advisory sets
-are not repeatedly dispatched. Closing a master Issue manually pauses it. A group
+Each group has one branch and a persistent signed dispatch receipt in its master
+Issue. The controller reads developer executions from both the master Issue and
+its same-repository repair PR. At most two groups may have running or unconfirmed
+workers; untouched groups take available slots before failed groups are retried.
+Daily scanning updates the inventory; the controller can advance that existing
+inventory without rescanning or waiting until the next day. Identical advisory
+sets receive at most an initial dispatch and one automatic continuation. A new
+commit does not reset the continuation budget. Manually summoned platform workers
+are observed but are not included in that automatic dispatch budget.
+
+A failed run without a report may continue from the existing branch/PR after its
+terminal status is checked. A second failure becomes a visible manual-action state.
+A merged PR waits for a complete main-branch scan; a closed unmerged PR does not
+restart automatically. Running workers exceeding 30 minutes remain reserved and
+are shown as stalled; this version never launches a competing worker or kills a
+run based only on elapsed time. A dispatch without a platform receipt also keeps
+its slot until manually resolved. Managed progress text preserves manual notes
+and scan signatures. Reconciliation is serialized with the existing GitHub
+controller concurrency group; it must not be run concurrently outside that group.
+
+Developer prompts request one bounded phase, an existing branch checkpoint and
+actual test evidence. The 12-tool/5-minute prompt is advisory; maxTurns remains
+the platform's enforced bound. These are not yet a hard token/credit cap or a
+fully automatic multi-phase implementation engine. Closing a master Issue manually pauses it. A group
 automatically closed after a clean scan reopens when new findings appear.
 
 The development NPC must verify primary advisories, actual selected versions,

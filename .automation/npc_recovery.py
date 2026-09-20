@@ -5,7 +5,7 @@ import re
 from control import CNB, POLICY, api, comment, pages, parse_request, sign, verify
 from reviews import ROLES, identity, request_from
 from security_watch import record
-from security_groups import repair_branch
+from security_groups import GROUPS, repair_branch
 
 
 def owner(item):
@@ -23,6 +23,8 @@ def task(issue):
             '只有完成审核且无阻断才能使用下面的 pass/0；否则改为 block 并列证据。'
             f'最终必须单独一行输出，不放代码块：\nFLCLASH_REVIEW {sample}\n')
     security = record(issue)
+    if security and security.get('group') in GROUPS:
+        return None
     if security:
         return security['key'], ('开发助手',), True, (
             f'继续评估 `{security["package"]}`（`{security["file"]}`），'

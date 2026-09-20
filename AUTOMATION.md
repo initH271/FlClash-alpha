@@ -169,8 +169,7 @@ New base/head means a new review; old passes cannot authorize candidate promotio
 GitHub main requires the FlClash/paired-review status and an up-to-date branch.
 CNB pull_request.target runs the target branch's gate, waiting up to 30 minutes
 for both reports. Its existing required-status-check protection blocks merging.
-After a timeout or a corrected blocking report, rerun the CNB PR gate. No automatic
-repair loop or review retry is enabled. The one-CPU waiting runner can consume up
+After a timeout or a corrected blocking report, rerun the CNB PR gate. One bounded recovery is available for failed trusted tasks without a report. The one-CPU waiting runner can consume up
 to 0.5 core-hours per CNB PR event; GitHub result polling uses the existing schedule.
 
 Candidate construction no longer dispatches a release build immediately. The
@@ -188,3 +187,37 @@ GLM should finish evidence gathering by approximately turn 45 or eight minutes,
 then reserve the remaining budget for its report. Batch related reads and reuse
 verified facts. An incomplete review must report uncertainty and cannot pass;
 this is a prompt-level stopping strategy, not a guaranteed pre-timeout callback.
+
+
+## Controller wakeup and security queue
+
+The main-branch CNB 15-minute schedule now runs a separate one-CPU controller
+wakeup alongside artifact mirroring. Trusted `pull_request.target` events wake
+the same controller immediately. These dispatch `operation=all`, so recovery and
+queue advancement are not skipped as they were by approvals-only dispatches.
+Known security developer reports also wake the controller through issue comments.
+GitHub's schedule remains a secondary trigger. CNB PR closure, silent NPC failures
+and CI completion are discovered by the watchdog; they are not direct completion
+webhooks in this version. An unsuccessful dispatch fails visibly in CNB.
+
+Deployment prerequisite: in the existing private `github-dispatch.yml` KeyStore,
+retain the exact repository and `main` branch restrictions and token value, and
+allow only these additional events alongside `issue.comment`:
+
+```yaml
+allow_events:
+  - issue.comment
+  - 'crontab: */15 * * * *'
+  - pull_request.target
+```
+
+Never authorize ordinary `pull_request` or source-branch execution to import this
+credential. The GitHub controller independently validates signed work records.
+CNB's synchronous review gate remains in this first rollout: the trusted PR event
+now starts reviewers, but replacing long polling with asynchronous status updates
+is a separate migration requiring branch-protection validation.
+
+Security queue reconciliation runs even if review reconciliation fails, provided
+credentials passed validation. It uses signed dispatch receipts, checks both
+Issue and PR developer attempts, preserves a two-group execution limit and exposes
+blocked/stalled states in the master Issue. It cannot merge or publish repairs.
