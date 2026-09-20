@@ -18,8 +18,10 @@ def evidence(request):
         return result.stdout.strip() if result.returncode == 0 else None
     rows = [{'path': path, 'ancestor_blob': blob(ancestor, path), 'head_blob': blob(head, path)} for path in files[:30]]
     merge = git('merge-tree', '--write-tree', base, head, check=False)
+    if merge.returncode not in (0, 1):
+        raise RuntimeError('git merge-tree could not produce review evidence')
     return {'merge_base': ancestor, 'total_files': len(files), 'paths_without_blobs': files[30:],
-            'files': rows, 'merge_conflict': merge.returncode != 0,
+            'files': rows, 'merge_conflict': merge.returncode == 1,
             'merged_tree': merge.stdout.splitlines()[0] if merge.returncode == 0 else None}
 
 

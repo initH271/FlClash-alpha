@@ -31,3 +31,16 @@ class ReviewEvidenceTests(unittest.TestCase):
         with patch.object(evidence, 'git') as git, self.assertRaises(ValueError):
             evidence.evidence({'platform': 'cnb', 'base': 'main', 'head': 'b' * 40})
         git.assert_not_called()
+
+    def test_content_conflict_is_distinct_from_fatal_git_failure(self):
+        request = {'platform': 'cnb', 'base': 'a' * 40, 'head': 'b' * 40}
+        for code in (1, 128):
+            with patch.object(evidence, 'git', side_effect=['', 'c' * 40, '',
+                    types.SimpleNamespace(returncode=code, stdout='d' * 40 + '\n')]):
+                if code == 1:
+                    result = evidence.evidence(request)
+                    self.assertTrue(result['merge_conflict'])
+                    self.assertIsNone(result['merged_tree'])
+                else:
+                    with self.assertRaises(RuntimeError):
+                        evidence.evidence(request)
