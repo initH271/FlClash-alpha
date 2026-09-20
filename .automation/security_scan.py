@@ -4,13 +4,30 @@ import json
 import os
 import pathlib
 import re
+import ssl
 import subprocess
+import time
 import tomllib
+import urllib.error
 
 from control import api
 from security_groups import GROUPS, group_for
 
 LOCKS = ('services/helper/Cargo.lock', 'plugins/rust_api/rust/Cargo.lock')
+
+
+def osv_query(url, method='GET', data=None):
+    if not url.startswith('https://api.osv.dev/v1/') or method not in ('GET', 'POST'):
+        raise ValueError('Only OSV read queries may be retried')
+    for attempt in range(3):
+        try:
+            return api(url, method, data)
+        except (urllib.error.URLError, TimeoutError, ConnectionError, ssl.SSLEOFError) as error:
+            reason = error.reason if isinstance(error, urllib.error.URLError) else error
+            if not isinstance(reason, (TimeoutError, ConnectionError, ssl.SSLEOFError)) or attempt == 2:
+                raise
+            print(f'Transient OSV connection failure; retry {attempt + 1}/2')
+            time.sleep(2 ** (attempt + 1))
 
 
 def json_stream(text):
@@ -64,7 +81,7 @@ def scan(root):
         batch = packages[offset:offset + 100]
         queries = [{'package': {'name': p['name'], 'ecosystem': p['ecosystem']},
                     'version': p['version']} for p in batch]
-        results = api('https://api.osv.dev/v1/querybatch', 'POST', {'queries': queries})['results']
+        results = osv_query('https://api.osv.dev/v1/querybatch', 'POST', {'queries': queries})['results']
         if len(results) != len(batch):
             raise ValueError('Incomplete vulnerability response')
         for package, result in zip(batch, results):
@@ -75,7 +92,7 @@ def scan(root):
             for entry in result.get('vulns', []):
                 identifier = entry['id']
                 if identifier not in details:
-                    details[identifier] = api(f'https://api.osv.dev/v1/vulns/{identifier}')
+                    details[identifier] = osv_query(f'https://api.osv.dev/v1/vulns/{identifier}')
                 advisory = details[identifier]
                 if advisory.get('withdrawn'):
                     continue
