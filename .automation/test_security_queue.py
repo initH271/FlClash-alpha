@@ -98,7 +98,9 @@ class SecurityQueueTests(unittest.TestCase):
         def api(url, method='GET', data=None):
             return next(i for i in issues if url.endswith('/' + i['number'])) if method == 'GET' else None
         with (patch.object(queue, 'pages', side_effect=pages), patch.object(queue, 'api', side_effect=api),
-              patch.object(queue, 'comment') as comment):
+              patch.object(queue, 'comment') as comment,
+              patch.object(queue.datetime, 'datetime', wraps=datetime.datetime) as clock):
+            clock.now.return_value = self.now
             queue.reconcile()
             self.assertEqual(1, comment.call_count)
             self.assertEqual('28', comment.call_args.args[0])
