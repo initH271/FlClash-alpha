@@ -34,9 +34,20 @@ main:
           timeout: 15m
         - name: Rescan actual versions and verify repaired dependency
           script: |
+            cd "$CNB_BUILD_WORKSPACE"
             apt-get update -qq
             apt-get install -y --no-install-recommends python3
-            python3 .automation/security_scan.py . /tmp/security-pr-report.json --repair-branch "$CNB_PULL_REQUEST_BRANCH"
+            case "$CNB_PULL_REQUEST_BRANCH" in
+              security/group-*|refs/heads/security/group-*)
+                baseline_root=$(mktemp -d /tmp/flclash-security-base.XXXXXX)
+                git clone --no-checkout --shared "$CNB_BUILD_WORKSPACE" "$baseline_root"
+                git -C "$baseline_root" checkout --detach "$CNB_PULL_REQUEST_TARGET_SHA"
+                git -C "$baseline_root" submodule update --init --recursive
+                python3 .automation/security_scan.py "$baseline_root" /tmp/security-baseline.json
+                python3 .automation/security_scan.py . /tmp/security-pr-report.json --baseline /tmp/security-baseline.json --repair-branch "$CNB_PULL_REQUEST_BRANCH"
+                ;;
+              *) python3 .automation/security_scan.py . /tmp/security-pr-report.json --repair-branch "$CNB_PULL_REQUEST_BRANCH" ;;
+            esac
           timeout: 10m
     - name: Rust dependency regression tests
       runner: { cpus: 2 }
