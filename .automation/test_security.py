@@ -1,6 +1,8 @@
 import json
 import os
+import ssl
 import unittest
+import urllib.error
 from unittest.mock import patch
 
 import security_scan as scan
@@ -9,6 +11,35 @@ from security_groups import payload_for
 
 
 class SecurityTests(unittest.TestCase):
+    def test_osv_tls_eof_retries_read_query_without_changing_payload(self):
+        payload = {'queries': []}
+        failure = urllib.error.URLError(ssl.SSLEOFError('connection closed'))
+        with patch.object(scan, 'api', side_effect=[failure, {'results': []}]) as api, patch.object(scan.time, 'sleep'):
+            self.assertEqual({'results': []}, scan.osv_query('https://api.osv.dev/v1/querybatch', 'POST', payload))
+            self.assertEqual(2, api.call_count)
+            self.assertEqual(api.call_args_list[0], api.call_args_list[1])
+
+    def test_osv_exhausted_network_retries_fail_instead_of_reporting_clean(self):
+        with patch.object(scan, 'api', side_effect=TimeoutError) as api, patch.object(scan.time, 'sleep'):
+            with self.assertRaises(TimeoutError):
+                scan.osv_query('https://api.osv.dev/v1/querybatch', 'POST', {})
+            self.assertEqual(3, api.call_count)
+
+    def test_osv_certificate_and_application_errors_are_not_retried(self):
+        for error in (urllib.error.URLError(ssl.SSLCertVerificationError('invalid certificate')),
+                      RuntimeError('HTTP 403'), ValueError('invalid JSON')):
+            with patch.object(scan, 'api', side_effect=error) as api, patch.object(scan.time, 'sleep') as sleep:
+                with self.assertRaises(type(error)):
+                    scan.osv_query('https://api.osv.dev/v1/vulns/GO-1')
+                self.assertEqual(1, api.call_count)
+                sleep.assert_not_called()
+
+    def test_osv_retries_cannot_be_used_for_platform_writes(self):
+        with patch.object(scan, 'api') as api:
+            with self.assertRaises(ValueError):
+                scan.osv_query('https://api.cnb.cool/repo/-/issues', 'POST', {})
+            api.assert_not_called()
+
     def finding(self, identifier='GO-1', aliases=None, version='v1.0.0'):
         return {'file': 'core/go.mod', 'ecosystem': 'Go', 'name': 'example.org/module',
                 'version': version, 'id': identifier, 'aliases': aliases or ['CVE-2026-1234', identifier],
