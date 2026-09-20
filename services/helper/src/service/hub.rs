@@ -739,11 +739,16 @@ where
 {
     ensure_core_sha256_configured()?;
 
-    let (_, server) = warp::serve(routes())
-        .try_bind_with_graceful_shutdown(([127, 0, 0, 1], LISTEN_PORT), shutdown)
-        .map_err(|error| anyhow::anyhow!("bind helper server: {error}"))?;
+    let listener =
+        tokio::net::TcpListener::bind(std::net::SocketAddr::from(([127, 0, 0, 1], LISTEN_PORT)))
+            .await
+            .map_err(|error| anyhow::anyhow!("bind helper server: {error}"))?;
     on_started()?;
-    server.await;
+    warp::serve(routes())
+        .incoming(listener)
+        .graceful(shutdown)
+        .run()
+        .await;
     release_managed_core_on_shutdown();
 
     Ok(())
@@ -752,6 +757,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use http_body_util::BodyExt;
     use std::io::Write;
 
     static PROCESS_STATE: Mutex<()> = Mutex::new(());
@@ -842,9 +848,7 @@ mod tests {
             PROTOCOL_VERSION
         );
         assert_eq!(
-            warp::hyper::body::to_bytes(response.into_body())
-                .await
-                .unwrap(),
+            response.into_body().collect().await.unwrap().to_bytes(),
             "FlClashHelperService.exe"
         );
     }
@@ -859,9 +863,7 @@ mod tests {
             PROTOCOL_VERSION
         );
         assert_eq!(
-            warp::hyper::body::to_bytes(response.into_body())
-                .await
-                .unwrap(),
+            response.into_body().collect().await.unwrap().to_bytes(),
             "Core executable SHA256 mismatch"
         );
     }
@@ -963,12 +965,9 @@ mod tests {
         let response = launch_failure_response(&Error::from_raw_os_error(577));
 
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
-        let body: serde_json::Value = serde_json::from_slice(
-            &warp::hyper::body::to_bytes(response.into_body())
-                .await
-                .unwrap(),
-        )
-        .unwrap();
+        let body: serde_json::Value =
+            serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes())
+                .unwrap();
         assert_eq!(body["code"], "processLaunchFailed");
         assert_eq!(body["details"]["osError"], 577);
     }
@@ -977,12 +976,9 @@ mod tests {
     async fn a_launch_failure_without_an_os_error_omits_the_details() {
         let response = launch_failure_response(&Error::other("spawn refused"));
 
-        let body: serde_json::Value = serde_json::from_slice(
-            &warp::hyper::body::to_bytes(response.into_body())
-                .await
-                .unwrap(),
-        )
-        .unwrap();
+        let body: serde_json::Value =
+            serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes())
+                .unwrap();
         assert_eq!(body["message"], "spawn refused");
         assert!(body.get("details").is_none());
     }
