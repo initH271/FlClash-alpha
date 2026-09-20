@@ -154,7 +154,8 @@ def close_finished_reviews():
         if platform not in ('github', 'cnb') or not str(number).isdigit():
             continue
         pull = api(f'{endpoint(platform)}/pulls/{number}')
-        if pull['state'] not in ('closed', 'merged'):
+        superseded = (pull['state'] == 'open' and scope(platform, pull) != request)
+        if pull['state'] not in ('closed', 'merged') and not superseded:
             continue
         merged = bool(pull.get('merged') or pull.get('is_merged') or pull['state'] == 'merged')
         api(f'{CNB}/issues/{issue["number"]}', 'PATCH', {

@@ -154,7 +154,8 @@ void main() {
     await tester.pump();
 
     expect(find.byType(AboutView), findsOneWidget);
-    expect(find.text('Telegram'), findsOneWidget);
+    expect(find.text('Telegram'), findsNothing);
+    expect(find.text('FlClash-alpha'), findsOneWidget);
     expect(tester.takeException(), null);
 
     final scrollables = find.byType(Scrollable);
@@ -164,6 +165,8 @@ void main() {
         await tester.pump();
       }
     }
+    expect(find.textContaining('GitHub'), findsOneWidget);
+    expect(find.textContaining('CNB'), findsOneWidget);
     expect(tester.takeException(), null);
   });
 
