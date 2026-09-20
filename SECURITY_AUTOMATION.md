@@ -78,4 +78,54 @@ Automatic repair PRs are opened on CNB, where required status checks enforce bot
 the scan and regression tests. GitHub's additional PR scan is diagnostic; its result
 is not a new required branch-protection context, because bot-created upstream PRs
 do not emit ordinary pull_request workflow events. It does not replace CNB's repair
-PR gate. Approval to merge or publish dependency repairs is not granted by this monitor.
+PR gate. The owner has enabled `security_auto_merge` for compatible, dependency-only
+repairs. NPCs still cannot merge or release; the trusted controller is the only
+automatic merger, and APK publication is not authorized by this policy.
+
+
+## Verified completion and further repair rounds
+
+The signed inventory records its scanned main SHA. A merged repair only allows a
+new advisory revision to start after GitHub confirms that the repaired head is an
+ancestor of that scan. Earlier execution statuses are excluded from the new round;
+an unchanged advisory set cannot reset an already consumed continuation budget.
+A manually closed, unmerged PR remains paused. Compatible groups may refresh their
+branches by a conflict-free ordinary merge of main when no developer is running.
+
+`security_finish.py` serializes completion with the existing controller lock:
+
+1. Only same-repository, non-draft `security/group-*` PRs linked to a signed open
+   master Issue are candidates. Allowed files are core/go.mod + go.sum or the
+   group's Cargo.lock. Toolchain/replace changes, manifest/source/CI edits, version
+   downgrades, major upgrades, 0.x minor upgrades and ambiguous multi-version Rust
+   transitions require manual review. A go.sum-only edit is not auto-merged.
+2. Both signed current-scope NPC reports must pass. The native vulnerability,
+   Go, Rust and paired-review checks must all exist and succeed. The tested
+   pre-merge commit tree must equal `git merge-tree` for the current base/head.
+3. The controller rechecks the PR before and after approving and uses normal CNB
+   merge with force=false. CNB's merge API has no expected-head parameter, so the
+   final server-side protection checks remain essential; protection is never
+   disabled. One merge is processed per pass, with mirrors completed before another.
+4. A signed GitHub mirror PR preserves CNB history. The GitHub merge uses its
+   expected SHA. Only identical baseline AND result trees, a valid signed mirror,
+   same-repository branch, and original successful paired-review/CI evidence allow
+   review reuse. Otherwise ordinary GitHub review is required. There is no synthetic
+   NPC report and no APK rebuild. Out-of-policy mirror changes are explicitly reported.
+5. GitHub main is fast-forwarded back to CNB without checkout of PR code. A complete
+   scan is requested once per current main; running/successful scans deduplicate it,
+   and two failed runs stop with an explicit controller error. Scan results alone
+   close fixed master Issues; remaining findings stay open.
+
+An unsuccessful read fails visibly and is reconciled on the next pass. An
+uncertain CNB approval/merge response records one stop notice for that head; the
+controller will not repeatedly write reviews or retry a permission failure.
+Dispatching a new workflow with GitHub's token is explicit because token-created
+PRs do not automatically emit all workflow events. The existing CNB automation
+token needs PR read/write and review permission in addition to its scan/Issue scopes;
+missing permission is a deployment failure, not a reason to bypass a gate.
+
+Both trusted controller workflows run the Python test suite before any mutation.
+Hard model-token/credit caps and replacing the CNB waiting runner with a native
+asynchronous status integration remain separate work; this implementation does
+not claim either feature. The 30-minute gate can accept a corrected report while
+waiting, but a final timeout still requires a gate rerun.

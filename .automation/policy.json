@@ -12,5 +12,6 @@
     ".cnb/",
     ".cnb.yml",
     ".automation/"
-  ]
+  ],
+  "security_auto_merge": true
 }

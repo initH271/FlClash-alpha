@@ -22,6 +22,34 @@ class ReviewGateTests(unittest.TestCase):
         self.assertEqual('pending', reviews.result(self.request, self.issue, reports[:1]))
         self.assertEqual('success', reviews.result(self.request, self.issue, reports))
 
+    def test_disagreement_gets_one_reconsideration_without_overriding_verdict(self):
+        reports = [self.report(reviews.ROLES[0], 'block', 1), self.report(reviews.ROLES[1])]
+        issue = dict(self.issue, number='42')
+        with (patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'}),
+              patch.object(reviews, 'describe', return_value='verified diff evidence'),
+              patch.object(reviews, 'api') as api):
+            reviews.reconsider(self.request, issue, reports)
+            self.assertEqual(1, api.call_count)
+            body = api.call_args.args[2]['body']
+            reports.append({'id': '3', 'created_at': '2026-09-20T00:02:00Z', 'body': body,
+                            'author': {'username': 'Aharon', 'is_npc': False}})
+            api.reset_mock()
+            reviews.reconsider(self.request, issue, reports)
+            api.assert_not_called()
+            self.assertEqual('failure', reviews.result(self.request, issue, reports))
+
+    def test_malformed_report_is_retried_but_matching_blockers_are_not(self):
+        issue = dict(self.issue, number='42')
+        with (patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'}),
+              patch.object(reviews, 'describe', return_value='verified diff evidence'),
+              patch.object(reviews, 'api') as api):
+            reports = [self.report(role, 'block', 1) for role in reviews.ROLES]
+            reviews.reconsider(self.request, issue, reports)
+            api.assert_not_called()
+            reports[0]['body'] = 'Review complete, but forgot machine format'
+            reviews.reconsider(self.request, issue, reports)
+            self.assertEqual(1, api.call_count)
+
     def test_renaming_issue_preserves_signed_identity_and_avoids_duplicate_review(self):
         with patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'}):
             issue = {'number': '3', 'title': '人工修改过的标题',

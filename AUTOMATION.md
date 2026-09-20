@@ -221,3 +221,24 @@ Security queue reconciliation runs even if review reconciliation fails, provided
 credentials passed validation. It uses signed dispatch receipts, checks both
 Issue and PR developer attempts, preserves a two-group execution limit and exposes
 blocked/stalled states in the master Issue. It cannot merge or publish repairs.
+
+
+## Review evidence and bounded reconsideration
+
+New review requests contain controller-generated merge-base, actual three-point
+changed-file paths, ancestor/head blob IDs and the merged tree (or conflict flag).
+No PR code is executed to compute this evidence. Invalid SHA stops evidence creation. For larger
+PRs the first 30 paths include blob IDs and remaining paths are explicitly listed
+without blobs; reviewers must disclose incomplete coverage rather than infer a pass.
+
+A malformed final report, or one blocking report opposed by the other reviewer's
+pass, gets at most one signed reconsideration request per role and fixed scope.
+It includes the same deterministic evidence and requires a corrected machine
+report; the controller never changes an NPC verdict itself. Two blocking reports
+remain blocked. Running reviewers are not duplicated. CNB's gate keeps checking
+until its existing deadline so an early malformed report can be corrected without
+immediately leaving a permanently failed check.
+
+Compatible security repair completion, mirror attestations and post-merge scans
+are described in SECURITY_AUTOMATION.md. Protected automation changes themselves
+are outside the auto-merge allowlist and require the normal reviewed rollout.
