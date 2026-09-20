@@ -83,6 +83,8 @@ def decision(payload, issue, comments, pull, pull_comments, now):
     if not rev:
         return 'assessment', scope, latest
     if latest and latest[1] in {'error', 'failure'}:
+        if pull and not pull.get('ci_failed'):
+            return 'pr-open', scope, latest
         if runs and any(data['phase'] == 'resume' for _, data in runs):
             return 'attention', scope, latest
         if any(c.get('author', {}).get('is_npc') is True
@@ -136,6 +138,11 @@ def reconcile():
         matching = [p for p in pulls if p['head']['ref'].removeprefix('refs/heads/') == repair_branch(payload)
                     and p['head']['repo']['path'] == POLICY['cnb']]
         pull = max(matching, key=lambda p: int(p['number']), default=None)
+        if pull and pull['state'] == 'open':
+            checks = api(f'{CNB}/pulls/{pull["number"]}/commit-statuses').get('statuses', [])
+            repair_checks = {'Dependency vulnerability gate', 'Go dependency regression tests', 'Rust dependency regression tests'}
+            pull['ci_failed'] = any(c['state'] in {'error', 'failure'}
+                and c['context'].split('(')[-1].rstrip(')') in repair_checks for c in checks)
         if pull and pull.get('is_merged') and re.fullmatch(r'[a-f0-9]{40}', payload.get('scan_sha', '')):
             comparison = api(f'{GH}/compare/{pull["head"]["sha"]}...{payload["scan_sha"]}')
             pull['included_in_scan'] = comparison['status'] in {'ahead', 'identical'}
