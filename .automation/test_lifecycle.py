@@ -27,7 +27,9 @@ class LifecycleTests(unittest.TestCase):
             request = {'platform': 'github', 'number': '2', 'base': 'a' * 40, 'head': 'b' * 40}
             issue = {'number': '3', 'author': {'username': 'Aharon', 'is_npc': False},
                      'body': '<!-- flclash-pr-review ' + json.dumps(reviews.sign(request)) + ' -->'}
-            for pull, expected in (({'state': 'open'}, None), ({'state': 'closed', 'merged': True}, 'completed'),
+            current = {'number': '2', 'state': 'open', 'base': {'sha': 'a' * 40}, 'head': {'sha': 'b' * 40}}
+            stale = dict(current, head={'sha': 'c' * 40})
+            for pull, expected in ((current, None), (stale, 'not_planned'), ({'state': 'closed', 'merged': True}, 'completed'),
                                    ({'state': 'closed', 'merged': False}, 'not_planned')):
                 def api(url, method='GET', data=None):
                     return pull if '/pulls/' in url else issue
