@@ -242,3 +242,12 @@ immediately leaving a permanently failed check.
 Compatible security repair completion, mirror attestations and post-merge scans
 are described in SECURITY_AUTOMATION.md. Protected automation changes themselves
 are outside the auto-merge allowlist and require the normal reviewed rollout.
+
+
+## Single merge authority
+
+GitHub is the only merge entrypoint for security repairs. CNB continues to run the
+native checks and independent NPC reviews, then receives the GitHub main mirror.
+No controller operation attempts to approve or merge its own CNB PR. Compatible
+repairs use a signed, exact-head GitHub forwarding PR; broader migrations use a
+normal reviewed GitHub integration PR. Branch protections remain enabled.

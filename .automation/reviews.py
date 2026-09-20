@@ -163,11 +163,16 @@ def reconcile():
             pull = api(f'{endpoint(platform)}/pulls/{pull["number"]}')
             request = scope(platform, pull)
             if platform == 'github':
-                from security_finish import mirror_attestation
+                from security_finish import mirror_attestation, mirror_record
                 attestation = mirror_attestation(pull)
                 if attestation:
                     github_results.setdefault(request['head'], []).append(('success', attestation))
                     print(f'GitHub PR #{request["number"]}: verified identical-tree CNB review and CI attestation')
+                    continue
+                forwarded = mirror_record(pull)
+                if forwarded and 'cnb_number' in forwarded:
+                    url = f'https://cnb.cool/{POLICY["cnb"]}/-/pulls/{forwarded["cnb_number"]}'
+                    github_results.setdefault(request['head'], []).append(('pending', url))
                     continue
             issue = ensure_request(request, pull['title'])
             comments = list(pages(f'{CNB}/issues/{issue["number"]}/comments'))

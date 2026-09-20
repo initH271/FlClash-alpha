@@ -143,9 +143,11 @@ def reconcile():
             repair_checks = {'Dependency vulnerability gate', 'Go dependency regression tests', 'Rust dependency regression tests'}
             pull['ci_failed'] = any(c['state'] in {'error', 'failure'}
                 and c['context'].split('(')[-1].rstrip(')') in repair_checks for c in checks)
-        if pull and pull.get('is_merged') and re.fullmatch(r'[a-f0-9]{40}', payload.get('scan_sha', '')):
+        if pull and pull['state'] != 'open' and re.fullmatch(r'[a-f0-9]{40}', payload.get('scan_sha', '')):
             comparison = api(f'{GH}/compare/{pull["head"]["sha"]}...{payload["scan_sha"]}')
             pull['included_in_scan'] = comparison['status'] in {'ahead', 'identical'}
+            if pull['included_in_scan']:
+                pull['is_merged'] = True
         comments = list(pages(f'{CNB}/issues/{issue["number"]}/comments'))
         pc = list(pages(f'{CNB}/pulls/{pull["number"]}/comments')) if pull else []
         phase, scope, latest = decision(payload, issue, comments, pull, pc, now)
