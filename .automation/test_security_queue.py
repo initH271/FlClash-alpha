@@ -60,6 +60,17 @@ class SecurityQueueTests(unittest.TestCase):
             self.pull.update(state='closed', is_merged=merged)
             self.assertEqual(expected, self.decide(pc=[self.attempt('error')], pull=self.pull)[0])
 
+    def test_post_merge_scan_starts_remaining_revision_without_old_attempts(self):
+        self.pull.update(state='closed', is_merged=True, included_in_scan=True,
+                         updated_at='2026-09-20T02:55:00Z')
+        self.assertEqual('start', self.decide(pc=[self.attempt('error')], pull=self.pull)[0])
+        self.assertEqual('running', self.decide(comments=[self.attempt('pending', '2026-09-20T02:59:00Z')], pull=self.pull)[0])
+
+    def test_unchanged_revision_after_merge_cannot_reset_retry_budget(self):
+        self.pull.update(state='closed', is_merged=True, included_in_scan=True,
+                         updated_at='2026-09-20T02:55:00Z')
+        self.assertEqual('attention', self.decide([self.checkpoint('resume')], pull=self.pull)[0])
+
     def test_untrusted_checkpoint_cannot_consume_retry_budget(self):
         item = self.checkpoint('resume')
         item['author']['username'] = 'visitor'
