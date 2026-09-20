@@ -245,7 +245,7 @@ def mirror():
             raise ValueError('Mirror branch was modified')
     else:
         head = git('commit-tree', tree, '-p', base, '-p', source, '-m', 'fix(security): 汇合依赖修复 [skip ci]')
-        git('push', 'origin', f'{head}:refs/heads/{branch}')
+        git('push', f'https://github.com/{POLICY["github"]}.git', f'{head}:refs/heads/{branch}')
     payload = {'base': base, 'source': source, 'head': head, 'tree': tree}
     api(f'{GH}/pulls', 'POST', {'base': 'main', 'head': branch,
         'title': 'fix(security): 同步已验证的兼容依赖修复',
