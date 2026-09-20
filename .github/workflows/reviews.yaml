@@ -23,4 +23,5 @@ jobs:
         with:
           ref: main
           persist-credentials: false
+      - run: python3 -m unittest discover -s .automation -p 'test_*.py'
       - run: python3 .automation/reviews.py reconcile

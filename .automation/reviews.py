@@ -6,6 +6,7 @@ import sys
 import time
 
 from control import CNB, GH, POLICY, all_issues, api, pages, sign, verify
+from review_evidence import describe
 
 CONTEXT = 'FlClash/paired-review'
 ROLES = ('审查助手', 'GLM复核助手')
@@ -38,9 +39,7 @@ def request_from(issue, signed=True):
         return None
 
 
-def result(request, issue, comments):
-    if issue['state'] != 'open':
-        return 'failure'
+def role_reports(request, issue, comments):
     latest = {}
     for comment in sorted(comments, key=lambda c: (c.get('created_at', ''), str(c.get('id', '')))):
         author = comment.get('author') or {}
@@ -51,18 +50,25 @@ def result(request, issue, comments):
             continue
         matches = re.findall(r'^FLCLASH_REVIEW (\{[^\r\n]+\})\s*$', comment.get('body', ''), re.M)
         if not matches:
-            latest[role] = 'block'
+            latest[role] = 'malformed'
             continue
         try:
             report = json.loads(matches[-1])
         except ValueError:
-            latest[role] = 'block'
+            latest[role] = 'malformed'
             continue
         if report.get('request') != identity(request):
             continue
         latest[role] = ('pass' if report.get('verdict') == 'pass'
                         and report.get('blockers') == 0 else 'block')
-    if 'block' in latest.values():
+    return latest
+
+
+def result(request, issue, comments):
+    if issue['state'] != 'open':
+        return 'failure'
+    latest = role_reports(request, issue, comments)
+    if any(value in ('block', 'malformed') for value in latest.values()):
         return 'failure'
     return 'success' if all(latest.get(role) == 'pass' for role in ROLES) else 'pending'
 
@@ -100,7 +106,7 @@ def ensure_request(request, title):
            else f'https://cnb.cool/{POLICY["cnb"]}/-/pulls/{number}')
     marker = '<!-- flclash-pr-review ' + json.dumps(sign(request)) + ' -->'
     sample = json.dumps({'request': identity(request), 'verdict': 'pass', 'blockers': 0})
-    body = (f'PR 自动结对审核：{url}\n\n{marker}\n\n'
+    body = (f'PR 自动结对审核：{url}\n\n{marker}\n\n' + describe(request) + '\n'
             f'固定 base `{request["base"]}`，head `{request["head"]}`。'
             '从 PR 公开 API 核对源仓库和提交，先独立审查实际 diff，再比较已有报告。'
             '只读；不运行 PR 中的代码、不安装依赖、不编译、不修改代码、不合并或发版，不召唤其他 NPC。'
@@ -121,6 +127,34 @@ def ensure_request(request, title):
     return issue
 
 
+def reconsider(request, issue, comments):
+    from npc_recovery import latest_attempts
+    latest = role_reports(request, issue, comments)
+    attempts = latest_attempts(issue, comments)
+    for role, status in latest.items():
+        if status not in ('block', 'malformed'):
+            continue
+        other = next(r for r in ROLES if r != role)
+        if status == 'block' and latest.get(other) != 'pass':
+            continue
+        checkpoint = {'request': identity(request), 'role': role, 'kind': 'reconsider'}
+        marker = '<!-- flclash-review-reconsider ' + json.dumps(sign(checkpoint)) + ' -->'
+        if any(c.get('author', {}).get('username') == POLICY['approver']
+               and c.get('author', {}).get('is_npc') is False and marker in c.get('body', '') for c in comments):
+            continue
+        attempt = attempts.get(role)
+        if attempt and api(f'{CNB}/build/status/{attempt[1]["sn"]}')['status'] not in ('success', 'error', 'failure'):
+            continue
+        sample = json.dumps({'request': identity(request), 'verdict': 'pass', 'blockers': 0})
+        body = (marker + '\n\n' + describe(request)
+                + f'@{POLICY["cnb"]}({role}) 报告格式不完整或双方结论有分歧，执行唯一一次有界复核。'
+                '最多8次工具调用；只核对实际差异和现有阻断，明确纠正已证实的事实错误。'
+                '不为了达成共识而通过；真实阻断保留，不能确认则报告block。'
+                '不等待另一位、不自行召唤。报告最后单独一行输出机器结论（无阻断时才使用下例）：\n'
+                + 'FLCLASH_REVIEW ' + sample)
+        api(f'{CNB}/issues/{issue["number"]}/comments', 'POST', {'body': body, 'work_mode': False})
+
+
 def reconcile():
     close_finished_reviews()
     github_results = {}
@@ -128,8 +162,18 @@ def reconcile():
         for pull in pages(f'{endpoint(platform)}/pulls?state=open', size_key='per_page' if platform == 'github' else 'page_size'):
             pull = api(f'{endpoint(platform)}/pulls/{pull["number"]}')
             request = scope(platform, pull)
+            if platform == 'github':
+                from security_finish import mirror_attestation
+                attestation = mirror_attestation(pull)
+                if attestation:
+                    github_results.setdefault(request['head'], []).append(('success', attestation))
+                    print(f'GitHub PR #{request["number"]}: verified identical-tree CNB review and CI attestation')
+                    continue
             issue = ensure_request(request, pull['title'])
-            status = result(request, issue, list(pages(f'{CNB}/issues/{issue["number"]}/comments')))
+            comments = list(pages(f'{CNB}/issues/{issue["number"]}/comments'))
+            status = result(request, issue, comments)
+            if issue['state'] == 'open':
+                reconsider(request, issue, comments)
             if platform == 'github':
                 url = f'https://cnb.cool/{POLICY["cnb"]}/-/issues/{issue["number"]}'
                 github_results.setdefault(request['head'], []).append((status, url))
@@ -181,8 +225,6 @@ def cnb_gate():
         status = state(request, signed=False)
         if status == 'success':
             return
-        if status == 'failure':
-            raise ValueError('Paired review blocked')
         time.sleep(30)
     raise ValueError('Paired review timed out; rerun after both reports pass')
 
