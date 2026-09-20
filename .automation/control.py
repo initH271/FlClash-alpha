@@ -369,6 +369,19 @@ def promote():
     sync_branch('main')
 
 
+def close_published_failures():
+    for issue in pages(f'{CNB}/issues?state=open'):
+        match = re.fullmatch(r'\[构建待处理\] GitHub #(\d+)', issue['title'])
+        author = issue.get('author') or {}
+        if not match or author.get('username') != POLICY['approver'] or author.get('is_npc') is not False:
+            continue
+        run = api(f'{GH}/actions/runs/{match[1]}')
+        source = re.fullmatch(r'Android ([0-9a-f]{40})(?: recovery)?', run['display_title'])
+        if source and git('merge-base', '--is-ancestor', source[1], 'HEAD', check=False).returncode == 0:
+            comment(issue['number'], '包含该候选历史的后继版本已通过验证并成功发布，关闭旧构建失败记录。')
+            api(f'{CNB}/issues/{issue["number"]}', 'PATCH', {'state': 'closed', 'state_reason': 'completed'})
+
+
 def notify_release():
     candidate_path = ROOT / '.automation/candidate.json'
     if candidate_path.exists():
@@ -377,6 +390,10 @@ def notify_release():
         if issue['state'] == 'open':
             comment(candidate['issue'], '测试、构建和固定签名检查通过，新版已发布到 GitHub，CNB 正在同步。手机更新请自行确认安装。')
             api(f'{CNB}/issues/{candidate["issue"]}', 'PATCH', {'state': 'closed', 'state_reason': 'completed'})
+    try:
+        close_published_failures()
+    except (RuntimeError, KeyError) as error:
+        print(f'Published successfully; old failure Issue cleanup needs retry: {error}')
     api(f'{CNB}/build/start', 'POST', {'branch': 'main', 'event': 'api_trigger', 'sync': 'false',
                                      'title': 'Mirror newly published signed release'})
 

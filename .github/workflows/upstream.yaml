@@ -7,7 +7,7 @@ on:
     inputs:
       operation:
         type: choice
-        options: [all, watch, approvals, scheduler, reviews, preflight]
+        options: [all, watch, approvals, scheduler, reviews, recovery, preflight]
         default: all
 permissions:
   contents: write
@@ -45,6 +45,9 @@ jobs:
       - name: Reconcile PR review gates
         if: inputs.operation != 'preflight'
         run: python3 .automation/reviews.py reconcile
+      - name: Recover failed NPC tasks once
+        if: github.event.schedule == '*/15 * * * *' || inputs.operation == 'all' || inputs.operation == 'recovery'
+        run: python3 .automation/npc_recovery.py
       - name: Process owner approvals
         if: github.event.schedule == '*/15 * * * *' || inputs.operation == 'all' || inputs.operation == 'approvals'
         run: python3 .automation/control.py approvals

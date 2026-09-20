@@ -140,6 +140,17 @@ older review scopes. Reports remain available; unrelated/upstream Issues are not
 closed. CNB closure detection uses the scheduled fallback. Reopening a PR with the
 same commits requires reopening its review Issue; manual closures are not undone.
 
+Reconciliation also closes review Issues superseded by a changed PR base/head.
+The controller checks failed NPC executions every 15 minutes (or with the manual
+`recovery` operation). Only trusted/signed tasks are eligible. A task/role gets one
+bounded retry if execution failed without a report; cancelled/running jobs and
+completed reports are not retried. Each controller pass starts at most two retries.
+A failed retry leaves one explicit stopped notice, without an infinite model loop.
+Recovery asks the NPC to reuse existing work and publish a partial report before
+its budget ends. These prompt budgets do not guarantee platform timeout enforcement.
+Old build-failure Issues close only after a successfully published descendant of
+their failed source commit; unrelated failures remain open.
+
 Reports must identify commit range, evidence, blockers, disagreements and
 unverified behavior. Reviewers first inspect code themselves, then compare
 reports. They must not summon each other or loop through repeated reviews.
