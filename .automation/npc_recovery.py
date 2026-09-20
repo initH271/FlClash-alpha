@@ -5,6 +5,7 @@ import re
 from control import CNB, POLICY, api, comment, pages, parse_request, sign, verify
 from reviews import ROLES, identity, request_from
 from security_watch import record
+from security_groups import repair_branch
 
 
 def owner(item):
@@ -25,8 +26,8 @@ def task(issue):
     if security:
         return security['key'], ('开发助手',), True, (
             f'继续评估 `{security["package"]}`（`{security["file"]}`），'
-            f'复用已有 `security/fix-{security["key"][:12]}` 分支，先检查远端是否已有提交或 PR，不覆盖人工修改。'
-            '只做兼容范围内的最小修复。无修复版本、需要升级工具链或跨大版本时立即报告并停止。'
+            f'复用已有 `{repair_branch(security)}` 分支，先检查远端是否已有提交或 PR，不覆盖人工修改。'
+            '统一处理组内依赖，不另开单包任务。允许有证据的部分修复，暂无修复的条目保留；整组需要变更工具链或跨大版本时停止并报告。'
             '保留已完成改动；验证不完整可提交草稿 PR 并明确未验证项，不得声称修复完成。')
     if owner(issue):
         try:

@@ -6,15 +6,13 @@ import sys
 
 from control import CNB, GH, POLICY, all_issues, api, comment, sign, verify
 from security_scan import key
-
-MARKER = 'flclash-security'
-
+from security_groups import GROUPS, group_for, payload_for, repair_branch
 
 def record(issue):
     author = issue.get('author') or {}
     if author.get('username') != POLICY['approver'] or author.get('is_npc') is not False:
         return None
-    match = re.search(r'<!-- flclash-security (\{[^\r\n]+\}) -->', issue.get('body', ''))
+    match = re.search(r'<!-- flclash-security(?:-group)? (\{[^\r\n]+\}) -->', issue.get('body', ''))
     if not match:
         return None
     try:
@@ -26,8 +24,9 @@ def record(issue):
 def groups(report):
     result = {}
     for finding in report['findings']:
-        group = result.setdefault(key(finding), [])
-        if not any(set(f['aliases']) & set(finding['aliases']) and f['version'] == finding['version'] for f in group):
+        group = result.setdefault(group_for(finding), [])
+        if not any(key(f) == key(finding) and set(f['aliases']) & set(finding['aliases'])
+                   and f['version'] == finding['version'] for f in group):
             group.append(finding)
     return result
 
@@ -49,73 +48,154 @@ def cnb_risks():
     raise ValueError('CNB findings pagination exceeded limit')
 
 
+def scan_history(previous, findings, unscanned):
+    unknown = {key(p) for p in unscanned}
+    rows = [dict(f, state='待评估（扫描命中）') for f in findings]
+    for old in previous:
+        if any(key(old) == key(f) and set(old['aliases']) & set(f['aliases']) for f in findings):
+            continue
+        rows.append(dict(old, state='待核实（无索引替换）' if key(old) in unknown else '复扫未命中'))
+    return rows
+
+
+def snapshot_body(issue, payload, report):
+    rows = payload['history']
+    table = '| 组件 | 漏洞 | 扫描状态 | 修复版本候选 |\n|---|---|---|---|\n'
+    table += '\n'.join(f'| `{f["name"]}` | [{f["id"]}]({f["url"]}) | {f["state"]} | '
+                       f'{", ".join(f["fixed"]) or "暂无"} |' for f in rows)
+    block = (f'<!-- security-snapshot:start -->\n当前复扫提交：`{report["sha"]}`。'
+             '扫描命中不等于可利用；不可达、暂无修复和待确认项须逐条给证据。\n\n'
+             + table + '\n<!-- security-snapshot:end -->')
+    body = issue.get('body', '')
+    if '<!-- security-snapshot:start -->' in body:
+        body = re.sub(r'<!-- security-snapshot:start -->.*?<!-- security-snapshot:end -->',
+                      lambda _: block, body, flags=re.S)
+    else:
+        body += '\n\n' + block
+    body = re.sub(r'<!-- flclash-security-group .*? -->', '', body)
+    return body.rstrip() + '\n\n<!-- flclash-security-group ' + json.dumps(sign(payload)) + ' -->'
+
+
+def migrate_legacy(legacy, parents):
+    for issue, payload in legacy:
+        slug = group_for(payload)
+        if slug not in parents or issue['state'] != 'open':
+            continue
+        parent = parents[slug]
+        comment(issue['number'], f'已归并到统一任务 #{parent}：https://cnb.cool/{POLICY["cnb"]}/-/issues/{parent}。'
+                '原漏洞、讨论和证据保留；此记录因归并关闭，不表示漏洞已修复。')
+        api(f'{CNB}/issues/{issue["number"]}', 'PATCH', {'state': 'closed', 'state_reason': 'not_planned'})
+
+
+def unresolved_group(payload, report):
+    return (any(row['state'] != '复扫未命中' for row in payload['history'])
+            or bool(set(payload.get('component_keys', [])) & {key(p) for p in report['unscanned']}))
+
+
+def active_developer(issue, comments):
+    state = None
+    for item in [issue] + sorted(comments, key=lambda c: (c.get('created_at', ''), int(c['id']))):
+        for entry in (item.get('statuses') or {}).get('npc', []):
+            context = entry.get('context') or {}
+            if context.get('npc.slug') == POLICY['cnb'] and context.get('npc.name') == '开发助手':
+                statuses = entry.get('statuses') or []
+                if statuses:
+                    state = statuses[-1].get('state')
+    return state is not None and state not in ('success', 'error', 'failure', 'cancel', 'cancelled')
+
+
 def monitor(report):
     if report.get('complete') is not True or report.get('schema') != 1:
-        raise ValueError('Incomplete scan cannot create or close security work')
+        raise ValueError('Incomplete scan cannot update security tasks')
     if api(f'{GH}/git/ref/heads/main')['object']['sha'] != report['sha']:
         raise ValueError('Main changed after scanning; rerun before updating security Issues')
-    active = groups(report)
+    from control import pages
+    active, existing, legacy = groups(report), {}, []
     risks = cnb_risks()
-    existing = {}
     for item in all_issues():
         issue = api(f'{CNB}/issues/{item["number"]}')
         payload = record(issue)
-        if payload:
-            existing[payload['key']] = (issue, payload)
-    scanned = {key(p) for p in report['packages']}
-    unknown = {key(p) for p in report['unscanned']}
-    for identity, (issue, payload) in existing.items():
-        if issue['state'] == 'open' and identity not in active and identity not in unknown:
-            comment(issue['number'], f'当前 main `{report["sha"]}` 完整 OSV 复扫未再发现该依赖的已知漏洞。'
-                    + ('已核对解析版本。' if identity in scanned else '该依赖已不在本次完整清单中。')
-                    + '关闭跟踪记录；这不代表所有平台行为已经实测。')
-            api(f'{CNB}/issues/{issue["number"]}', 'PATCH', {'state': 'closed', 'state_reason': 'completed'})
+        if not payload:
+            continue
+        if payload.get('group') in GROUPS:
+            current = existing.get(payload['group'])
+            rank = lambda i: (i['state'] == 'open', int(i['number']))
+            if not current or rank(issue) > rank(current[0]):
+                existing[payload['group']] = (issue, payload)
+        else:
+            legacy.append((issue, payload))
+    pulls = list(pages(f'{CNB}/pulls?state=open'))
+    parents, dispatched = {}, 0
     def priority(entry):
-        findings = entry[1]
-        levels = [risks.get((f['file'], a), '') for f in findings for a in f['aliases']]
-        return min([{'fatal': 0, 'error': 1, 'warning': 2, 'info': 3}.get(v, 4) for v in levels] or [4])
-    dispatched, created = 0, 0
-    for identity, findings in sorted(active.items(), key=priority):
-        old = existing.get(identity)
-        aliases = sorted({a for f in findings for a in f['aliases']})
-        if old and old[0]['state'] == 'closed':
+        findings = active.get(entry[0], [])
+        levels = [{'fatal': 0, 'error': 1, 'warning': 2, 'info': 3}.get(risks.get((f['file'], a)), 4)
+                  for f in findings for a in f['aliases']]
+        levels += [{'CRITICAL': 0, 'HIGH': 1, 'MODERATE': 2, 'MEDIUM': 2, 'LOW': 3}.get(
+            str(f.get('severity', '')).upper(), 4) for f in findings]
+        return min(levels or [5])
+    for slug, (title, path, _) in sorted(GROUPS.items(), key=priority):
+        findings = active.get(slug, [])
+        old = existing.get(slug)
+        if not old and not findings:
             continue
         if old:
             issue, payload = old
-        else:
-            if created >= 10:
+            parents[slug] = issue['number']
+            if issue['state'] == 'closed' and not (payload.get('auto_resolved') and issue.get('state_reason') == 'completed'):
                 continue
-            item = findings[0]
-            payload = {'key': identity, 'file': item['file'], 'package': item['name'],
-                       'ecosystem': item['ecosystem'], 'aliases': aliases}
-            body = (f'当前提交 `{report["sha"]}` 的完整依赖复扫发现风险。\n\n'
-                    f'依赖文件：`{item["file"]}`；组件：`{item["name"]}`。\n\n'
-                    + '\n'.join(f'- {f["id"]}：版本 `{f["version"]}`；修复版本候选 '
-                                f'`{", ".join(f["fixed"]) or "暂无"}`；{f["url"]}' for f in findings)
-                    + '\n\n依赖命中不等于运行时可利用；需要核对 Go 实际调用路径、mihomo 本地替换、Rust 平台条件和公告。'
-                    '仅允许兼容范围内最小修复 PR；无修复版本、跨大版本或兼容性不明时停止并说明。'
-                    '不得忽略扫描告警、删除测试、修改签名/CI 权限、直接推 main、合并或发版。\n\n'
-                    + '<!-- flclash-security ' + json.dumps(sign(payload)) + ' -->')
-            issue = api(f'{CNB}/issues', 'POST', {'title': f'[安全修复] {item["name"]}：{item["file"]}',
-                        'body': body, 'assignees': [POLICY['approver']], 'work_mode': False})
-            created += 1
+        else:
+            payload = payload_for(slug)
+            links = '\n'.join(f'- 原记录 #{i["number"]}：https://cnb.cool/{POLICY["cnb"]}/-/issues/{i["number"]}'
+                              for i, p in legacy if group_for(p) == slug)
+            body = f'统一处理 `{path}` 的相关依赖，一组一个开发任务和修复分支。\n\n{links}\n\n'
+            body += '允许有证据的部分修复，剩余漏洞逐条保留，不忽略告警、不自行合并或发布。'
+            issue = {'body': body}
+            payload['history'] = scan_history([], findings, report['unscanned'])
+            issue = api(f'{CNB}/issues', 'POST', {'title': '[安全修复] ' + title,
+                        'body': snapshot_body(issue, payload, report),
+                        'assignees': [POLICY['approver']], 'work_mode': False})
+        parents[slug] = issue['number']
+        for member, data in legacy:
+            url = f'https://cnb.cool/{POLICY["cnb"]}/-/issues/{member["number"]}'
+            if group_for(data) == slug and not re.search(re.escape(url) + r'(?!\d)', issue['body']):
+                issue['body'] += f'\n- 归并原记录 #{member["number"]}：{url}'
+        payload['component_keys'] = sorted(set(payload.get('component_keys', []))
+            | {p['key'] for _, p in legacy if group_for(p) == slug} | {key(f) for f in findings})
+        payload['history'] = scan_history(payload.get('history', []), findings, report['unscanned'])
+        unresolved = unresolved_group(payload, report)
+        payload['auto_resolved'] = not unresolved
+        update = {'body': snapshot_body(issue, payload, report)}
+        if not unresolved:
+            update.update(state='closed', state_reason='completed')
+        elif issue['state'] == 'closed':
+            update.update(state='open', state_reason='reopened')
+        if any(issue.get(k) != v for k, v in update.items()):
+            api(f'{CNB}/issues/{issue["number"]}', 'PATCH', update)
+        if not findings:
+            continue
+        branch = repair_branch(payload)
+        if any(p['head']['ref'].removeprefix('refs/heads/') == branch for p in pulls):
+            continue
+        aliases = sorted({key(f) + ':' + a for f in findings for a in f['aliases']})
         revision = hashlib.sha256(json.dumps(aliases).encode()).hexdigest()[:16]
-        marker = '<!-- security-work-requested ' + identity + ':' + revision + ' -->'
-        from control import pages
+        marker = '<!-- security-work-requested ' + payload['key'] + ':' + revision + ' -->'
         comments = list(pages(f'{CNB}/issues/{issue["number"]}/comments'))
-        if dispatched < 2 and not any(marker in c.get('body', '')
-                and c.get('author', {}).get('username') == POLICY['approver']
-                and c.get('author', {}).get('is_npc') is False for c in comments):
-            comment(issue['number'], marker + '\n\n'
-                + f'本次复扫提交 `{report["sha"]}`；当前漏洞标识：{", ".join(aliases)}。\n\n'
-                f'@{POLICY["cnb"]}(开发助手) 已授权你评估本 Issue 的公开依赖漏洞并尝试兼容范围内的最小修复。'
-                f'从最新 main 创建 `security/fix-{identity[:12]}` 分支，先核对当前版本及官方公告。'
-                'Go 用解析后的模块图和 govulncheck 核实调用路径；Rust 核对 Cargo.lock、平台条件及官方修复。'
-                '不要直接照抄旧扫描版本。能安全修复则更新必要的依赖及锁文件，运行相关 Go/Rust 测试和复扫后提交 CNB PR，'
-                'PR 使用清晰中文标题，关联本 Issue，列出验证证据和未验证项。不能安全修复则回复原因，不强行升级。'
-                '修复 PR 会自动接受双模型审核；不自行合并或发布，不修改自动化/权限，不隐瞒或忽略告警，不重复编译 APK。', True)
-            dispatched += 1
-    print(f'Tracked {len(active)} dependency groups; started {dispatched} bounded repair tasks')
+        if active_developer(issue, comments):
+            continue
+        if dispatched >= 2 or any(marker in c.get('body', '') and c.get('author', {}).get('username') == POLICY['approver']
+                                  and c.get('author', {}).get('is_npc') is False for c in comments):
+            continue
+        comment(issue['number'], marker + '\n\n'
+            f'@{POLICY["cnb"]}(开发助手) 统一评估并修复本组依赖，复用 `{branch}` 分支和已有工作，'
+            '不要按单个包另开并行任务。先核对最新 main 的实际模块图、官方公告和平台调用路径。'
+            '一组只提交一个修复 PR；允许先修复能兼容解决的部分，逐条列出已修复、不可达、暂无修复或待确认的证据。'
+            '某条无修复版本不应阻止其他有效修复；整组需要跨大版本或变更工具链时交由人工决定。'
+            '现有 CI Go 为1.26.4；Go指令不等同于已安装工具链，根模块可通过MVS提升间接依赖。'
+            '目标必须消除至少一条旧告警、不引入新告警，并通过测试、基线/当前复扫及双模型审核。'
+            '不忽略告警、不改权限或签名、不自行合并发布；预算内优先提交阶段报告，不反复搜索或等待。', True)
+        dispatched += 1
+    migrate_legacy(legacy, parents)
+    print(f'Tracked {len(parents)} repair groups; started {dispatched} tasks')
 
 
 if __name__ == '__main__':

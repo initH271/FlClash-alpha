@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import security_scan as scan
 import security_watch as watch
+from security_groups import payload_for
 
 
 class SecurityTests(unittest.TestCase):
@@ -32,20 +33,22 @@ class SecurityTests(unittest.TestCase):
 
     def test_local_replacement_cannot_automatically_close_security_issue(self):
         finding = self.finding()
-        with patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'}):
-            payload = {'key': scan.key(finding)}
-            issue = {'number': '9', 'state': 'open', 'author': {'username': 'Aharon', 'is_npc': False},
-                     'body': '<!-- flclash-security ' + json.dumps(watch.sign(payload)) + ' -->'}
-            def api(url, *args, **kwargs):
-                return {'object': {'sha': 'current'}} if 'git/ref' in url else issue
-            with (patch.object(watch, 'api', side_effect=api), patch.object(watch, 'cnb_risks', return_value={}),
-                  patch.object(watch, 'all_issues', return_value=[issue]), patch.object(watch, 'comment') as comment):
-                watch.monitor({'schema': 1, 'complete': True, 'sha': 'current', 'findings': [],
-                               'packages': [], 'unscanned': [finding]})
-                comment.assert_not_called()
+        rows = watch.scan_history([finding], [], [finding])
+        self.assertEqual('待核实（无索引替换）', rows[0]['state'])
+        self.assertTrue(watch.unresolved_group({'history': rows, 'component_keys': [scan.key(finding)]},
+                                              {'unscanned': [finding]}))
 
     def test_concatenated_go_module_json_is_parsed(self):
         self.assertEqual([{'Path': 'a'}, {'Path': 'b'}], list(scan.json_stream(' {"Path":"a"}\n {"Path":"b"}\n')))
+
+    def test_group_record_is_signed_and_distinct_from_legacy_marker(self):
+        with patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'}):
+            payload = payload_for('go-core')
+            issue = {'author': {'username': 'Aharon', 'is_npc': False},
+                     'body': '<!-- flclash-security-group ' + json.dumps(watch.sign(payload)) + ' -->'}
+            self.assertEqual(payload, watch.record(issue))
+            issue['body'] = issue['body'].replace('go-core', 'rust-api')
+            self.assertIsNone(watch.record(issue))
 
     def test_repair_group_requires_clean_indexed_dependency(self):
         item = self.finding()
@@ -55,3 +58,36 @@ class SecurityTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             scan.require_clean_group({'findings': [], 'unscanned': [item]}, prefix)
         scan.require_clean_group({'findings': [], 'unscanned': []}, prefix)
+
+    def test_related_packages_share_task_but_not_vulnerability_identity(self):
+        a = self.finding()
+        b = dict(a, name='another/module')
+        helper = dict(a, name='tokio', ecosystem='crates.io', file='services/helper/Cargo.lock')
+        rust_api = dict(helper, file='plugins/rust_api/rust/Cargo.lock')
+        grouped = watch.groups({'findings': [a, b, helper, rust_api]})
+        self.assertEqual({'go-core', 'rust-helper', 'rust-api'}, set(grouped))
+        self.assertEqual(2, len(grouped['go-core']))
+
+    def test_partial_group_repair_must_improve_without_new_risks(self):
+        a = self.finding()
+        b = self.finding('GO-2', ['CVE-2026-2222'])
+        base = {'findings': [a, b], 'packages': [a], 'unscanned': []}
+        scan.require_group_progress(base, {'findings': [b], 'unscanned': []}, 'go-core')
+        for head in (base, {'findings': [self.finding('GO-3', ['CVE-2026-3333'])], 'unscanned': []},
+                     {'findings': [], 'unscanned': [a]}):
+            with self.assertRaises(ValueError):
+                scan.require_group_progress(base, head, 'go-core')
+
+    def test_migration_closes_records_as_consolidated_not_fixed(self):
+        item = self.finding()
+        with patch.object(watch, 'comment') as comment, patch.object(watch, 'api') as api:
+            watch.migrate_legacy([({'number': '11', 'state': 'open'}, item)], {'go-core': '26'})
+            self.assertIn('不表示漏洞已修复', comment.call_args.args[1])
+            self.assertEqual('not_planned', api.call_args.args[2]['state_reason'])
+
+    def test_running_group_worker_prevents_another_dispatch(self):
+        state = {'npc': [{'context': {'npc.slug': '507space/FlClash-alpha', 'npc.name': '开发助手'},
+                          'statuses': [{'state': 'pending'}]}]}
+        self.assertTrue(watch.active_developer({'statuses': state}, []))
+        state['npc'][0]['statuses'][0]['state'] = 'success'
+        self.assertFalse(watch.active_developer({'statuses': state}, []))

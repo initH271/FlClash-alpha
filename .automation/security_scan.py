@@ -8,6 +8,7 @@ import subprocess
 import tomllib
 
 from control import api
+from security_groups import GROUPS, group_for
 
 LOCKS = ('services/helper/Cargo.lock', 'plugins/rust_api/rust/Cargo.lock')
 
@@ -104,6 +105,21 @@ def require_clean_group(report, prefix):
                          + ', '.join(f.get('id', f['name']) for f in unresolved))
 
 
+def require_group_progress(base, head, group):
+    if group not in GROUPS:
+        raise ValueError('Unknown repair group')
+    before = [f for f in base['findings'] if group_for(f) == group]
+    after = [f for f in head['findings'] if group_for(f) == group]
+    if new_findings({'findings': before}, {'findings': after}):
+        raise ValueError('Grouped repair introduces new vulnerabilities')
+    indexed = {key(p) for p in base['packages'] if group_for(p) == group}
+    if any(key(p) in indexed for p in head['unscanned']):
+        raise ValueError('An unindexed replacement cannot count as a repair')
+    remaining = {(key(f), alias) for f in after for alias in f['aliases']}
+    if not any(not any((key(f), alias) in remaining for alias in f['aliases']) for f in before):
+        raise ValueError('Grouped repair must remove at least one existing advisory match')
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('root', type=pathlib.Path)
@@ -118,6 +134,11 @@ if __name__ == '__main__':
     branch = args.repair_branch.removeprefix('refs/heads/')
     if branch.startswith('security/fix-'):
         require_clean_group(report, branch.removeprefix('security/fix-'))
+    if branch.startswith('security/group-'):
+        if not args.baseline:
+            raise ValueError('Grouped repairs require a baseline scan')
+        require_group_progress(json.loads(args.baseline.read_text(encoding='utf-8')),
+                               report, branch.removeprefix('security/group-'))
     if args.baseline:
         additions = new_findings(json.loads(args.baseline.read_text(encoding='utf-8')), report)
         if additions:

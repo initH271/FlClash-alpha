@@ -7,25 +7,34 @@ scan. Reports are retained as workflow artifacts for 14 days. Local replacements
 and Git dependencies without an indexed version are explicitly listed as unscanned.
 This inventory scan does not prove platform reachability or exploitability.
 
-Signed CNB Issues group findings by dependency and file, deduplicating advisory
-aliases. At most ten new Issues and two developer NPC requests are started per run;
-the daily schedule drains the backlog. Identical advisory sets are not repeatedly
-sent to the NPC. New advisory sets can request another assessment of that group.
-Closing an Issue manually pauses further automatic work for that group.
+Three signed CNB master Issues group work by dependency graph and verification scope:
+Go core (including mihomo dependencies), Rust Helper, and Rust API. Each keeps a
+per-advisory scan history; identical CVEs affecting different packages remain distinct.
+Old component Issues are linked and closed as consolidated (`not_planned`), never
+reported as fixed merely because they were consolidated. Manual notes outside the
+managed scan snapshot are preserved.
+
+Each group has one branch and developer task. An open group PR or running developer
+prevents a second worker; at most two groups start per scan. Identical advisory sets
+are not repeatedly dispatched. Closing a master Issue manually pauses it. A group
+automatically closed after a clean scan reopens when new findings appear.
 
 The development NPC must verify primary advisories, actual selected versions,
 Go call paths (including mihomo's local replacement) and Rust target conditions.
 It may create a minimal compatible dependency-update CNB PR and run focused tests.
-Major upgrades, missing fixes, compatibility uncertainty or failed validation require
-a human decision. It cannot ignore findings, disable checks, merge or release.
+Missing fixes are recorded per finding while other compatible repairs may proceed.
+Group-wide major upgrades, toolchain changes, compatibility uncertainty or failed
+validation require a human decision. It cannot ignore findings, disable checks,
+merge or release.
 
 CNB PRs run the official incremental SCA plugin (new High/Critical findings block),
 Go regression tests, Rust helper/API tests, and the existing paired review gate.
-The Go pipeline also runs a full OSV scan. For generated `security/fix-<group>`
-branches, the targeted dependency group must be clear of advisories and unindexed
-replacements before this check passes; unrelated historical findings remain visible
-without preventing that focused repair. All unresolved findings for the target
-group require a human decision rather than silently merging a partial repair.
+The Go pipeline also runs full baseline and head OSV scans for `security/group-*`
+branches. Partial repairs may pass only if at least one existing advisory match
+is removed, no new matches appear, and indexed dependencies are not hidden behind
+unindexed replacements. Remaining findings stay in the master Issue, with separate
+assessment evidence in its discussion. Legacy `security/fix-<hash>` branches retain
+their original full-clear requirement.
 GitHub PRs with dependency changes compare complete OSV scans of base and head;
 new advisory matches fail the scan, including findings with unknown severity. GitHub scans
 use the scanner from trusted main and never give PR code the monitoring secrets.
@@ -33,8 +42,9 @@ These jobs do not compile APKs. The Linux Rust tests do not replace platform-spe
 Windows/macOS/Android validation; reviewers must identify those remaining gaps.
 
 A security Issue is automatically closed only after a complete scan of current main
-no longer finds that dependency's known vulnerabilities (or the dependency was
-removed). A local/unindexed replacement cannot produce that automatic clean result.
+no longer finds the group's tracked vulnerabilities (or their dependencies were
+removed). Unindexed replacements of tracked dependencies prevent automatic closure;
+an unrelated pre-existing local module does not hide progress on other packages.
 PR merge alone and NPC assertions cannot close the security finding. CNB's historic
 dashboard is not edited or marked ignored; its own scanner updates it independently.
 
