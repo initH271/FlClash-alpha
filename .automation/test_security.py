@@ -50,6 +50,16 @@ class SecurityTests(unittest.TestCase):
             issue['body'] = issue['body'].replace('go-core', 'rust-api')
             self.assertIsNone(watch.record(issue))
 
+    def test_snapshot_preserves_notes_and_encodes_comment_delimiters(self):
+        with patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'}):
+            payload = payload_for('go-core')
+            payload['package'] = 'literal --> delimiter'
+            body = watch.snapshot_body({'body': 'Human assessment notes'}, payload, {'sha': 'a' * 40})
+            issue = {'body': body, 'author': {'username': 'Aharon', 'is_npc': False}}
+            self.assertEqual(payload, watch.record(issue))
+            self.assertIn('Human assessment notes', body)
+            self.assertEqual(body, watch.snapshot_body(issue, payload, {'sha': 'a' * 40}))
+
     def test_repair_group_requires_clean_indexed_dependency(self):
         item = self.finding()
         prefix = scan.key(item)[:12]

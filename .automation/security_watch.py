@@ -50,11 +50,13 @@ def cnb_risks():
 
 def scan_history(previous, findings, unscanned):
     unknown = {key(p) for p in unscanned}
-    rows = [dict(f, state='待评估（扫描命中）') for f in findings]
+    fields = ('file', 'name', 'ecosystem', 'id', 'aliases', 'version', 'fixed', 'url')
+    rows = [dict({k: f[k] for k in fields}, state='待评估（扫描命中）') for f in findings]
     for old in previous:
         if any(key(old) == key(f) and set(old['aliases']) & set(f['aliases']) for f in findings):
             continue
-        rows.append(dict(old, state='待核实（无索引替换）' if key(old) in unknown else '复扫未命中'))
+        rows.append(dict({k: old[k] for k in fields},
+                         state='待核实（无索引替换）' if key(old) in unknown else '复扫未命中'))
     return rows
 
 
@@ -73,7 +75,8 @@ def snapshot_body(issue, payload, report):
     else:
         body += '\n\n' + block
     body = re.sub(r'<!-- flclash-security-group .*? -->', '', body)
-    return body.rstrip() + '\n\n<!-- flclash-security-group ' + json.dumps(sign(payload)) + ' -->'
+    envelope = json.dumps(sign(payload)).replace('<', r'\u003c').replace('>', r'\u003e')
+    return body.rstrip() + '\n\n<!-- flclash-security-group ' + envelope + ' -->'
 
 
 def migrate_legacy(legacy, parents):
