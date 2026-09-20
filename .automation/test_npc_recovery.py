@@ -11,7 +11,7 @@ class NpcRecoveryTests(unittest.TestCase):
         self.env = patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'})
         self.env.start()
         self.addCleanup(self.env.stop)
-        self.issue = {'number': '11', 'title': '[安全修复] package', 'created_at': '2026-09-20T00:00:00Z',
+        self.issue = {'number': '11', 'state': 'open', 'title': '[安全修复] package', 'created_at': '2026-09-20T00:00:00Z',
                       'author': {'username': 'Aharon', 'is_npc': False},
                       'body': '<!-- flclash-security ' + json.dumps(recovery.sign(
                           {'key': 'a' * 64, 'package': 'x/crypto', 'file': 'core/go.mod'})) + ' -->',
@@ -48,6 +48,10 @@ class NpcRecoveryTests(unittest.TestCase):
         for state in ('pending', 'cancel', 'success'):
             self.issue['statuses'] = self.status(state)
             self.assertEqual([], self.run_recovery([]))
+
+    def test_issue_closed_after_listing_is_not_retried(self):
+        self.issue['state'] = 'closed'
+        self.assertEqual([], self.run_recovery([]))
 
     def test_failure_after_report_does_not_repeat_completed_work(self):
         report = {'id': '1', 'created_at': '2026-09-20T00:01:00Z', 'body': '无法兼容修复，需要人工决定。',

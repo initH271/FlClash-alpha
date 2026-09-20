@@ -80,6 +80,8 @@ def recover():
     actions = 0
     for summary in pages(f'{CNB}/issues?state=open'):
         issue = api(f'{CNB}/issues/{summary["number"]}')
+        if issue.get('state') != 'open':
+            continue
         spec = task(issue)
         if not spec:
             continue
