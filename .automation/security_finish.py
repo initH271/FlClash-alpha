@@ -82,66 +82,6 @@ def notify_once(issue, identity, message):
         comment(issue['number'], marker + '\n\n' + message)
 
 
-def merge_one():
-    for item in pages(f'{CNB}/issues?state=open'):
-        issue = api(f'{CNB}/issues/{item["number"]}')
-        payload = record(issue)
-        if not payload or payload.get('group') not in PATHS:
-            continue
-        for listed in pages(f'{CNB}/pulls?state=open'):
-            pull = api(f'{CNB}/pulls/{listed["number"]}')
-            if (pull.get('is_wip') or pull['head']['repo']['path'] != POLICY['cnb']
-                    or pull['base']['ref'] != 'refs/heads/main'
-                    or pull['head']['ref'].removeprefix('refs/heads/') != repair_branch(payload)):
-                continue
-            request = scope('cnb', pull)
-            git('fetch', '--no-tags', f'https://cnb.cool/{POLICY["cnb"]}.git', request['base'], request['head'])
-            if git('merge-base', '--is-ancestor', request['base'], request['head'], check=False).returncode != 0:
-                comments = list(pages(f'{CNB}/issues/{issue["number"]}/comments'))
-                comments += list(pages(f'{CNB}/pulls/{pull["number"]}/comments'))
-                if active_developer(issue, comments) or not safe_files(request['base'], request['head'], payload['group']):
-                    continue
-                merged = git('merge-tree', '--write-tree', request['base'], request['head'], check=False)
-                if merged.returncode != 0:
-                    notify_once(issue, request['head'] + request['base'], '安全修复分支与最新主分支有冲突，停止自动更新，需处理冲突。')
-                    continue
-                head = git('commit-tree', merged.stdout.splitlines()[0], '-p', request['head'], '-p', request['base'],
-                           '-m', 'fix(security): 同步已合并的公共修复')
-                sync_branch(repair_branch(payload), head)
-                return
-            if state(request) != 'success' or not passed_checks(pull['number'], request):
-                continue
-            git('fetch', '--no-tags', f'https://cnb.cool/{POLICY["cnb"]}.git', request['base'], request['head'])
-            if not safe_files(request['base'], request['head'], payload['group']):
-                notify_once(issue, request['head'], f'PR #{pull["number"]} 检查通过，但不满足兼容依赖自动合并边界'
-                            '（仅锁文件/版本变更、无工具链变化、无主版本或0.x次版本跨越）。需明确评估后人工合并，未绕过检查。')
-                continue
-            current = api(f'{CNB}/pulls/{pull["number"]}')
-            if scope('cnb', current) != request or current['state'] != 'open':
-                continue
-            failed_marker = '<!-- security-merge-failed ' + request['head'] + ' -->'
-            comments = list(pages(f'{CNB}/issues/{issue["number"]}/comments'))
-            if any(c.get('author', {}).get('username') == POLICY['approver']
-                   and c.get('author', {}).get('is_npc') is False and failed_marker in c.get('body', '') for c in comments):
-                continue
-            try:
-                api(f'{CNB}/pulls/{pull["number"]}/reviews', 'POST', {
-                    'event': 'approve', 'body': '限定依赖文件、兼容版本、当前提交双模型与全部检查通过；控制器按授权批准，禁止强制合并。'})
-                current = api(f'{CNB}/pulls/{pull["number"]}')
-                if scope('cnb', current) != request or not passed_checks(pull['number'], request):
-                    continue
-                merged = api(f'{CNB}/pulls/{pull["number"]}/merge', 'PUT', {
-                    'merge_style': 'merge', 'force': False,
-                    'commit_title': 'fix(security): 合并已验证的兼容依赖修复 [skip ci]'})
-            except RuntimeError:
-                comment(issue['number'], failed_marker + '\n\n自动批准/合并接口未成功确认，已停止此提交的重复写入。'
-                        '请检查控制器失败日志、令牌PR/评审权限及平台实际合并状态；未强制合并。')
-                raise
-            if merged.get('merged'):
-                comment(issue['number'], f'兼容依赖修复 PR #{pull["number"]} 已通过全部门禁并自动合并，等待双仓同步及正式复扫。')
-                return
-
-
 def mirror_record(pull):
     match = re.search(r'<!-- flclash-security-mirror (\{[^\r\n]+\}) -->', pull.get('body', ''))
     if not match:
@@ -152,45 +92,114 @@ def mirror_record(pull):
         return None
 
 
-def tested_source(source):
-    parents = git('rev-list', '--parents', '-n', '1', source).split()[1:]
-    if len(parents) != 2:
-        return False
-    for pull in pages(f'{CNB}/pulls?state=all'):
-        if not pull.get('is_merged') or pull['base']['sha'] != parents[0] or pull['head']['sha'] != parents[1]:
-            continue
-        request = scope('cnb', pull)
-        review = find_request(request)
-        if not review or (review['state'] != 'open' and review.get('state_reason') != 'completed'):
-            return False
-        reports = list(pages(f'{CNB}/issues/{review["number"]}/comments'))
-        if result(request, dict(review, state='open'), reports) == 'success' and passed_checks(pull['number'], request):
-            return review
-        return None
-    return False
-
-
 def mirror_attestation(pull):
     payload = mirror_record(pull)
-    if not payload:
+    if not payload or 'cnb_number' not in payload or pull.get('draft'):
         return None
-    expected = 'automation/security-sync-' + hashlib.sha256((payload['base'] + payload['source']).encode()).hexdigest()[:16]
+    branch = 'automation/security-sync-' + hashlib.sha256((payload['base'] + payload['head']).encode()).hexdigest()[:16]
     if (pull['base']['ref'] != 'main' or pull['head']['repo']['full_name'] != POLICY['github']
-            or pull['head']['ref'] != expected or pull['base']['sha'] != payload['base']
+            or pull['head']['ref'] != branch or pull['base']['sha'] != payload['base']
             or pull['head']['sha'] != payload['head']):
         return None
-    git('fetch', '--no-tags', f'https://github.com/{POLICY["github"]}.git', payload['head'])
-    parents = git('rev-list', '--parents', '-n', '1', payload['source']).split()[1:]
-    if len(parents) != 2:
+    source = api(f'{CNB}/pulls/{payload["cnb_number"]}')
+    if (source['state'] != 'open' or source.get('is_wip')
+            or source['head']['repo']['path'] != POLICY['cnb']
+            or source['base']['ref'] != 'refs/heads/main'
+            or source['base']['sha'] != payload['base'] or source['head']['sha'] != payload['head']):
         return None
-    if (git('rev-parse', payload['base'] + '^{tree}') != git('rev-parse', parents[0] + '^{tree}')
-            or git('rev-parse', payload['head'] + '^{tree}') != payload['tree']
-            or payload['tree'] != git('rev-parse', payload['source'] + '^{tree}')):
+    request = scope('cnb', source)
+    if state(request) != 'success' or not passed_checks(source['number'], request):
         return None
-    if not safe_files(payload['base'], payload['head']):
+    if (git('rev-parse', payload['head'] + '^{tree}') != payload['tree']
+            or git('merge-base', '--is-ancestor', payload['base'], payload['head'], check=False).returncode != 0
+            or not safe_files(payload['base'], payload['head'])):
         return None
-    review = tested_source(payload['source'])
+    review = find_request(request)
     return f'https://cnb.cool/{POLICY["cnb"]}/-/issues/{review["number"]}' if review else None
+
+
+def forward_pull(issue, pull, base):
+    if api(f'{CNB}/issues/{issue["number"]}')['state'] != 'open':
+        return
+    head = pull['head']['sha']
+    branch = 'automation/security-sync-' + hashlib.sha256((base + head).encode()).hexdigest()[:16]
+    prior = api(f'{GH}/pulls?state=closed&head={POLICY["github"].split("/")[0]}:{branch}')
+    if prior:
+        notify_once(issue, branch, 'GitHub对应修复PR已关闭，保持暂停，不重复创建。')
+        return
+    for target in pages(f'{GH}/pulls?state=open', size_key='per_page'):
+        payload = mirror_record(target)
+        if not payload or str(payload.get('cnb_number')) != str(pull['number']):
+            continue
+        if (target['base']['ref'] != 'main' or target['head']['repo']['full_name'] != POLICY['github']):
+            continue
+        if payload['base'] != base or payload['head'] != head:
+            api(f'{GH}/pulls/{target["number"]}', 'PATCH', {'state': 'closed'})
+            continue
+        if mirror_attestation(target):
+            api(f'{GH}/pulls/{target["number"]}/merge', 'PUT', {
+                'sha': head, 'merge_method': 'merge',
+                'commit_title': 'fix(security): 合并已验证的兼容依赖修复 [skip ci]'})
+        return
+    existing = api(f'{GH}/git/ref/heads/{branch}', missing=True)
+    if existing and existing['object']['sha'] != head:
+        raise ValueError('Forwarded repair branch was modified')
+    if not existing:
+        git('push', f'https://github.com/{POLICY["github"]}.git', f'{head}:refs/heads/{branch}')
+    payload = {'base': base, 'head': head, 'tree': git('rev-parse', head + '^{tree}'),
+               'cnb_number': str(pull['number'])}
+    created = api(f'{GH}/pulls', 'POST', {'base': 'main', 'head': branch,
+        'title': 'fix(security): 合并已验证的兼容依赖修复',
+        'body': f'## 修复与验证\n承接 CNB PR #{pull["number"]}。GitHub是唯一合并入口；'
+                '仅固定base/head、文件树、原生CI及双模型证据完全匹配时复用审核，不重新编译APK。\n\n'
+                + '<!-- flclash-security-mirror ' + json.dumps(sign(payload)) + ' -->'})
+    comment(issue['number'], '修复已送至GitHub合并入口：' + created['html_url'])
+    review_reconcile()
+
+
+def merge_one():
+    base = api(f'{GH}/git/ref/heads/main')['object']['sha']
+    pulls = list(pages(f'{CNB}/pulls?state=open'))
+    for item in pages(f'{CNB}/issues?state=open'):
+        issue = api(f'{CNB}/issues/{item["number"]}')
+        payload = record(issue)
+        if issue.get('state') != 'open' or not payload or payload.get('group') not in PATHS:
+            continue
+        for listed in pulls:
+            pull = api(f'{CNB}/pulls/{listed["number"]}')
+            if (pull['state'] != 'open' or pull.get('is_wip') or pull['head']['repo']['path'] != POLICY['cnb']
+                    or pull['base']['ref'] != 'refs/heads/main'
+                    or pull['head']['ref'].removeprefix('refs/heads/') != repair_branch(payload)):
+                continue
+            head = pull['head']['sha']
+            git('fetch', '--no-tags', f'https://cnb.cool/{POLICY["cnb"]}.git', base, head)
+            if git('merge-base', '--is-ancestor', head, base, check=False).returncode == 0:
+                comment(issue['number'], f'PR #{pull["number"]} 的提交已包含于GitHub主分支 `{base}`，CNB已镜像。关闭验证PR，主任务仍由正式复扫决定。')
+                api(f'{CNB}/pulls/{pull["number"]}', 'PATCH', {'state': 'closed'})
+                continue
+            if not safe_files(base, head, payload['group']):
+                notify_once(issue, base + head, f'PR #{pull["number"]} 超出兼容依赖自动合并范围，需在GitHub提交经审查的集成PR；CNB不再要求自审批。')
+                continue
+            if git('merge-base', '--is-ancestor', base, head, check=False).returncode != 0:
+                comments = list(pages(f'{CNB}/issues/{issue["number"]}/comments'))
+                comments += list(pages(f'{CNB}/pulls/{pull["number"]}/comments'))
+                if active_developer(issue, comments):
+                    continue
+                merged = git('merge-tree', '--write-tree', base, head, check=False)
+                if merged.returncode != 0:
+                    notify_once(issue, base + head, '修复分支与主分支有冲突，停止自动刷新。')
+                    continue
+                refreshed = git('commit-tree', merged.stdout.splitlines()[0], '-p', head, '-p', base,
+                                '-m', 'fix(security): 同步已合并的公共修复')
+                sync_branch(repair_branch(payload), refreshed)
+                return
+            request = scope('cnb', pull)
+            if request['base'] != base or state(request) != 'success' or not passed_checks(pull['number'], request):
+                continue
+            if scope('cnb', api(f'{CNB}/pulls/{pull["number"]}')) != request:
+                continue
+            forward_pull(issue, pull, base)
+            return
 
 
 def mirror():
@@ -198,61 +207,12 @@ def mirror():
     git('fetch', '--no-tags', f'https://github.com/{POLICY["github"]}.git', base)
     git('fetch', '--no-tags', f'https://cnb.cool/{POLICY["cnb"]}.git', 'refs/heads/main')
     source = git('rev-parse', 'FETCH_HEAD')
-    if source == base:
-        ensure_scan(base)
-        return False
-    if git('merge-base', '--is-ancestor', source, base, check=False).returncode == 0:
+    if source != base:
+        if git('merge-base', '--is-ancestor', source, base, check=False).returncode != 0:
+            raise ValueError('CNB main diverged from GitHub authority; refusing overwrite or reverse merge')
         sync_branch('main', base)
-        ensure_scan(base)
-        return True
-    if not safe_files(base, source) or not tested_source(source):
-        for listed in pages(f'{CNB}/issues?state=open'):
-            issue = api(f'{CNB}/issues/{listed["number"]}')
-            if record(issue):
-                notify_once(issue, base + source, '双仓主分支存在差异，但不满足兼容依赖与原始CI证据复用条件。'
-                            '自动同步暂停，需审核范围外变更或补齐测试证据；不会强推或绕过保护。')
-        return True
-    for pull in pages(f'{GH}/pulls?state=open', size_key='per_page'):
-        payload = mirror_record(pull)
-        if not payload:
-            continue
-        expected_branch = 'automation/security-sync-' + hashlib.sha256((payload['base'] + payload['source']).encode()).hexdigest()[:16]
-        if (pull['base']['ref'] != 'main' or pull['head']['repo']['full_name'] != POLICY['github']
-                or pull['head']['ref'] != expected_branch):
-            continue
-        if payload['base'] != base or payload['source'] != source:
-            api(f'{GH}/pulls/{pull["number"]}', 'PATCH', {'state': 'closed'})
-            continue
-        git('fetch', '--no-tags', f'https://github.com/{POLICY["github"]}.git', payload['head'])
-        if (pull['head']['sha'] != payload['head'] or pull['base']['sha'] != base
-                or git('rev-parse', payload['head'] + '^{tree}') != payload['tree']):
-            raise ValueError('Signed security mirror changed')
-        if mirror_attestation(pull) or state(scope('github', pull)) == 'success':
-            api(f'{GH}/pulls/{pull["number"]}/merge', 'PUT', {
-                'sha': payload['head'], 'merge_method': 'merge',
-                'commit_title': 'fix(security): 同步已审核的依赖修复 [skip ci]'})
-        return True
-    tree = git('merge-tree', '--write-tree', base, source).splitlines()[0]
-    branch = 'automation/security-sync-' + hashlib.sha256((base + source).encode()).hexdigest()[:16]
-    prior = api(f'{GH}/pulls?state=closed&head={POLICY["github"].split("/")[0]}:{branch}')
-    if prior:
-        return True
-    existing = api(f'{GH}/git/ref/heads/{branch}', missing=True)
-    if existing:
-        head = existing['object']['sha']
-        git('fetch', '--no-tags', f'https://github.com/{POLICY["github"]}.git', head)
-        if git('rev-parse', head + '^{tree}') != tree or git('rev-list', '--parents', '-n', '1', head).split()[1:] != [base, source]:
-            raise ValueError('Mirror branch was modified')
-    else:
-        head = git('commit-tree', tree, '-p', base, '-p', source, '-m', 'fix(security): 汇合依赖修复 [skip ci]')
-        git('push', f'https://github.com/{POLICY["github"]}.git', f'{head}:refs/heads/{branch}')
-    payload = {'base': base, 'source': source, 'head': head, 'tree': tree}
-    api(f'{GH}/pulls', 'POST', {'base': 'main', 'head': branch,
-        'title': 'fix(security): 同步已验证的兼容依赖修复',
-        'body': '同步 CNB 已合并的兼容依赖文件。仅当两侧基线与结果文件树完全相同、签名记录及原双模型/CI证据有效时复用审核，否则重新审核。不重新编译 APK。\n\n'
-                + '<!-- flclash-security-mirror ' + json.dumps(sign(payload)) + ' -->'})
-    review_reconcile()
-    return True
+    ensure_scan(base)
+    return False
 
 
 def ensure_scan(sha):

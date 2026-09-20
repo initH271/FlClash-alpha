@@ -92,37 +92,38 @@ an unchanged advisory set cannot reset an already consumed continuation budget.
 A manually closed, unmerged PR remains paused. Compatible groups may refresh their
 branches by a conflict-free ordinary merge of main when no developer is running.
 
-`security_finish.py` serializes completion with the existing controller lock:
+`security_finish.py` serializes completion with the existing controller lock.
+GitHub is the sole merge authority. CNB hosts repair branches, native tests and
+paired-review records; its PRs are validation records, not a second approval gate.
+The controller never calls CNB approval or merge APIs.
 
-1. Only same-repository, non-draft `security/group-*` PRs linked to a signed open
-   master Issue are candidates. Allowed files are core/go.mod + go.sum or the
-   group's Cargo.lock. Toolchain/replace changes, manifest/source/CI edits, version
-   downgrades, major upgrades, 0.x minor upgrades and ambiguous multi-version Rust
-   transitions require manual review. A go.sum-only edit is not auto-merged.
-2. Both signed current-scope NPC reports must pass. The native vulnerability,
-   Go, Rust and paired-review checks must all exist and succeed. The tested
-   pre-merge commit tree must equal `git merge-tree` for the current base/head.
-3. The controller rechecks the PR before and after approving and uses normal CNB
-   merge with force=false. CNB's merge API has no expected-head parameter, so the
-   final server-side protection checks remain essential; protection is never
-   disabled. One merge is processed per pass, with mirrors completed before another.
-4. A signed GitHub mirror PR preserves CNB history. The GitHub merge uses its
-   expected SHA. Only identical baseline AND result trees, a valid signed mirror,
-   same-repository branch, and original successful paired-review/CI evidence allow
-   review reuse. Otherwise ordinary GitHub review is required. There is no synthetic
-   NPC report and no APK rebuild. Out-of-policy mirror changes are explicitly reported.
-5. GitHub main is fast-forwarded back to CNB without checkout of PR code. A complete
-   scan is requested once per current main; running/successful scans deduplicate it,
-   and two failed runs stop with an explicit controller error. Scan results alone
-   close fixed master Issues; remaining findings stay open.
+1. Same-repository, non-draft group PRs must link to a signed open master Issue.
+   Auto-forwarding allows only the group's lock/module files and conservative
+   compatible version changes. Source, toolchain, replace and major/0.x minor
+   changes require a reviewed integration PR on GitHub.
+2. The current CNB base/head must have both signed NPC passes and all four native
+   checks. The CI pre-merge tree must equal the actual merge-tree. If a compatible
+   branch is behind, only a conflict-free normal merge refreshes it, and only when
+   no developer task is running.
+3. A signed GitHub PR points to the exact tested CNB head, with the same base SHA
+   and tree. Current matching native CI and NPC evidence may satisfy paired review
+   without running models or builds a second time. Any changed source, base, tree,
+   draft state or invalid signature prevents reuse. GitHub merge pins the head SHA
+   and still obeys its required status checks; no force or protection override.
+4. After GitHub merges, CNB main is fast-forwarded only. A diverged CNB main raises
+   an error, never imports changes back into GitHub or overwrites either side.
+   A CNB validation PR is closed only when its head is an ancestor of GitHub main.
+   This records integration via GitHub, not a fabricated CNB approval.
+5. A complete scan is requested once per current main; running/successful scans
+   deduplicate it, and two failed runs stop with a controller error. Only scanning
+   closes fixed master Issues. Closed CNB validation PRs included in a signed scan
+   can advance remaining findings to a new repair round.
 
-An unsuccessful read fails visibly and is reconciled on the next pass. An
-uncertain CNB approval/merge response records one stop notice for that head; the
-controller will not repeatedly write reviews or retry a permission failure.
-Dispatching a new workflow with GitHub's token is explicit because token-created
-PRs do not automatically emit all workflow events. The existing CNB automation
-token needs PR read/write and review permission in addition to its scan/Issue scopes;
-missing permission is a deployment failure, not a reason to bypass a gate.
+The existing token needs PR read/write to close validation PRs, but no CNB approval
+permission is needed. GitHub Actions needs contents/PR/status write permissions.
+Token-created GitHub PRs explicitly invoke review reconciliation because normal
+PR workflow events may be suppressed. A manually closed GitHub forwarding PR stays
+paused; the controller does not recreate it. APK publication is not part of this flow.
 
 Both trusted controller workflows run the Python test suite before any mutation.
 Hard model-token/credit caps and replacing the CNB waiting runner with a native

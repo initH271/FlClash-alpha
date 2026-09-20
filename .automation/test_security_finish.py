@@ -63,28 +63,67 @@ class SecurityFinishTests(unittest.TestCase):
             pull['body'] = pull['body'].replace('a' * 40, 'b' * 40)
             self.assertIsNone(finish.mirror_record(pull))
 
-    def test_mirror_reuses_only_identical_baseline_and_result_trees(self):
-        payload = {'base': 'a' * 40, 'source': 'b' * 40, 'head': 'c' * 40, 'tree': 'tree-new'}
-        branch = 'automation/security-sync-' + hashlib.sha256((payload['base'] + payload['source']).encode()).hexdigest()[:16]
+    def test_forward_attestation_requires_current_cnb_head_and_base(self):
+        payload = {'base': 'a' * 40, 'head': 'c' * 40, 'tree': 'tree-new', 'cnb_number': '8'}
+        branch = 'automation/security-sync-' + hashlib.sha256((payload['base'] + payload['head']).encode()).hexdigest()[:16]
         with patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test'}):
             pull = {'body': '<!-- flclash-security-mirror ' + json.dumps(finish.sign(payload)) + ' -->',
                     'base': {'sha': payload['base'], 'ref': 'main'},
                     'head': {'sha': payload['head'], 'ref': branch, 'repo': {'full_name': finish.POLICY['github']}}}
-            for baseline, expected in [('tree-old', True), ('unrelated', False)]:
-                with (patch.object(finish, 'git', side_effect=['', 'b first second', 'tree-old', baseline, 'tree-new', 'tree-new']),
+            for base, expected in [(payload['base'], True), ('b' * 40, False)]:
+                source = {'number': '8', 'state': 'open', 'base': {'ref': 'refs/heads/main', 'sha': base},
+                          'head': {'sha': payload['head'], 'repo': {'path': finish.POLICY['cnb']}}}
+                with (patch.object(finish, 'api', return_value=source),
+                      patch.object(finish, 'state', return_value='success'),
+                      patch.object(finish, 'passed_checks', return_value=True),
+                      patch.object(finish, 'git', side_effect=['tree-new', types.SimpleNamespace(returncode=0)]),
                       patch.object(finish, 'safe_files', return_value=True),
-                      patch.object(finish, 'tested_source', return_value={'number': '9'})):
+                      patch.object(finish, 'find_request', return_value={'number': '9'})):
                     self.assertEqual(expected, bool(finish.mirror_attestation(pull)))
-            pull['head']['sha'] = 'd' * 40
-            with patch.object(finish, 'git') as git:
-                self.assertIsNone(finish.mirror_attestation(pull))
-                git.assert_not_called()
 
     def test_mirror_in_progress_serializes_new_cnb_merges(self):
         with (patch.dict(finish.POLICY, {'security_auto_merge': True}),
               patch.object(finish, 'mirror', return_value=True), patch.object(finish, 'merge_one') as merge):
             finish.reconcile()
             merge.assert_not_called()
+
+    def test_manually_closed_forwarding_pr_is_not_reopened_or_merged(self):
+        with (patch.object(finish, 'api', side_effect=[{'state': 'open'}, [{'number': 9}]]) as api,
+              patch.object(finish, 'notify_once') as notify, patch.object(finish, 'pages') as pages):
+            finish.forward_pull({'number': '26'}, {'number': '8', 'head': {'sha': 'b' * 40}}, 'a' * 40)
+            pages.assert_not_called()
+            notify.assert_called_once()
+            self.assertEqual(2, api.call_count)
+
+    def test_valid_forwarding_merges_only_github_with_expected_head(self):
+        payload = {'base': 'a' * 40, 'head': 'b' * 40, 'tree': 'tree', 'cnb_number': '8'}
+        with patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test'}):
+            target = {'number': 9, 'body': '<!-- flclash-security-mirror ' + json.dumps(finish.sign(payload)) + ' -->',
+                      'base': {'ref': 'main'}, 'head': {'repo': {'full_name': finish.POLICY['github']}}}
+            def api(url, method='GET', data=None):
+                if '/issues/' in url:
+                    return {'state': 'open'}
+                return [] if method == 'GET' else {'merged': True}
+            with (patch.object(finish, 'api', side_effect=api) as call,
+                  patch.object(finish, 'pages', return_value=[target]),
+                  patch.object(finish, 'mirror_attestation', return_value='verified')):
+                finish.forward_pull({'number': '26'}, {'number': '8', 'head': {'sha': payload['head']}}, payload['base'])
+                writes = [c for c in call.call_args_list if len(c.args) > 1]
+                self.assertEqual(1, len(writes))
+                self.assertEqual(finish.GH + '/pulls/9/merge', writes[0].args[0])
+                self.assertEqual(payload['head'], writes[0].args[2]['sha'])
+
+    def test_closed_master_prevents_forwarding(self):
+        with patch.object(finish, 'api', return_value={'state': 'closed'}), patch.object(finish, 'pages') as pages:
+            finish.forward_pull({'number': '26'}, {}, 'a' * 40)
+            pages.assert_not_called()
+
+    def test_diverged_cnb_main_never_overwrites_or_reverse_merges(self):
+        with (patch.object(finish, 'api', return_value={'object': {'sha': 'a' * 40}}),
+              patch.object(finish, 'git', side_effect=['', '', 'b' * 40, types.SimpleNamespace(returncode=1)]),
+              patch.object(finish, 'sync_branch') as push, self.assertRaises(ValueError)):
+            finish.mirror()
+        push.assert_not_called()
 
     def test_rescan_dispatch_is_deduplicated_and_failure_budget_is_bounded(self):
         sha = 'a' * 40
@@ -99,28 +138,33 @@ class SecurityFinishTests(unittest.TestCase):
                 finish.ensure_scan(sha)
             self.assertEqual(1, api.call_count)
 
-    def test_head_change_after_approval_prevents_merge(self):
-        issue = {'number': '26'}
+    def test_head_change_prevents_forwarding_and_never_approves_on_cnb(self):
+        issue = {'number': '26', 'state': 'open'}
         pull = {'number': '50', 'state': 'open', 'is_wip': False,
                 'base': {'ref': 'refs/heads/main', 'sha': 'a' * 40},
                 'head': {'ref': 'refs/heads/security/group-go-core', 'sha': 'b' * 40,
                          'repo': {'path': finish.POLICY['cnb']}}}
-        approved = False
+        reads = 0
         def api(url, method='GET', data=None):
-            nonlocal approved
-            if method == 'POST':
-                approved = True
-                return {}
+            nonlocal reads
+            if '/git/ref/' in url:
+                return {'object': {'sha': 'a' * 40}}
             if '/issues/' in url:
                 return issue
-            return dict(pull, head=dict(pull['head'], sha='c' * 40)) if approved else pull
+            reads += 1
+            return pull if reads == 1 else dict(pull, head=dict(pull['head'], sha='c' * 40))
+        def git(*args, **kwargs):
+            if args[0] == 'merge-base':
+                return types.SimpleNamespace(returncode=int(args[2] == 'b' * 40))
+            return ''
         with (patch.object(finish, 'pages', side_effect=lambda url: [issue] if '/issues?' in url else [pull]),
               patch.object(finish, 'api', side_effect=api) as call,
               patch.object(finish, 'record', return_value={'group': 'go-core'}),
-              patch.object(finish, 'git', return_value=types.SimpleNamespace(returncode=0)),
+              patch.object(finish, 'git', side_effect=git),
               patch.object(finish, 'state', return_value='success'),
               patch.object(finish, 'passed_checks', return_value=True),
-              patch.object(finish, 'safe_files', return_value=True)):
+              patch.object(finish, 'safe_files', return_value=True),
+              patch.object(finish, 'forward_pull') as forward):
             finish.merge_one()
-            self.assertTrue(approved)
-            self.assertFalse(any(len(c.args) > 1 and c.args[1] == 'PUT' for c in call.call_args_list))
+            forward.assert_not_called()
+            self.assertFalse(any(len(c.args) > 1 for c in call.call_args_list))
