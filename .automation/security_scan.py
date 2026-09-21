@@ -52,7 +52,6 @@ def inventory(root):
         cwd=root / 'core', env=dict(os.environ, GOTOOLCHAIN='local', GOWORK='off'),
         check=True, capture_output=True, text=True, timeout=240).stdout
     packages, unscanned = [], []
-    toolchain = core_toolchain(root)
     for module in json_stream(modules):
         if module.get('Main'):
             continue
@@ -116,7 +115,7 @@ def scan(root):
     sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
     return {'schema': 1, 'sha': sha, 'complete': True, 'packages': packages,
             'unscanned': unscanned, 'findings': findings,
-            'toolchain': {'core/go.mod': toolchain}}
+            'toolchain': {'core/go.mod': core_toolchain(root)}}
 
 
 def new_findings(base, head):
