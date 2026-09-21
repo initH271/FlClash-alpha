@@ -38,6 +38,8 @@ def json_stream(text):
         text = text.lstrip()[end:]
 
 
+VERSION = re.compile(r'(\d+)\.(\d+)\.(\d+)')
+
 # Pins that decide which Go toolchain builds core. `GOVERSION` only reports the
 # ambient toolchain, which is identical for a baseline and a PR scan that run in
 # the same image, so repairs must be judged on the pinned versions in the tree.
@@ -48,6 +50,11 @@ TOOLCHAIN_PINS = (
     ('.github/workflows/security.yaml', re.compile(r"go-version:\s*'?([\w.]+)'?")),
     ('.github/upstream-build.yaml', re.compile(r"GO_VERSION:\s*'?([\w.]+)'?")),
 )
+
+
+def parsed_version(value):
+    match = VERSION.search(value or '')
+    return tuple(int(part) for part in match.groups()) if match else None
 
 
 def core_toolchain(root):
@@ -65,8 +72,12 @@ def core_toolchain(root):
         versions = [v for v in pattern.findall(path.read_text(encoding='utf-8')) if not v.startswith('$')]
         if versions:
             pins[filename] = sorted(versions)
-    declared = sorted(v for versions in pins.values() for v in versions)
-    return {'version': declared[0] if declared else '', 'language': language, 'pins': pins}
+    declared = [v for versions in pins.values() for v in versions]
+    # A repair is only credited when the pinned versions are readable and move
+    # forward, so lowering or breaking a pin cannot satisfy the gate.
+    known = [tuple(map(int, v.split('.'))) for v in declared if parsed_version(v)]
+    version = '.'.join(map(str, max(known))) if known else ''
+    return {'version': version, 'language': language, 'pins': pins}
 
 
 def inventory(root):
@@ -154,18 +165,30 @@ def require_clean_group(report, prefix):
                          + ', '.join(f.get('id', f['name']) for f in unresolved))
 
 
-def toolchain_versions(report):
-    return {path: (entry.get('pins') or entry['version'])
-            for path, entry in report.get('toolchain', {}).items()}
-
-
-def core_scan_changes(base, head):
-    before, after = base.get('packages', []), head.get('packages', [])
-    if toolchain_versions(base) != toolchain_versions(head):
-        return True
-    if not before or not after:
+def toolchain_moved(base, head):
+    before, after = base.get('toolchain', {}), head.get('toolchain', {})
+    if not before or set(before) != set(after):
+        return False
+    if not base.get('packages') or not head.get('packages'):
         raise ValueError('Grouped repairs require both scans to index the Go module')
-    return before != after
+    return all(version_advanced(before[path], entry) for path, entry in after.items())
+
+
+def version_advanced(before, after):
+    # "version" is the highest pin, so it can stay level while a lower pin drops;
+    # every readable pin must therefore be present and higher than before.
+    old, new = parsed_version(before.get('version')), parsed_version(after.get('version'))
+    if not old or not new or new <= old:
+        return False
+    pins = before.get('pins', {})
+    return bool(pins) and all(pin_advanced(pins[name], after.get('pins', {}).get(name, []))
+                              for name in pins)
+
+
+def pin_advanced(before, after):
+    was = [parsed_version(v) for v in before]
+    now = [parsed_version(v) for v in after]
+    return bool(was) and bool(now) and min(now) > min(was)
 
 
 def require_group_progress(base, head, group):
@@ -178,10 +201,10 @@ def require_group_progress(base, head, group):
     indexed = {key(p) for p in base['packages'] if group_for(p) == group}
     if any(key(p) in indexed for p in head['unscanned']):
         raise ValueError('An unindexed replacement cannot count as a repair')
-    toolchain_moved = group == 'go-core' and core_scan_changes(base, head)
+    advanced = group == 'go-core' and toolchain_moved(base, head)
     remaining = {(key(f), alias) for f in after for alias in f['aliases']}
     improved = any(not any((key(f), alias) in remaining for alias in f['aliases']) for f in before)
-    if not improved and not toolchain_moved:
+    if not improved and not advanced:
         raise ValueError('Grouped repair must remove at least one existing advisory match or '
                          'move the Go toolchain forward')
 

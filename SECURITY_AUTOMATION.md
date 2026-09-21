@@ -53,9 +53,13 @@ CNB PRs run the official incremental SCA plugin (new High/Critical findings bloc
 Go regression tests, Rust helper/API tests, and the existing paired review gate.
 The Go pipeline also runs full baseline and head OSV scans for `security/group-*`
 branches. Partial repairs may pass only if at least one existing advisory match
-is removed, or the scan moved in a way the toolchain cannot record (pinned toolchain
-version or indexed Go module set), no new matches appear, and indexed dependencies
-are not hidden behind unindexed replacements. Remaining findings stay in the master
+is removed, or every Go toolchain pin in the tree moves strictly forward, no new
+matches appear, and indexed dependencies are not hidden behind unindexed
+replacements. The pins themselves are the evidence: a scan run in one image
+reports the same ambient Go version for base and head, so only the pinned
+versions in `.cnb.yml`, `.cnb/Dockerfile` and the workflows can show a move. The
+check requires both scans to index the Go module, so a lowered, removed or
+unreadable pin cannot stand in for progress. Remaining findings stay in the master
 Issue, with separate assessment evidence in its discussion. Legacy
 `security/fix-<hash>` branches retain their original full-clear requirement.
 GitHub PRs with dependency changes compare complete OSV scans of base and head;
