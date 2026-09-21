@@ -34,7 +34,7 @@ main:
     - name: Go dependency regression tests
       runner: { cpus: 2 }
       docker:
-        image: golang:1.26.4
+        image: golang:1.26.8
       stages:
         - name: Verify core with resolved dependencies
           script: |

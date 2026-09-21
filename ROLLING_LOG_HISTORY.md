@@ -77,7 +77,7 @@ when invoked directly. Device verification remains pending.
 
 The private repository `initH271/FlClash-alpha` builds the Android ARM64 APK
 on pushes to `main` and manual workflow dispatches. The workflow pins the upstream
-Flutter 3.47.1, Go 1.26.4, NDK r28c, Java 17, and Rust 1.95.0 toolchains. It runs
+Flutter 3.47.1, Go 1.26.8, NDK r28c, Java 17, and Rust 1.95.0 toolchains. It runs
 core tests, Go vet, Flutter analysis, and the focused log export tests before
 building. The APK and SHA-256 checksum are retained as an Actions artifact for
 14 days. The original multi-platform workflow is preserved outside the active
