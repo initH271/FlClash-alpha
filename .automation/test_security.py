@@ -3,7 +3,7 @@ import os
 import ssl
 import unittest
 import urllib.error
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import security_scan as scan
 import security_watch as watch
@@ -129,6 +129,25 @@ class SecurityTests(unittest.TestCase):
         moved = dict(self.report([a], version='go1.26.8'), findings=[dict(a, version='v1.0.1')])
         scan.require_group_progress(base, moved, 'go-core')
         self.assertNotEqual(scan.toolchain_versions(base), scan.toolchain_versions(moved))
+
+    def test_pinned_toolchain_is_read_from_the_tree_not_the_ambient_go(self):
+        # A baseline and a PR scan share one image, so GOVERSION cannot tell them
+        # apart; only the versions pinned in the tree can prove a toolchain move.
+        with patch.object(scan.subprocess, 'run', return_value=Mock(stdout='{"GoVersion":"1.26"}')), \
+                patch.object(scan.pathlib.Path, 'is_file', return_value=True), \
+                patch.object(scan.pathlib.Path, 'read_text', side_effect=lambda *a, **k: 'image: golang:1.26.8'):
+            toolchain = scan.core_toolchain(scan.pathlib.Path('.'))
+        self.assertEqual({'core/go.mod': {'version': '1.26.8', 'language': '1.26',
+                                          'pins': {'.cnb.yml': ['1.26.8']}}}, {'core/go.mod': toolchain})
+
+    def test_placeholder_go_version_pins_are_not_read_as_a_version(self):
+        with patch.object(scan.subprocess, 'run', return_value=Mock(stdout='{"GoVersion":"1.26"}')), \
+                patch.object(scan.pathlib.Path, 'is_file', return_value=True), \
+                patch.object(scan.pathlib.Path, 'read_text',
+                             side_effect=lambda *a, **k: "go-version: ${{ env.GO_VERSION }}"):
+            toolchain = scan.core_toolchain(scan.pathlib.Path('.'))
+        self.assertEqual('', toolchain['version'])
+        self.assertEqual({}, toolchain['pins'])
 
     def test_unchanged_group_scan_is_still_rejected(self):
         base = self.report([self.finding()])

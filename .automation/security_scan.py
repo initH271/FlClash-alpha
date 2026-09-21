@@ -38,13 +38,35 @@ def json_stream(text):
         text = text.lstrip()[end:]
 
 
+# Pins that decide which Go toolchain builds core. `GOVERSION` only reports the
+# ambient toolchain, which is identical for a baseline and a PR scan that run in
+# the same image, so repairs must be judged on the pinned versions in the tree.
+TOOLCHAIN_PINS = (
+    ('.cnb.yml', re.compile(r'image:\s*golang:(\d+\.\d+\.\d+)')),
+    ('.cnb/Dockerfile', re.compile(r'/dl/go(\d+\.\d+\.\d+)\.linux-')),
+    ('.github/workflows/build.yaml', re.compile(r"go-version:\s*'?([\w.]+)'?")),
+    ('.github/workflows/security.yaml', re.compile(r"go-version:\s*'?([\w.]+)'?")),
+    ('.github/upstream-build.yaml', re.compile(r"GO_VERSION:\s*'?([\w.]+)'?")),
+)
+
+
 def core_toolchain(root):
     env = dict(os.environ, GOWORK='off')
-    version = subprocess.run(['go', 'env', 'GOVERSION'], cwd=root / 'core', env=env,
-        check=True, capture_output=True, text=True, timeout=240).stdout.strip()
     config = subprocess.run(['go', 'list', '-mod=readonly', '-m', '-json', 'go'],
         cwd=root / 'core', env=env, check=True, capture_output=True, text=True, timeout=240).stdout
-    return {'version': version, 'language': json.loads(config).get('GoVersion', '')}
+    language = json.loads(config).get('GoVersion', '')
+    pins = {}
+    for filename, pattern in TOOLCHAIN_PINS:
+        path = root / filename
+        if not path.is_file():
+            continue
+        # Placeholder-only pins such as `${{ env.GO_VERSION }}` are ignored so a
+        # workflow still resolves to its literal GO_VERSION declaration.
+        versions = [v for v in pattern.findall(path.read_text(encoding='utf-8')) if not v.startswith('$')]
+        if versions:
+            pins[filename] = sorted(versions)
+    declared = sorted(v for versions in pins.values() for v in versions)
+    return {'version': declared[0] if declared else '', 'language': language, 'pins': pins}
 
 
 def inventory(root):
@@ -133,7 +155,8 @@ def require_clean_group(report, prefix):
 
 
 def toolchain_versions(report):
-    return {path: entry['version'] for path, entry in report.get('toolchain', {}).items()}
+    return {path: (entry.get('pins') or entry['version'])
+            for path, entry in report.get('toolchain', {}).items()}
 
 
 def core_scan_changes(base, head):
