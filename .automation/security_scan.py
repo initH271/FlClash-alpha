@@ -38,11 +38,21 @@ def json_stream(text):
         text = text.lstrip()[end:]
 
 
+def core_toolchain(root):
+    env = dict(os.environ, GOWORK='off')
+    version = subprocess.run(['go', 'env', 'GOVERSION'], cwd=root / 'core', env=env,
+        check=True, capture_output=True, text=True, timeout=240).stdout.strip()
+    config = subprocess.run(['go', 'list', '-mod=readonly', '-m', '-json', 'go'],
+        cwd=root / 'core', env=env, check=True, capture_output=True, text=True, timeout=240).stdout
+    return {'version': version, 'language': json.loads(config).get('GoVersion', '')}
+
+
 def inventory(root):
     modules = subprocess.run(['go', 'list', '-mod=readonly', '-m', '-json', 'all'],
         cwd=root / 'core', env=dict(os.environ, GOTOOLCHAIN='local', GOWORK='off'),
         check=True, capture_output=True, text=True, timeout=240).stdout
     packages, unscanned = [], []
+    toolchain = core_toolchain(root)
     for module in json_stream(modules):
         if module.get('Main'):
             continue
@@ -105,7 +115,8 @@ def scan(root):
                     summary=advisory.get('summary', ''), url=f'https://osv.dev/vulnerability/{identifier}'))
     sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
     return {'schema': 1, 'sha': sha, 'complete': True, 'packages': packages,
-            'unscanned': unscanned, 'findings': findings}
+            'unscanned': unscanned, 'findings': findings,
+            'toolchain': {'core/go.mod': toolchain}}
 
 
 def new_findings(base, head):
@@ -122,6 +133,19 @@ def require_clean_group(report, prefix):
                          + ', '.join(f.get('id', f['name']) for f in unresolved))
 
 
+def toolchain_versions(report):
+    return {path: entry['version'] for path, entry in report.get('toolchain', {}).items()}
+
+
+def core_scan_changes(base, head):
+    before, after = base.get('packages', []), head.get('packages', [])
+    if toolchain_versions(base) != toolchain_versions(head):
+        return True
+    if not before or not after:
+        raise ValueError('Grouped repairs require both scans to index the Go module')
+    return before != after
+
+
 def require_group_progress(base, head, group):
     if group not in GROUPS:
         raise ValueError('Unknown repair group')
@@ -132,9 +156,12 @@ def require_group_progress(base, head, group):
     indexed = {key(p) for p in base['packages'] if group_for(p) == group}
     if any(key(p) in indexed for p in head['unscanned']):
         raise ValueError('An unindexed replacement cannot count as a repair')
+    toolchain_moved = group == 'go-core' and core_scan_changes(base, head)
     remaining = {(key(f), alias) for f in after for alias in f['aliases']}
-    if not any(not any((key(f), alias) in remaining for alias in f['aliases']) for f in before):
-        raise ValueError('Grouped repair must remove at least one existing advisory match')
+    improved = any(not any((key(f), alias) in remaining for alias in f['aliases']) for f in before)
+    if not improved and not toolchain_moved:
+        raise ValueError('Grouped repair must remove at least one existing advisory match or '
+                         'move the Go toolchain forward')
 
 
 if __name__ == '__main__':

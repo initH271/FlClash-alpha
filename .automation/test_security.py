@@ -109,15 +109,45 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual({'go-core', 'rust-helper', 'rust-api'}, set(grouped))
         self.assertEqual(2, len(grouped['go-core']))
 
+    def report(self, findings, packages=None, version='go1.26.8'):
+        return {'findings': list(findings), 'packages': packages if packages is not None else [self.finding()],
+                'unscanned': [], 'toolchain': {'core/go.mod': {'version': version, 'language': '1.26'}}}
+
     def test_partial_group_repair_must_improve_without_new_risks(self):
         a = self.finding()
         b = self.finding('GO-2', ['CVE-2026-2222'])
-        base = {'findings': [a, b], 'packages': [a], 'unscanned': []}
-        scan.require_group_progress(base, {'findings': [b], 'unscanned': []}, 'go-core')
-        for head in (base, {'findings': [self.finding('GO-3', ['CVE-2026-3333'])], 'unscanned': []},
-                     {'findings': [], 'unscanned': [a]}):
+        base = self.report([a, b])
+        scan.require_group_progress(base, self.report([b]), 'go-core')
+        for head in (base, self.report([self.finding('GO-3', ['CVE-2026-3333'])]),
+                     {'findings': [], 'unscanned': [a], 'packages': [a], 'toolchain': base['toolchain']}):
             with self.assertRaises(ValueError):
                 scan.require_group_progress(base, head, 'go-core')
+
+    def test_toolchain_upgrade_counts_as_group_progress_without_removing_a_match(self):
+        a = self.finding()
+        base = self.report([a], version='go1.26.4')
+        moved = dict(self.report([a], version='go1.26.8'), findings=[dict(a, version='v1.0.1')])
+        scan.require_group_progress(base, moved, 'go-core')
+        self.assertNotEqual(scan.toolchain_versions(base), scan.toolchain_versions(moved))
+
+    def test_unchanged_group_scan_is_still_rejected(self):
+        base = self.report([self.finding()])
+        with self.assertRaises(ValueError):
+            scan.require_group_progress(base, self.report([self.finding()]), 'go-core')
+
+    def test_missing_go_inventory_cannot_pass_as_progress(self):
+        base = self.report([self.finding()])
+        with self.assertRaises(ValueError):
+            scan.require_group_progress(base, self.report([], packages=[], version='go1.26.8'), 'go-core')
+
+    def test_other_groups_keep_the_advisory_removal_requirement(self):
+        item = {'file': 'services/helper/Cargo.lock', 'ecosystem': 'crates.io', 'name': 'tokio',
+                'version': '1.0.0', 'id': 'RUSTSEC-1', 'aliases': ['RUSTSEC-1'], 'fixed': ['1.0.1']}
+        base = {'findings': [item], 'packages': [item], 'unscanned': [],
+                'toolchain': {'core/go.mod': {'version': 'go1.26.4', 'language': '1.26'}}}
+        moved = {**base, 'toolchain': {'core/go.mod': {'version': 'go1.26.8', 'language': '1.26'}}}
+        with self.assertRaises(ValueError):
+            scan.require_group_progress(base, moved, 'rust-helper')
 
     def test_migration_closes_records_as_consolidated_not_fixed(self):
         item = self.finding()
