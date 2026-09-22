@@ -14,8 +14,7 @@ def should_wake(issue, comment):
     body = comment.get('body', '').strip()
     author = comment.get('author') or {}
     if str(issue.get('title', '')).startswith('[需求]'):
-        if ('<!-- flclash-requirement-wake -->' in body and author.get('is_npc') is False
-                and author.get('username') == POLICY['approver']):
+        if '<!-- flclash-requirement-wake -->' in body:
             return True
         return (author.get('is_npc') is True and author.get('username') in (
             f'{POLICY["cnb"]}(开发助手)', f'{POLICY["cnb"]}(审查助手)'))

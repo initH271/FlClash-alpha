@@ -44,6 +44,8 @@ class LifecycleTests(unittest.TestCase):
         self.assertFalse(wake.should_wake(issue, {'author': {'username': 'Aharon', 'is_npc': False}, 'body': '催一下'}))
         self.assertTrue(wake.should_wake(issue, {'author': {'username': 'Aharon', 'is_npc': False},
                                                  'body': '<!-- flclash-requirement-wake -->'}))
+        self.assertTrue(wake.should_wake(issue, {'author': {'username': 'OCI', 'is_npc': True},
+                                                 'body': '<!-- flclash-requirement-wake -->'}))
         opened = {'title': '[需求] 导出', 'author': {'username': 'Aharon', 'is_npc': False}}
         with (patch.dict(os.environ, {'CNB_EVENT': 'issue.open', 'CNB_ISSUE_IID': '3',
                                       'CNB_GITHUB_DISPATCH_TOKEN': 'token'}),
