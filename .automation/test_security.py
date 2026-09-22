@@ -3,7 +3,7 @@ import os
 import ssl
 import unittest
 import urllib.error
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import security_scan as scan
 import security_watch as watch
@@ -170,21 +170,27 @@ class SecurityTests(unittest.TestCase):
     def test_pinned_toolchain_is_read_from_the_tree_not_the_ambient_go(self):
         # A baseline and a PR scan share one image, so GOVERSION cannot tell them
         # apart; only the versions pinned in the tree can prove a toolchain move.
-        with patch.object(scan.subprocess, 'run', return_value=Mock(stdout='{"GoVersion":"1.26"}')), \
-                patch.object(scan.pathlib.Path, 'is_file', return_value=True), \
+        with patch.object(scan.pathlib.Path, 'is_file', return_value=True), \
                 patch.object(scan.pathlib.Path, 'read_text', side_effect=lambda *a, **k: 'image: golang:1.26.8'):
             toolchain = scan.core_toolchain(scan.pathlib.Path('.'))
-        self.assertEqual({'core/go.mod': {'version': '1.26.8', 'language': '1.26',
-                                          'pins': {'.cnb.yml': ['1.26.8']}}}, {'core/go.mod': toolchain})
+        self.assertEqual({'version': '1.26.8', 'pins': {'.cnb.yml': ['1.26.8']}}, toolchain)
 
     def test_placeholder_go_version_pins_are_not_read_as_a_version(self):
-        with patch.object(scan.subprocess, 'run', return_value=Mock(stdout='{"GoVersion":"1.26"}')), \
-                patch.object(scan.pathlib.Path, 'is_file', return_value=True), \
+        with patch.object(scan.pathlib.Path, 'is_file', return_value=True), \
                 patch.object(scan.pathlib.Path, 'read_text',
                              side_effect=lambda *a, **k: "go-version: ${{ env.GO_VERSION }}"):
             toolchain = scan.core_toolchain(scan.pathlib.Path('.'))
         self.assertEqual('', toolchain['version'])
         self.assertEqual({}, toolchain['pins'])
+
+    def test_a_new_pin_below_the_advanced_version_is_not_progress(self):
+        base = self.report([self.finding()], version='1.26.4', pins={'.cnb.yml': ['1.26.4']})
+        low = self.report([self.finding()], version='1.26.8',
+                          pins={'.cnb.yml': ['1.26.8'], '.cnb/Dockerfile': ['1.20.0']})
+        matched = self.report([self.finding()], version='1.26.8',
+                              pins={'.cnb.yml': ['1.26.8'], '.cnb/Dockerfile': ['1.26.8']})
+        self.assertFalse(scan.toolchain_moved(base, low))
+        self.assertTrue(scan.toolchain_moved(base, matched))
 
     def test_unchanged_group_scan_is_still_rejected(self):
         base = self.report([self.finding()])

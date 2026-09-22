@@ -58,10 +58,6 @@ def parsed_version(value):
 
 
 def core_toolchain(root):
-    env = dict(os.environ, GOWORK='off')
-    config = subprocess.run(['go', 'list', '-mod=readonly', '-m', '-json', 'go'],
-        cwd=root / 'core', env=env, check=True, capture_output=True, text=True, timeout=240).stdout
-    language = json.loads(config).get('GoVersion', '')
     pins = {}
     for filename, pattern in TOOLCHAIN_PINS:
         path = root / filename
@@ -77,7 +73,7 @@ def core_toolchain(root):
     # forward, so lowering or breaking a pin cannot satisfy the gate.
     known = [tuple(map(int, v.split('.'))) for v in declared if parsed_version(v)]
     version = '.'.join(map(str, max(known))) if known else ''
-    return {'version': version, 'language': language, 'pins': pins}
+    return {'version': version, 'pins': pins}
 
 
 def inventory(root):
@@ -177,18 +173,29 @@ def toolchain_moved(base, head):
 def version_advanced(before, after):
     # "version" is the highest pin, so it can stay level while a lower pin drops;
     # every readable pin must therefore be present and higher than before.
+    # A pin file that exists only on the repair side was not in that comparison,
+    # so it must still reach the new version.
     old, new = parsed_version(before.get('version')), parsed_version(after.get('version'))
     if not old or not new or new <= old:
         return False
-    pins = before.get('pins', {})
-    return bool(pins) and all(pin_advanced(pins[name], after.get('pins', {}).get(name, []))
-                              for name in pins)
+    before_pins = before.get('pins', {})
+    after_pins = after.get('pins', {})
+    if not before_pins or not all(
+        pin_advanced(before_pins[name], after_pins.get(name, [])) for name in before_pins
+    ):
+        return False
+    return all(pin_at_least(after_pins[name], new) for name in set(after_pins) - set(before_pins))
 
 
 def pin_advanced(before, after):
     was = [parsed_version(v) for v in before]
     now = [parsed_version(v) for v in after]
     return bool(was) and bool(now) and min(now) > min(was)
+
+
+def pin_at_least(versions, minimum):
+    parsed = [parsed_version(value) for value in versions]
+    return bool(parsed) and all(item is not None and item >= minimum for item in parsed)
 
 
 def require_group_progress(base, head, group):
