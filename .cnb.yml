@@ -107,7 +107,14 @@ main:
     - *mirror
 $:
   issue.open:
-    - *controller-wake
+    - name: Wake task controller
+      runner: { cpus: 1 }
+      docker:
+        image: python:3.12-slim
+      stages:
+        - name: Bridge issue open into a comment wake
+          script: python3 .automation/wake.py
+          timeout: 2m
   issue.comment:
     - name: Wake GitHub controller after approval or review
       runner: { cpus: 1 }
