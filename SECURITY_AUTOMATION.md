@@ -45,17 +45,24 @@ Go call paths (including mihomo's local replacement) and Rust target conditions.
 It may create a minimal compatible dependency-update CNB PR and run focused tests.
 Missing fixes are recorded per finding while other compatible repairs may proceed.
 Group-wide major upgrades, toolchain changes, compatibility uncertainty or failed
-validation require a human decision. It cannot ignore findings, disable checks,
-merge or release.
+validation require a human decision; such a change may pass the Go group gate as
+progress even when the toolchain upgrade removes no module-level match at all.
+It cannot ignore findings, disable checks, merge or release.
 
 CNB PRs run the official incremental SCA plugin (new High/Critical findings block),
 Go regression tests, Rust helper/API tests, and the existing paired review gate.
 The Go pipeline also runs full baseline and head OSV scans for `security/group-*`
 branches. Partial repairs may pass only if at least one existing advisory match
-is removed, no new matches appear, and indexed dependencies are not hidden behind
-unindexed replacements. Remaining findings stay in the master Issue, with separate
-assessment evidence in its discussion. Legacy `security/fix-<hash>` branches retain
-their original full-clear requirement.
+is removed, or every Go toolchain pin already in the baseline moves strictly
+forward, no new matches appear, and indexed dependencies are not hidden behind
+unindexed replacements. A pin file that appears only on the repair side must be
+at least that new version. The pins themselves are the evidence: a scan run in
+one image reports the same ambient Go version for base and head, so only the
+pinned versions in `.cnb.yml`, `.cnb/Dockerfile` and the workflows can show a
+move. The check requires both scans to index the Go module, so a lowered,
+removed, unreadable, or newly added lower pin cannot stand in for progress. Remaining findings stay in the master
+Issue, with separate assessment evidence in its discussion. Legacy
+`security/fix-<hash>` branches retain their original full-clear requirement.
 GitHub PRs with dependency changes compare complete OSV scans of base and head;
 new advisory matches fail the scan, including findings with unknown severity. GitHub scans
 use the scanner from trusted main and never give PR code the monitoring secrets.

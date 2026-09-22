@@ -38,7 +38,7 @@ jobs:
       - uses: actions/setup-go@v5
         if: steps.scope.outputs.changed == 'true'
         with:
-          go-version: '1.26.4'
+          go-version: '1.26.8'
           cache-dependency-path: source/core/go.sum
       - uses: actions/checkout@v4
         if: steps.scope.outputs.changed == 'true' && github.event_name == 'pull_request'

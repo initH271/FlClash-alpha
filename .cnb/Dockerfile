@@ -9,7 +9,9 @@ ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
     RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo \
     PUB_CACHE=/root/.pub-cache RUSTUP_TOOLCHAIN=1.95.0
 ENV PATH=/opt/flutter/bin:/usr/local/go/bin:/opt/cargo/bin:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:$PATH
-RUN curl -fsSL --retry 3 https://go.dev/dl/go1.26.4.linux-amd64.tar.gz | tar -xz -C /usr/local
+RUN curl -fsSL --retry 3 https://go.dev/dl/go1.26.8.linux-amd64.tar.gz -o /tmp/go.tar.gz && \
+    echo 'd0f743b33e8d8945e6b1f432edd15785c70507121d6e2a723b21285eddf8b57b  /tmp/go.tar.gz' | sha256sum -c - && \
+    tar -xzf /tmp/go.tar.gz -C /usr/local && rm /tmp/go.tar.gz
 RUN curl -fsSL --retry 3 https://sh.rustup.rs -o /tmp/rustup.sh && \
     sh /tmp/rustup.sh -y --profile minimal --default-toolchain 1.95.0 --target aarch64-linux-android && rm /tmp/rustup.sh
 ENV TAR_OPTIONS=--no-same-owner
