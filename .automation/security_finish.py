@@ -209,6 +209,7 @@ def merge_one():
 
 
 def push_github(source, branch):
+    git('config', '--unset-all', 'http.https://github.com/.extraheader', check=False)
     token = os.environ['GH_TOKEN']
     encoded = base64.b64encode(f'x-access-token:{token}'.encode()).decode()
     env = dict(os.environ, GIT_CONFIG_COUNT='1', GIT_CONFIG_KEY_0='http.https://github.com/.extraheader',
@@ -302,7 +303,7 @@ def merge_ready():
                 or not ref.startswith(('automation/req-', 'automation/cnb-main-', 'automation/security-sync-'))):
             continue
         pull = api(f'{GH}/pulls/{listed["number"]}')
-        if pull.get('draft') or pull.get('mergeable_state') != 'clean':
+        if pull.get('draft') or pull.get('mergeable_state') not in {'clean', 'unstable'}:
             continue
         sha = pull['head']['sha']
         if not paired_review_passed(sha):
