@@ -267,6 +267,8 @@ def ensure_branch_scan(sha, ref):
     current = [run for run in runs if run['head_sha'] == sha]
     if any(run['status'] != 'completed' or run['conclusion'] == 'success' for run in current):
         return
+    if len(current) >= 2:
+        return
     dispatch_workflow('security.yaml', ref, {'scan_only': True})
 
 
@@ -275,8 +277,9 @@ def after_github_merge(sha):
         return
     ensure_scan(sha)
     git('fetch', '--no-tags', f'https://github.com/{POLICY["github"]}.git', sha)
-    git('fetch', '--no-tags', f'https://cnb.cool/{POLICY["cnb"]}.git', 'refs/heads/main')
-    cnb = git('rev-parse', 'FETCH_HEAD')
+    git('fetch', '--no-tags', f'https://cnb.cool/{POLICY["cnb"]}.git',
+        '+refs/heads/main:refs/flclash/cnb-main')
+    cnb = git('rev-parse', 'refs/flclash/cnb-main')
     if cnb == sha:
         return
     if git('merge-base', '--is-ancestor', cnb, sha, check=False).returncode == 0:

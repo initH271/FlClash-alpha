@@ -168,6 +168,13 @@ class SecurityFinishTests(unittest.TestCase):
         handoff.assert_not_called()
         scan.assert_called_once()
 
+    def test_branch_scan_does_not_redispatch_after_two_failures(self):
+        sha = 'a' * 40
+        failed = {'head_sha': sha, 'status': 'completed', 'conclusion': 'failure'}
+        with patch.object(finish, 'api', return_value={'workflow_runs': [failed, failed]}) as api:
+            finish.ensure_branch_scan(sha, 'automation/req-1')
+            self.assertEqual(1, api.call_count)
+
     def test_rescan_dispatch_is_deduplicated_and_failure_budget_is_bounded(self):
         sha = 'a' * 40
         for status, conclusion in [('in_progress', None), ('completed', 'success')]:
