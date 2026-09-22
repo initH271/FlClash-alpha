@@ -6,13 +6,15 @@ This personal build is based on FlClash v0.8.97. The live log view keeps its
 The core starts a bounded disk recorder during initialization. It records the
 configured log level (including DNS and handshake details at `debug`) into
 `log-history/` under the application's private data directory. Each JSON Lines
-segment is limited to 5 MiB. At most ten segments are retained, oldest first.
+segment is limited to 5 MiB. At most twenty segments are retained, oldest first.
 Restarting appends to the latest segment; an incomplete trailing line left by a
 crash is removed before appending. Each record includes a timestamp with timezone.
 
 The log page has one **Export all logs** button. It exports one ZIP containing
-all retained core history, rolling Flutter `[APP]` history under `app/`, and a
-`recent-ui.log` snapshot. The snapshot may overlap the historical records.
+all retained core history, rolling Flutter `[APP]` history under `app/`,
+`coverage.txt` with the first and last record time of each core file, and a
+`recent-ui.log` snapshot of the latest in-memory lines. That snapshot overlaps
+the historical records and is not the full day.
 APP history also retains ten 5 MiB segments, survives restart, and is recorded
 at the application's logging entry point rather than from the UI's 5,000 entries.
 Logging cannot recover events from before installing this build or expired segments.
@@ -24,7 +26,7 @@ it records an explicit dropped-record warning. Individual messages longer than
 32 KiB are marked as truncated. Disk errors are reported to stderr and surfaced
 on history export, rather than reporting a complete archive after lost writes.
 
-The two histories occupy at most 100 MiB combined, plus temporary export archives and the
+Core history occupies at most 100 MiB and APP history at most 50 MiB, plus temporary export archives and the
 user's saved exports. User exports are not automatically deleted. The private
 history is removed with app data/uninstallation; export it before uninstalling.
 APP writes run sequentially in a bounded queue; export waits for earlier writes.

@@ -49,6 +49,10 @@ class NpcRecoveryTests(unittest.TestCase):
             self.issue['statuses'] = self.status(state)
             self.assertEqual([], self.run_recovery([]))
 
+    def test_requirement_issue_is_not_retried_by_recovery(self):
+        self.issue['title'] = '[需求] 导出'
+        self.assertEqual([], self.run_recovery([]))
+
     def test_issue_closed_after_listing_is_not_retried(self):
         self.issue['state'] = 'closed'
         self.assertEqual([], self.run_recovery([]))

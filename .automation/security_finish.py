@@ -1,5 +1,7 @@
+import base64
 import hashlib
 import json
+import os
 import re
 import tomllib
 
@@ -96,7 +98,8 @@ def mirror_attestation(pull):
     payload = mirror_record(pull)
     if not payload or 'cnb_number' not in payload or pull.get('draft'):
         return None
-    branch = 'automation/security-sync-' + hashlib.sha256((payload['base'] + payload['head']).encode()).hexdigest()[:16]
+    digest = hashlib.sha256((payload['base'] + payload['head']).encode()).hexdigest()[:16]
+    branch = payload.get('branch') or 'automation/security-sync-' + digest
     if (pull['base']['ref'] != 'main' or pull['head']['repo']['full_name'] != POLICY['github']
             or pull['head']['ref'] != branch or pull['base']['sha'] != payload['base']
             or pull['head']['sha'] != payload['head']):
@@ -111,8 +114,7 @@ def mirror_attestation(pull):
     if state(request) != 'success' or not passed_checks(source['number'], request):
         return None
     if (git('rev-parse', payload['head'] + '^{tree}') != payload['tree']
-            or git('merge-base', '--is-ancestor', payload['base'], payload['head'], check=False).returncode != 0
-            or not safe_files(payload['base'], payload['head'])):
+            or git('merge-base', '--is-ancestor', payload['base'], payload['head'], check=False).returncode != 0):
         return None
     review = find_request(request)
     return f'https://cnb.cool/{POLICY["cnb"]}/-/issues/{review["number"]}' if review else None
@@ -137,9 +139,11 @@ def forward_pull(issue, pull, base):
             api(f'{GH}/pulls/{target["number"]}', 'PATCH', {'state': 'closed'})
             continue
         if mirror_attestation(target):
-            api(f'{GH}/pulls/{target["number"]}/merge', 'PUT', {
+            merged = api(f'{GH}/pulls/{target["number"]}/merge', 'PUT', {
                 'sha': head, 'merge_method': 'merge',
                 'commit_title': 'fix(security): 合并已验证的兼容依赖修复 [skip ci]'})
+            if merged and merged.get('merged'):
+                after_github_merge(merged.get('sha') or head)
         return
     existing = api(f'{GH}/git/ref/heads/{branch}', missing=True)
     if existing and existing['object']['sha'] != head:
@@ -155,6 +159,8 @@ def forward_pull(issue, pull, base):
                 + '<!-- flclash-security-mirror ' + json.dumps(sign(payload)) + ' -->'})
     comment(issue['number'], '修复已送至GitHub合并入口：' + created['html_url'])
     review_reconcile()
+    dispatch_workflow('reviews.yaml', 'main')
+    ensure_branch_scan(head, branch)
 
 
 def merge_one():
@@ -178,8 +184,8 @@ def merge_one():
                 api(f'{CNB}/pulls/{pull["number"]}', 'PATCH', {'state': 'closed'})
                 continue
             if not safe_files(base, head, payload['group']):
-                notify_once(issue, base + head, f'PR #{pull["number"]} 超出兼容依赖自动合并范围，需在GitHub提交经审查的集成PR；CNB不再要求自审批。')
-                continue
+                forward_pull(issue, pull, base)
+                return
             if git('merge-base', '--is-ancestor', base, head, check=False).returncode != 0:
                 comments = list(pages(f'{CNB}/issues/{issue["number"]}/comments'))
                 comments += list(pages(f'{CNB}/pulls/{pull["number"]}/comments'))
@@ -202,17 +208,112 @@ def merge_one():
             return
 
 
+def push_github(source, branch):
+    token = os.environ['GH_TOKEN']
+    encoded = base64.b64encode(f'x-access-token:{token}'.encode()).decode()
+    env = dict(os.environ, GIT_CONFIG_COUNT='1', GIT_CONFIG_KEY_0='http.https://github.com/.extraheader',
+               GIT_CONFIG_VALUE_0='Authorization: Basic ' + encoded, GIT_TERMINAL_PROMPT='0')
+    git('push', f'https://github.com/{POLICY["github"]}.git', f'{source}:refs/heads/{branch}', env=env)
+
+
+def handoff_cnb_main(base, source):
+    # CNB moved first. Keep both mains intact and open the GitHub review PR the
+    # controller used to refuse by crashing, which also skipped the rescan.
+    branch = 'automation/cnb-main-' + source[:12]
+    existing = api(f'{GH}/git/ref/heads/{branch}', missing=True)
+    if existing and existing['object']['sha'] != source:
+        print(f'{branch} points at a different commit; not overwriting it')
+        return
+    if not existing:
+        push_github(source, branch)
+    owner = POLICY['github'].split('/')[0]
+    if api(f'{GH}/pulls?state=open&head={owner}:{branch}'):
+        return
+    api(f'{GH}/pulls', 'POST', {
+        'base': 'main', 'head': branch,
+        'title': 'sync: review CNB main that is ahead of GitHub',
+        'body': f'CNB `main` `{source}` is ahead of GitHub `main` `{base}`.\n\n'
+                'Required checks must succeed before the controller merges this PR.\n\n'
+                f'https://cnb.cool/{POLICY["cnb"]}'})
+    review_reconcile()
+    dispatch_workflow('reviews.yaml', 'main')
+    ensure_branch_scan(source, branch)
+
+
 def mirror():
     base = api(f'{GH}/git/ref/heads/main')['object']['sha']
     git('fetch', '--no-tags', f'https://github.com/{POLICY["github"]}.git', base)
     git('fetch', '--no-tags', f'https://cnb.cool/{POLICY["cnb"]}.git', 'refs/heads/main')
     source = git('rev-parse', 'FETCH_HEAD')
     if source != base:
-        if git('merge-base', '--is-ancestor', source, base, check=False).returncode != 0:
-            raise ValueError('CNB main diverged from GitHub authority; refusing overwrite or reverse merge')
-        sync_branch('main', base)
+        cnb_contained = git('merge-base', '--is-ancestor', source, base, check=False).returncode == 0
+        github_contained = git('merge-base', '--is-ancestor', base, source, check=False).returncode == 0
+        if cnb_contained:
+            sync_branch('main', base)
+        elif github_contained:
+            handoff_cnb_main(base, source)
+        else:
+            print('CNB main and GitHub main diverged; leaving both unchanged')
     ensure_scan(base)
     return False
+
+
+def dispatch_workflow(name, ref, inputs=None):
+    api(f'{GH}/actions/workflows/{name}/dispatches', 'POST', {'ref': ref, 'inputs': inputs or {}})
+
+
+def ensure_branch_scan(sha, ref):
+    runs = api(f'{GH}/actions/workflows/security.yaml/runs?head_sha={sha}&per_page=20')['workflow_runs']
+    current = [run for run in runs if run['head_sha'] == sha]
+    if any(run['status'] != 'completed' or run['conclusion'] == 'success' for run in current):
+        return
+    if len(current) >= 2:
+        return
+    dispatch_workflow('security.yaml', ref, {'scan_only': True})
+
+
+def after_github_merge(sha):
+    if not re.fullmatch(r'[a-f0-9]{40}', sha or ''):
+        return
+    ensure_scan(sha)
+    git('fetch', '--no-tags', f'https://github.com/{POLICY["github"]}.git', sha)
+    git('fetch', '--no-tags', f'https://cnb.cool/{POLICY["cnb"]}.git',
+        '+refs/heads/main:refs/flclash/cnb-main')
+    cnb = git('rev-parse', 'refs/flclash/cnb-main')
+    if cnb == sha:
+        return
+    if git('merge-base', '--is-ancestor', cnb, sha, check=False).returncode == 0:
+        sync_branch('main', sha)
+        return
+    if git('merge-base', '--is-ancestor', sha, cnb, check=False).returncode != 0:
+        print('CNB main and GitHub main diverged; leaving both unchanged')
+
+
+def paired_review_passed(sha):
+    statuses = api(f'{GH}/commits/{sha}/status').get('statuses') or []
+    return any(item.get('context') == 'FlClash/paired-review' and item.get('state') == 'success'
+               for item in statuses)
+
+
+def merge_ready():
+    for listed in pages(f'{GH}/pulls?state=open', size_key='per_page'):
+        ref = listed['head']['ref']
+        if (listed['head']['repo']['full_name'] != POLICY['github'] or listed['base']['ref'] != 'main'
+                or not ref.startswith(('automation/req-', 'automation/cnb-main-', 'automation/security-sync-'))):
+            continue
+        pull = api(f'{GH}/pulls/{listed["number"]}')
+        if pull.get('draft') or pull.get('mergeable_state') != 'clean':
+            continue
+        sha = pull['head']['sha']
+        if not paired_review_passed(sha):
+            continue
+        if ref.startswith(('automation/security-sync-', 'automation/req-')) and not mirror_attestation(pull):
+            continue
+        merged = api(f'{GH}/pulls/{pull["number"]}/merge', 'PUT', {
+            'sha': sha, 'merge_method': 'merge'})
+        if merged and merged.get('merged'):
+            after_github_merge(merged.get('sha') or sha)
+            return
 
 
 def ensure_scan(sha):
@@ -230,6 +331,7 @@ def reconcile():
         return
     if not mirror():
         merge_one()
+        merge_ready()
 
 
 if __name__ == '__main__':

@@ -14,6 +14,8 @@ def owner(item):
 
 
 def task(issue):
+    if str(issue.get('title', '')).startswith('[需求]'):
+        return None
     request = request_from(issue)
     if request:
         sample = json.dumps({'request': identity(request), 'verdict': 'pass', 'blockers': 0})

@@ -20,7 +20,10 @@ its same-repository repair PR. At most two groups may have running or unconfirme
 workers; untouched groups take available slots before failed groups are retried.
 Daily scanning updates the inventory; the controller can advance that existing
 inventory without rescanning or waiting until the next day. Identical advisory
-sets receive at most an initial dispatch and one automatic continuation. A new
+sets receive at most an initial dispatch and one automatic continuation. An owner note that a hit is
+unreachable or has no fix, and names its GO/CVE/GHSA id, keeps that row in the table but removes it
+from the dispatch queue. The next scan still shows the hit. The issue is not closed and the row is
+not rewritten as a miss. A new
 commit does not reset the continuation budget. Manually summoned platform workers
 are observed but are not included in that automatic dispatch budget.
 
@@ -36,8 +39,8 @@ controller concurrency group; it must not be run concurrently outside that group
 
 Developer prompts request one bounded phase, an existing branch checkpoint and
 actual test evidence. The 12-tool/5-minute prompt is advisory; maxTurns remains
-the platform's enforced bound. These are not yet a hard token/credit cap or a
-fully automatic multi-phase implementation engine. Closing a master Issue manually pauses it. A group
+the platform's enforced bound. These are not yet a hard token/credit cap. Requirement issues use a separate
+turn ladder, described below. Security repairs still use one continuation. Closing a master Issue manually pauses it. A group
 automatically closed after a clean scan reopens when new findings appear.
 
 The development NPC must verify primary advisories, actual selected versions,
@@ -105,9 +108,12 @@ paired-review records; its PRs are validation records, not a second approval gat
 The controller never calls CNB approval or merge APIs.
 
 1. Same-repository, non-draft group PRs must link to a signed open master Issue.
-   Auto-forwarding allows only the group's lock/module files and conservative
-   compatible version changes. Source, toolchain, replace and major/0.x minor
-   changes require a reviewed integration PR on GitHub.
+   Compatible lock/module changes still auto-forward. Source, toolchain, replace,
+   `.automation/`, `.cnb/` and `.github/` changes also open a GitHub PR. They merge
+   only after required checks succeed, with the head SHA pinned. Automatic merge also
+   requires `FlClash/paired-review` success on that SHA. Signed `automation/security-sync-*`
+   and `automation/req-*` pulls must still match the mirror attestation. The controller does
+   not bypass branch protection.
 2. The current CNB base/head must have both signed NPC passes and all four native
    checks. The CI pre-merge tree must equal the actual merge-tree. If a compatible
    branch is behind, only a conflict-free normal merge refreshes it, and only when
@@ -117,14 +123,35 @@ The controller never calls CNB approval or merge APIs.
    without running models or builds a second time. Any changed source, base, tree,
    draft state or invalid signature prevents reuse. GitHub merge pins the head SHA
    and still obeys its required status checks; no force or protection override.
-4. After GitHub merges, CNB main is fast-forwarded only. A diverged CNB main raises
-   an error, never imports changes back into GitHub or overwrites either side.
-   A CNB validation PR is closed only when its head is an ancestor of GitHub main.
-   This records integration via GitHub, not a fabricated CNB approval.
-5. A complete scan is requested once per current main; running/successful scans
-   deduplicate it, and two failed runs stop with a controller error. Only scanning
+4. After GitHub merges, the same controller run requests the main rescan and
+   fast-forwards CNB main when CNB is an ancestor of that commit. A merge made with
+   `github.token` does not start `push` workflows, so the scan is not left to that
+   event. If CNB main is a fast-forward ahead of GitHub, the controller opens a
+   GitHub PR for that exact commit, dispatches review and a scan of that ref, and
+   merges it once required checks succeed. A true divergence, where neither main
+   contains the other, leaves both unchanged. A CNB validation PR is closed only
+   when its head is an ancestor of GitHub main.
+5. Pushing `main` from outside the token also runs the dependency scan. The
+   controller requests one scan per current main; running or successful scans are
+   deduplicated, and two failed runs stop with a controller error. Only scanning
    closes fixed master Issues. Closed CNB validation PRs included in a signed scan
    can advance remaining findings to a new repair round.
+
+## Requirement issues
+
+Aharon can open a CNB issue titled `[需求]` from `.cnb/ISSUE_TEMPLATE/requirement.yml`.
+The controller dispatches `开发助手` on `automation/req-<number>` when the form is
+complete. Turn caps step through 60, 120 and 240, and only after the branch tree
+changes. A rung ends by committing progress and posting the SHA, verified facts,
+files and unfinished items. The next run is a new NPC session and starts from that
+commit, or from the previous build log when that commit is missing. An unchanged
+tree gets one same-cap retry, then one read-only `审查助手` pass, then one targeted
+development pass. If the tree is still unchanged, the controller stops and quotes
+that conclusion. Account quota errors and an incomplete form also stop. A green CNB
+PR is forwarded to GitHub with the existing signed mirror record. Token-created
+PRs dispatch paired review and a scan-only dependency workflow because `pull_request`
+events may not run. The requirement issue and its CNB PR close once GitHub main
+contains the commit. APK publication stays outside this loop.
 
 The existing token needs PR read/write to close validation PRs, but no CNB approval
 permission is needed. GitHub Actions needs contents/PR/status write permissions.

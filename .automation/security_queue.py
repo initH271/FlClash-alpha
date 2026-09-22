@@ -16,9 +16,35 @@ def owner(item):
     return author.get('username') == POLICY['approver'] and author.get('is_npc') is False
 
 
-def revision(payload):
-    aliases = sorted({key(row) + ':' + alias for row in payload['history']
-                      if row['state'] == '待评估（扫描命中）' for alias in row['aliases']})
+def assessed_ids(comments):
+    found = set()
+    for item in comments:
+        if not owner(item):
+            continue
+        body = item.get('body', '')
+        match = re.search(r'<!-- flclash-security-assessed (\{[^\r\n]+\}) -->', body)
+        if match:
+            try:
+                found.update(verify(json.loads(match[1])).get('ids', []))
+            except (ValueError, KeyError, TypeError):
+                pass
+        if re.search(r'暂无修复|不可达|不派', body):
+            found.update(re.findall(r'GO-\d{4}-\d+|CVE-\d{4}-\d+|GHSA-[a-z0-9-]+', body))
+    return found
+
+
+def pending_rows(payload):
+    return [row for row in payload['history'] if row['state'] == '待评估（扫描命中）']
+
+
+def row_ids(row):
+    return set(row.get('aliases') or []) | ({row['id']} if row.get('id') else set())
+
+
+def revision(payload, skip=()):
+    skipped = set(skip)
+    aliases = sorted({key(row) + ':' + alias for row in pending_rows(payload)
+                      if not (row_ids(row) & skipped) for alias in row['aliases']})
     return hashlib.sha256(json.dumps(aliases).encode()).hexdigest()[:16] if aliases else None
 
 
@@ -52,21 +78,25 @@ def checkpoints(comments, scope):
 
 
 def decision(payload, issue, comments, pull, pull_comments, now):
-    rev = revision(payload)
+    skip = assessed_ids(comments)
+    rev = revision(payload, skip)
     scope = payload['key'] + ':' + (rev or 'none')
+    pending = pending_rows(payload)
     items = [issue] + comments + pull_comments
     if pull and pull.get('is_merged') and pull.get('included_in_scan'):
         items = [item for item in items if item.get('created_at', '') > pull['updated_at']]
     history = attempts(items)
     runs = checkpoints(comments, scope)
-    if pull and pull.get('included_in_scan') and runs and runs[-1][0] <= pull['updated_at']:
-        return 'attention', scope, None
     latest = history[-1] if history else None
     running = [a for a in history if a[1] not in TERMINAL]
     if running:
         started = min(a[0] for a in running)
         age = now - datetime.datetime.fromisoformat(started.replace('Z', '+00:00'))
         return ('stalled' if age.total_seconds() > 1800 else 'running'), scope, latest
+    if pending and all(row_ids(row) & skip for row in pending):
+        return 'assessed', scope, latest
+    if pull and pull.get('included_in_scan') and runs and runs[-1][0] <= pull['updated_at']:
+        return 'attention', scope, None
     if runs and (not latest or runs[-1][0] > latest[0]):
         age = now - datetime.datetime.fromisoformat(runs[-1][0].replace('Z', '+00:00'))
         return ('dispatch-stalled' if age.total_seconds() > 1800 else 'awaiting-start'), scope, latest
@@ -106,6 +136,7 @@ def snapshot(issue, phase, pull, latest):
               'stalled': '执行超过30分钟，需核实运行状态', 'awaiting-start': '已派发，等待平台确认',
               'dispatch-stalled': '派发超过30分钟仍无回执，需人工核实；保留名额避免重复执行',
               'attention': '需要人工处理，自动接续预算已用完或任务已终止',
+              'assessed': '已评估且暂无修复版本，保留记录，不派开发助手',
               'reported': '已有阶段报告，等待人工评估', 'assessment': '需要评估未索引项',
               'pr-open': '已提交 PR，等待检查和审核', 'rescan': 'PR 已合并，等待主分支复扫'}
     detail = labels[phase]

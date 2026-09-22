@@ -13,6 +13,9 @@ def should_wake(issue, comment):
         return False
     body = comment.get('body', '').strip()
     author = comment.get('author') or {}
+    if str(issue.get('title', '')).startswith('[需求]'):
+        return (author.get('is_npc') is True and author.get('username') in (
+            f'{POLICY["cnb"]}(开发助手)', f'{POLICY["cnb"]}(审查助手)'))
     if '<!-- flclash-security-group ' in issue.get('body', ''):
         return (author.get('is_npc') is True
                 and author.get('username') == f'{POLICY["cnb"]}(开发助手)')
@@ -42,8 +45,18 @@ def dispatch():
 
 
 def wake():
-    if os.environ.get('CNB_EVENT') in ('crontab: */15 * * * *', 'pull_request.target'):
+    event = os.environ.get('CNB_EVENT', '')
+    if event in ('crontab: */15 * * * *', 'pull_request.target'):
         dispatch()
+        return
+    if event == 'issue' or (event.startswith('issue.') and not event.startswith('issue.comment')):
+        opened = api(f'{CNB}/issues/{os.environ["CNB_ISSUE_IID"]}')
+        author = opened.get('author') or {}
+        if (str(opened.get('title', '')).startswith('[需求]') and author.get('username') == POLICY['approver']
+                and author.get('is_npc') is False):
+            dispatch()
+            return
+        print('Issue does not require controller work')
         return
     number = os.environ['CNB_ISSUE_IID']
     issue = api(f'{CNB}/issues/{number}')

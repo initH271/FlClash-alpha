@@ -106,24 +106,74 @@ class SecurityFinishTests(unittest.TestCase):
                 return [] if method == 'GET' else {'merged': True}
             with (patch.object(finish, 'api', side_effect=api) as call,
                   patch.object(finish, 'pages', return_value=[target]),
-                  patch.object(finish, 'mirror_attestation', return_value='verified')):
+                  patch.object(finish, 'mirror_attestation', return_value='verified'),
+                  patch.object(finish, 'after_github_merge') as follow):
                 finish.forward_pull({'number': '26'}, {'number': '8', 'head': {'sha': payload['head']}}, payload['base'])
                 writes = [c for c in call.call_args_list if len(c.args) > 1]
                 self.assertEqual(1, len(writes))
                 self.assertEqual(finish.GH + '/pulls/9/merge', writes[0].args[0])
                 self.assertEqual(payload['head'], writes[0].args[2]['sha'])
+                follow.assert_called_once_with(payload['head'])
+
+    def test_merge_ready_requires_paired_review_and_signed_forwarding(self):
+        pull = {'number': 9, 'draft': False, 'mergeable_state': 'clean', 'head': {'sha': 'b' * 40, 'ref': 'automation/security-sync-abcd'},
+                'base': {'ref': 'main'}}
+        listed = {'number': 9, 'head': {'ref': pull['head']['ref'], 'repo': {'full_name': finish.POLICY['github']}},
+                  'base': {'ref': 'main'}}
+        def api(url, method='GET', data=None):
+            if url.endswith('/status'):
+                return {'statuses': [{'context': 'FlClash/paired-review', 'state': 'success'}]}
+            if url.endswith('/pulls/9'):
+                return pull
+            return {'merged': True, 'sha': 'c' * 40} if method == 'PUT' else None
+        with (patch.object(finish, 'pages', return_value=[listed]),
+              patch.object(finish, 'api', side_effect=api) as call,
+              patch.object(finish, 'mirror_attestation', return_value=None),
+              patch.object(finish, 'after_github_merge')):
+            finish.merge_ready()
+            self.assertFalse(any(len(c.args) > 1 and c.args[0].endswith('/merge') for c in call.call_args_list))
+        with (patch.object(finish, 'pages', return_value=[listed]),
+              patch.object(finish, 'api', side_effect=api) as call,
+              patch.object(finish, 'mirror_attestation', return_value='verified'),
+              patch.object(finish, 'after_github_merge') as follow):
+            finish.merge_ready()
+            follow.assert_called_once_with('c' * 40)
 
     def test_closed_master_prevents_forwarding(self):
         with patch.object(finish, 'api', return_value={'state': 'closed'}), patch.object(finish, 'pages') as pages:
             finish.forward_pull({'number': '26'}, {}, 'a' * 40)
             pages.assert_not_called()
 
-    def test_diverged_cnb_main_never_overwrites_or_reverse_merges(self):
+    def test_cnb_ahead_opens_a_github_pr_without_rewriting_either_main(self):
         with (patch.object(finish, 'api', return_value={'object': {'sha': 'a' * 40}}),
-              patch.object(finish, 'git', side_effect=['', '', 'b' * 40, types.SimpleNamespace(returncode=1)]),
-              patch.object(finish, 'sync_branch') as push, self.assertRaises(ValueError)):
+              patch.object(finish, 'git', side_effect=[
+                  '', '', 'b' * 40, types.SimpleNamespace(returncode=1), types.SimpleNamespace(returncode=0)]),
+              patch.object(finish, 'sync_branch') as push,
+              patch.object(finish, 'handoff_cnb_main') as handoff,
+              patch.object(finish, 'ensure_scan') as scan):
+            self.assertFalse(finish.mirror())
+        push.assert_not_called()
+        handoff.assert_called_once_with('a' * 40, 'b' * 40)
+        scan.assert_called_once_with('a' * 40)
+
+    def test_unrelated_divergence_leaves_both_mains_unchanged(self):
+        with (patch.object(finish, 'api', return_value={'object': {'sha': 'a' * 40}}),
+              patch.object(finish, 'git', side_effect=[
+                  '', '', 'b' * 40, types.SimpleNamespace(returncode=1), types.SimpleNamespace(returncode=1)]),
+              patch.object(finish, 'sync_branch') as push,
+              patch.object(finish, 'handoff_cnb_main') as handoff,
+              patch.object(finish, 'ensure_scan') as scan):
             finish.mirror()
         push.assert_not_called()
+        handoff.assert_not_called()
+        scan.assert_called_once()
+
+    def test_branch_scan_does_not_redispatch_after_two_failures(self):
+        sha = 'a' * 40
+        failed = {'head_sha': sha, 'status': 'completed', 'conclusion': 'failure'}
+        with patch.object(finish, 'api', return_value={'workflow_runs': [failed, failed]}) as api:
+            finish.ensure_branch_scan(sha, 'automation/req-1')
+            self.assertEqual(1, api.call_count)
 
     def test_rescan_dispatch_is_deduplicated_and_failure_budget_is_bounded(self):
         sha = 'a' * 40
