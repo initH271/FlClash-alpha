@@ -1,5 +1,7 @@
+import base64
 import hashlib
 import json
+import os
 import re
 import tomllib
 
@@ -202,15 +204,49 @@ def merge_one():
             return
 
 
+def push_github(source, branch):
+    token = os.environ['GH_TOKEN']
+    encoded = base64.b64encode(f'x-access-token:{token}'.encode()).decode()
+    env = dict(os.environ, GIT_CONFIG_COUNT='1', GIT_CONFIG_KEY_0='http.https://github.com/.extraheader',
+               GIT_CONFIG_VALUE_0='Authorization: Basic ' + encoded, GIT_TERMINAL_PROMPT='0')
+    git('push', f'https://github.com/{POLICY["github"]}.git', f'{source}:refs/heads/{branch}', env=env)
+
+
+def handoff_cnb_main(base, source):
+    # CNB moved first. Keep both mains intact and open the GitHub review PR the
+    # controller used to refuse by crashing, which also skipped the rescan.
+    branch = 'automation/cnb-main-' + source[:12]
+    existing = api(f'{GH}/git/ref/heads/{branch}', missing=True)
+    if existing and existing['object']['sha'] != source:
+        print(f'{branch} points at a different commit; not overwriting it')
+        return
+    if not existing:
+        push_github(source, branch)
+    owner = POLICY['github'].split('/')[0]
+    if api(f'{GH}/pulls?state=open&head={owner}:{branch}'):
+        return
+    api(f'{GH}/pulls', 'POST', {
+        'base': 'main', 'head': branch,
+        'title': 'sync: review CNB main that is ahead of GitHub',
+        'body': f'CNB `main` `{source}` is ahead of GitHub `main` `{base}`.\n\n'
+                'This PR is the review gate for those commits. It is not auto-merged.\n\n'
+                f'https://cnb.cool/{POLICY["cnb"]}'})
+
+
 def mirror():
     base = api(f'{GH}/git/ref/heads/main')['object']['sha']
     git('fetch', '--no-tags', f'https://github.com/{POLICY["github"]}.git', base)
     git('fetch', '--no-tags', f'https://cnb.cool/{POLICY["cnb"]}.git', 'refs/heads/main')
     source = git('rev-parse', 'FETCH_HEAD')
     if source != base:
-        if git('merge-base', '--is-ancestor', source, base, check=False).returncode != 0:
-            raise ValueError('CNB main diverged from GitHub authority; refusing overwrite or reverse merge')
-        sync_branch('main', base)
+        cnb_contained = git('merge-base', '--is-ancestor', source, base, check=False).returncode == 0
+        github_contained = git('merge-base', '--is-ancestor', base, source, check=False).returncode == 0
+        if cnb_contained:
+            sync_branch('main', base)
+        elif github_contained:
+            handoff_cnb_main(base, source)
+        else:
+            print('CNB main and GitHub main diverged; leaving both unchanged')
     ensure_scan(base)
     return False
 

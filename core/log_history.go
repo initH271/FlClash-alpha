@@ -14,7 +14,7 @@ import (
 )
 
 const historySegmentBytes = 5 * 1024 * 1024
-const historySegmentCount = 10
+const historySegmentCount = 20
 
 var historyState struct {
 	sync.RWMutex

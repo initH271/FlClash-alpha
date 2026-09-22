@@ -116,7 +116,7 @@ func TestRepairsIncompleteTailAndExportsFlushedSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer archive.Close()
-	if len(archive.File) != 2 {
+	if len(archive.File) != 3 {
 		t.Fatalf("unexpected archive entries: %d", len(archive.File))
 	}
 	reader, err := archive.File[0].Open()
@@ -130,6 +130,18 @@ func TestRepairsIncompleteTailAndExportsFlushedSnapshot(t *testing.T) {
 	}
 	if strings.Contains(string(data), "partial") || !strings.Contains(string(data), "after crash") {
 		t.Fatalf("bad snapshot: %s", data)
+	}
+	coverage, err := archive.Open("coverage.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	covered, err := io.ReadAll(coverage)
+	_ = coverage.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(covered), "core-20260919T120000.000000000Z.jsonl 2026-09-19T12:00:00Z 2026-09-19T12:00:00Z") {
+		t.Fatalf("coverage: %s", covered)
 	}
 	if len(readRecords(t, dir)) != 2 {
 		t.Fatal("records not recovered")

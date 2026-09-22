@@ -43,6 +43,10 @@ void main() {
         utf8.decode(archive.findFile('recent-ui.log')!.content),
         'recent UI',
       );
+      final readme = utf8.decode(archive.findFile('README.txt')!.content);
+      expect(readme, contains('20 files of 5 MiB'));
+      expect(readme, contains('coverage.txt:'));
+      expect(readme, contains('not the full day'));
       final app = archive.files
           .where((f) => f.name.startsWith('app/'))
           .map((f) => utf8.decode(f.content))

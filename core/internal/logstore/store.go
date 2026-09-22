@@ -203,10 +203,13 @@ func (s *Store) Export(path string) error {
 		}
 	}
 	if err == nil {
+		err = writeCoverage(w, files, s.maxBytes)
+	}
+	if err == nil {
 		var readme io.Writer
 		readme, err = w.Create("README.txt")
 		if err == nil {
-			_, err = fmt.Fprintf(readme, "FlClash core log history\nJSON Lines; timestamps include timezone. Files sort oldest to newest.\nRetention: %d files, %d bytes each. Older segments are deleted automatically.\nCore logs persist independently of the UI. Flutter [APP] logs remain in the original log export.\nBuffered writes flush every second; abrupt process termination may lose the last buffered records.\n", s.maxFiles, s.maxBytes)
+			_, err = fmt.Fprintf(readme, "FlClash core log history\nJSON Lines; timestamps include timezone. Files sort oldest to newest.\nRetention: %d files, %d bytes each. Older segments are deleted automatically.\ncoverage.txt lists the first and last record time of each retained file.\nCore logs persist independently of the UI. Flutter [APP] logs remain in the original log export.\nBuffered writes flush every second; abrupt process termination may lose the last buffered records.\n", s.maxFiles, s.maxBytes)
 		}
 	}
 	err = errors.Join(err, w.Close(), f.Close())
@@ -214,6 +217,67 @@ func (s *Store) Export(path string) error {
 		err = os.Rename(f.Name(), path)
 	}
 	return err
+}
+
+func writeCoverage(w *zip.Writer, files []string, maxLine int64) error {
+	out, err := w.Create("coverage.txt")
+	if err != nil {
+		return err
+	}
+	if _, err = fmt.Fprint(out, "Core log coverage\nfile first-record last-record\n"); err != nil {
+		return err
+	}
+	for _, path := range files {
+		first, last, ok, err := segmentSpan(path, maxLine)
+		if err != nil {
+			return err
+		}
+		name := filepath.Base(path)
+		if !ok {
+			_, err = fmt.Fprintf(out, "%s no records\n", name)
+		} else {
+			_, err = fmt.Fprintf(out, "%s %s %s\n", name, first.UTC().Format(time.RFC3339Nano), last.UTC().Format(time.RFC3339Nano))
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func segmentSpan(path string, maxLine int64) (time.Time, time.Time, bool, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return time.Time{}, time.Time{}, false, err
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), int(maxLine)+1024)
+	var firstLine, lastLine string
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+		if firstLine == "" {
+			firstLine = line
+		}
+		lastLine = line
+	}
+	if err = scanner.Err(); err != nil {
+		return time.Time{}, time.Time{}, false, err
+	}
+	if firstLine == "" {
+		return time.Time{}, time.Time{}, false, nil
+	}
+	var first, last Record
+	if err = json.Unmarshal([]byte(firstLine), &first); err != nil {
+		return time.Time{}, time.Time{}, false, err
+	}
+	if err = json.Unmarshal([]byte(lastLine), &last); err != nil {
+		return time.Time{}, time.Time{}, false, err
+	}
+	return first.Time, last.Time, true, nil
 }
 
 func addFile(w *zip.Writer, path string) error {

@@ -117,12 +117,15 @@ The controller never calls CNB approval or merge APIs.
    without running models or builds a second time. Any changed source, base, tree,
    draft state or invalid signature prevents reuse. GitHub merge pins the head SHA
    and still obeys its required status checks; no force or protection override.
-4. After GitHub merges, CNB main is fast-forwarded only. A diverged CNB main raises
-   an error, never imports changes back into GitHub or overwrites either side.
-   A CNB validation PR is closed only when its head is an ancestor of GitHub main.
-   This records integration via GitHub, not a fabricated CNB approval.
-5. A complete scan is requested once per current main; running/successful scans
-   deduplicate it, and two failed runs stop with a controller error. Only scanning
+4. After GitHub merges, CNB main is fast-forwarded only. If CNB main is a
+   fast-forward ahead of GitHub, the controller opens a non-auto-merged GitHub PR
+   for that exact commit and still requests the main rescan. A true divergence,
+   where neither main contains the other, leaves both unchanged and does not import
+   either side. A CNB validation PR is closed only when its head is an ancestor of
+   GitHub main. This records integration via GitHub, not a fabricated CNB approval.
+5. Pushing `main` runs the dependency scan directly. The controller also requests
+   one scan per current main; running or successful scans are deduplicated, and two
+   failed runs stop with a controller error. Only scanning
    closes fixed master Issues. Closed CNB validation PRs included in a signed scan
    can advance remaining findings to a new repair round.
 

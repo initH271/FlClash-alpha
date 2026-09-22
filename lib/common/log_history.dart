@@ -184,7 +184,7 @@ Future<void> _combineLogs(
   archive.addFile(
     ArchiveFile.string(
       'README.txt',
-      'FlClash complete retained logs\ncore-*.jsonl: rolling core history\napp/*.jsonl: rolling APP history\nrecent-ui.log: current UI snapshot, including overlapping core/APP events\nEach history retains up to 10 files of 5 MiB; older records expire.\nRecords before this build was installed cannot be recovered.\n',
+      'FlClash complete retained logs\ncore-*.jsonl: rolling core history, 20 files of 5 MiB\napp/*.jsonl: rolling APP history, 10 files of 5 MiB\ncoverage.txt: first and last record time of each retained core file\nrecent-ui.log: UI snapshot at export, only the latest in-memory lines; it overlaps core and APP history and is not the full day\nOlder records expire. Records before this build was installed cannot be recovered.\n',
     ),
   );
   final output = File(input.output);

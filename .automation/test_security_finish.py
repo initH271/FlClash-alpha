@@ -118,12 +118,29 @@ class SecurityFinishTests(unittest.TestCase):
             finish.forward_pull({'number': '26'}, {}, 'a' * 40)
             pages.assert_not_called()
 
-    def test_diverged_cnb_main_never_overwrites_or_reverse_merges(self):
+    def test_cnb_ahead_opens_a_github_pr_without_rewriting_either_main(self):
         with (patch.object(finish, 'api', return_value={'object': {'sha': 'a' * 40}}),
-              patch.object(finish, 'git', side_effect=['', '', 'b' * 40, types.SimpleNamespace(returncode=1)]),
-              patch.object(finish, 'sync_branch') as push, self.assertRaises(ValueError)):
+              patch.object(finish, 'git', side_effect=[
+                  '', '', 'b' * 40, types.SimpleNamespace(returncode=1), types.SimpleNamespace(returncode=0)]),
+              patch.object(finish, 'sync_branch') as push,
+              patch.object(finish, 'handoff_cnb_main') as handoff,
+              patch.object(finish, 'ensure_scan') as scan):
+            self.assertFalse(finish.mirror())
+        push.assert_not_called()
+        handoff.assert_called_once_with('a' * 40, 'b' * 40)
+        scan.assert_called_once_with('a' * 40)
+
+    def test_unrelated_divergence_leaves_both_mains_unchanged(self):
+        with (patch.object(finish, 'api', return_value={'object': {'sha': 'a' * 40}}),
+              patch.object(finish, 'git', side_effect=[
+                  '', '', 'b' * 40, types.SimpleNamespace(returncode=1), types.SimpleNamespace(returncode=1)]),
+              patch.object(finish, 'sync_branch') as push,
+              patch.object(finish, 'handoff_cnb_main') as handoff,
+              patch.object(finish, 'ensure_scan') as scan):
             finish.mirror()
         push.assert_not_called()
+        handoff.assert_not_called()
+        scan.assert_called_once()
 
     def test_rescan_dispatch_is_deduplicated_and_failure_budget_is_bounded(self):
         sha = 'a' * 40
