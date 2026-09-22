@@ -4,7 +4,7 @@ import re
 import urllib.error
 import urllib.request
 
-from control import CNB, GH, POLICY, api, approved, pages
+from control import CNB, GH, POLICY, api, approved, comment as post_comment, pages
 from reviews import ROLES
 
 
@@ -14,6 +14,9 @@ def should_wake(issue, comment):
     body = comment.get('body', '').strip()
     author = comment.get('author') or {}
     if str(issue.get('title', '')).startswith('[需求]'):
+        if ('<!-- flclash-requirement-wake -->' in body and author.get('is_npc') is False
+                and author.get('username') == POLICY['approver']):
+            return True
         return (author.get('is_npc') is True and author.get('username') in (
             f'{POLICY["cnb"]}(开发助手)', f'{POLICY["cnb"]}(审查助手)'))
     if '<!-- flclash-security-group ' in issue.get('body', ''):
@@ -54,6 +57,10 @@ def wake():
         author = opened.get('author') or {}
         if (str(opened.get('title', '')).startswith('[需求]') and author.get('username') == POLICY['approver']
                 and author.get('is_npc') is False):
+            if not os.environ.get('CNB_GITHUB_DISPATCH_TOKEN'):
+                post_comment(os.environ['CNB_ISSUE_IID'], '<!-- flclash-requirement-wake -->')
+                print('Requested comment bridge')
+                return
             dispatch()
             return
         print('Issue does not require controller work')
