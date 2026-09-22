@@ -209,6 +209,7 @@ def merge_one():
 
 
 def push_github(source, branch):
+    git('config', '--unset-all', 'http.https://github.com/.extraheader', check=False)
     token = os.environ['GH_TOKEN']
     encoded = base64.b64encode(f'x-access-token:{token}'.encode()).decode()
     env = dict(os.environ, GIT_CONFIG_COUNT='1', GIT_CONFIG_KEY_0='http.https://github.com/.extraheader',
