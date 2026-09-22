@@ -53,13 +53,10 @@ def wake():
         dispatch()
         return
     if event == 'issue' or (event.startswith('issue.') and not event.startswith('issue.comment')):
-        title = os.environ.get('CNB_ISSUE_TITLE', '')
-        owner = os.environ.get('CNB_ISSUE_OWNER', '')
-        if not title:
-            opened = api(f'{CNB}/issues/{os.environ["CNB_ISSUE_IID"]}')
-            title = str(opened.get('title', ''))
-            owner = (opened.get('author') or {}).get('username', '')
-        if title.startswith('[需求]') and owner == POLICY['approver']:
+        opened = api(f'{CNB}/issues/{os.environ["CNB_ISSUE_IID"]}')
+        author = opened.get('author') or {}
+        if (str(opened.get('title', '')).startswith('[需求]') and author.get('username') == POLICY['approver']
+                and author.get('is_npc') is False):
             if not os.environ.get('CNB_GITHUB_DISPATCH_TOKEN'):
                 post_comment(os.environ['CNB_ISSUE_IID'], '<!-- flclash-requirement-wake -->')
                 print('Requested comment bridge')
