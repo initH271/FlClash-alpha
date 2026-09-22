@@ -42,11 +42,21 @@ class LifecycleTests(unittest.TestCase):
         developer = {'username': '507space/FlClash-alpha(开发助手)', 'is_npc': True}
         self.assertTrue(wake.should_wake(issue, {'author': developer, 'body': '提交 abc'}))
         self.assertFalse(wake.should_wake(issue, {'author': {'username': 'Aharon', 'is_npc': False}, 'body': '催一下'}))
+        self.assertTrue(wake.should_wake(issue, {'author': {'username': 'Aharon', 'is_npc': False},
+                                                 'body': '<!-- flclash-requirement-wake -->'}))
         opened = {'title': '[需求] 导出', 'author': {'username': 'Aharon', 'is_npc': False}}
-        with (patch.dict(os.environ, {'CNB_EVENT': 'issue', 'CNB_ISSUE_IID': '3'}),
+        with (patch.dict(os.environ, {'CNB_EVENT': 'issue.open', 'CNB_ISSUE_IID': '3',
+                                      'CNB_GITHUB_DISPATCH_TOKEN': 'token'}),
               patch.object(wake, 'api', return_value=opened), patch.object(wake, 'dispatch') as dispatch):
             wake.wake()
             dispatch.assert_called_once()
+        with (patch.dict(os.environ, {'CNB_EVENT': 'issue.open', 'CNB_ISSUE_IID': '3',
+                                      'CNB_ISSUE_TITLE': '[需求] 导出', 'CNB_ISSUE_OWNER': 'Aharon'}, clear=False),
+              patch.object(wake, 'post_comment') as comment, patch.object(wake, 'dispatch') as dispatch):
+            os.environ.pop('CNB_GITHUB_DISPATCH_TOKEN', None)
+            wake.wake()
+            dispatch.assert_not_called()
+            comment.assert_called_once()
 
     def test_close_only_signed_reviews_of_finished_prs(self):
         with patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'}):

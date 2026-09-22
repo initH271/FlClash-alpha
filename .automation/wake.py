@@ -4,7 +4,7 @@ import re
 import urllib.error
 import urllib.request
 
-from control import CNB, GH, POLICY, api, approved, pages
+from control import CNB, GH, POLICY, api, approved, comment as post_comment, pages
 from reviews import ROLES
 
 
@@ -14,6 +14,9 @@ def should_wake(issue, comment):
     body = comment.get('body', '').strip()
     author = comment.get('author') or {}
     if str(issue.get('title', '')).startswith('[需求]'):
+        if ('<!-- flclash-requirement-wake -->' in body and author.get('is_npc') is False
+                and author.get('username') == POLICY['approver']):
+            return True
         return (author.get('is_npc') is True and author.get('username') in (
             f'{POLICY["cnb"]}(开发助手)', f'{POLICY["cnb"]}(审查助手)'))
     if '<!-- flclash-security-group ' in issue.get('body', ''):
@@ -50,10 +53,17 @@ def wake():
         dispatch()
         return
     if event == 'issue' or (event.startswith('issue.') and not event.startswith('issue.comment')):
-        opened = api(f'{CNB}/issues/{os.environ["CNB_ISSUE_IID"]}')
-        author = opened.get('author') or {}
-        if (str(opened.get('title', '')).startswith('[需求]') and author.get('username') == POLICY['approver']
-                and author.get('is_npc') is False):
+        title = os.environ.get('CNB_ISSUE_TITLE', '')
+        owner = os.environ.get('CNB_ISSUE_OWNER', '')
+        if not title:
+            opened = api(f'{CNB}/issues/{os.environ["CNB_ISSUE_IID"]}')
+            title = str(opened.get('title', ''))
+            owner = (opened.get('author') or {}).get('username', '')
+        if title.startswith('[需求]') and owner == POLICY['approver']:
+            if not os.environ.get('CNB_GITHUB_DISPATCH_TOKEN'):
+                post_comment(os.environ['CNB_ISSUE_IID'], '<!-- flclash-requirement-wake -->')
+                print('Requested comment bridge')
+                return
             dispatch()
             return
         print('Issue does not require controller work')
