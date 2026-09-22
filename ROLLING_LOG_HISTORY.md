@@ -109,3 +109,4 @@ The signing certificate SHA-256 is
 The phone was disconnected at delivery, so no installation or device test was run.
 
 Requirement loop probe: req-open
+Requirement loop probe: req-auto
