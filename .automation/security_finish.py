@@ -286,6 +286,12 @@ def after_github_merge(sha):
         print('CNB main and GitHub main diverged; leaving both unchanged')
 
 
+def paired_review_passed(sha):
+    statuses = api(f'{GH}/commits/{sha}/status').get('statuses') or []
+    return any(item.get('context') == 'FlClash/paired-review' and item.get('state') == 'success'
+               for item in statuses)
+
+
 def merge_ready():
     for listed in pages(f'{GH}/pulls?state=open', size_key='per_page'):
         ref = listed['head']['ref']
@@ -296,6 +302,10 @@ def merge_ready():
         if pull.get('draft') or pull.get('mergeable_state') != 'clean':
             continue
         sha = pull['head']['sha']
+        if not paired_review_passed(sha):
+            continue
+        if ref.startswith(('automation/security-sync-', 'automation/req-')) and not mirror_attestation(pull):
+            continue
         merged = api(f'{GH}/pulls/{pull["number"]}/merge', 'PUT', {
             'sha': sha, 'merge_method': 'merge'})
         if merged and merged.get('merged'):

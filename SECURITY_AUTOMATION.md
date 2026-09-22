@@ -110,7 +110,9 @@ The controller never calls CNB approval or merge APIs.
 1. Same-repository, non-draft group PRs must link to a signed open master Issue.
    Compatible lock/module changes still auto-forward. Source, toolchain, replace,
    `.automation/`, `.cnb/` and `.github/` changes also open a GitHub PR. They merge
-   only after required checks succeed, with the head SHA pinned. The controller does
+   only after required checks succeed, with the head SHA pinned. Automatic merge also
+   requires `FlClash/paired-review` success on that SHA. Signed `automation/security-sync-*`
+   and `automation/req-*` pulls must still match the mirror attestation. The controller does
    not bypass branch protection.
 2. The current CNB base/head must have both signed NPC passes and all four native
    checks. The CI pre-merge tree must equal the actual merge-tree. If a compatible
