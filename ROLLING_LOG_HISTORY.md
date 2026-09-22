@@ -107,3 +107,5 @@ transitive Android dependencies also contain unused libraries for other ABIs.
 The signing certificate SHA-256 is
 `4cc5094e24f4a4cfde3a37d6c839ae376bd74c50075d8ee6bc73e25682e9afad`.
 The phone was disconnected at delivery, so no installation or device test was run.
+
+Requirement loop probe: req-open
