@@ -37,6 +37,17 @@ class LifecycleTests(unittest.TestCase):
         issue['state'] = 'closed'
         self.assertFalse(wake.should_wake(issue, {'author': npc, 'body': 'FLCLASH_REVIEW {}'}))
 
+    def test_requirement_report_wakes_and_opening_a_requirement_dispatches(self):
+        issue = {'state': 'open', 'title': '[需求] 导出', 'body': ''}
+        developer = {'username': '507space/FlClash-alpha(开发助手)', 'is_npc': True}
+        self.assertTrue(wake.should_wake(issue, {'author': developer, 'body': '提交 abc'}))
+        self.assertFalse(wake.should_wake(issue, {'author': {'username': 'Aharon', 'is_npc': False}, 'body': '催一下'}))
+        opened = {'title': '[需求] 导出', 'author': {'username': 'Aharon', 'is_npc': False}}
+        with (patch.dict(os.environ, {'CNB_EVENT': 'issue', 'CNB_ISSUE_IID': '3'}),
+              patch.object(wake, 'api', return_value=opened), patch.object(wake, 'dispatch') as dispatch):
+            wake.wake()
+            dispatch.assert_called_once()
+
     def test_close_only_signed_reviews_of_finished_prs(self):
         with patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'}):
             request = {'platform': 'github', 'number': '2', 'base': 'a' * 40, 'head': 'b' * 40}

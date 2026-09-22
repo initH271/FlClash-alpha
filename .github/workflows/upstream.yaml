@@ -2,7 +2,7 @@ name: Upstream decisions and build scheduling
 on:
   schedule:
     - cron: '17 */6 * * *'
-    - cron: '*/15 * * * *'
+    - cron: '0 * * * *'
   workflow_dispatch:
     inputs:
       operation:
@@ -57,9 +57,12 @@ jobs:
       - name: Finish verified compatible security repairs
         if: always() && steps.credentials.outcome == 'success' && inputs.operation != 'preflight'
         run: python3 .automation/security_finish.py
+      - name: Dispatch requirement development
+        if: always() && steps.credentials.outcome == 'success' && inputs.operation != 'preflight'
+        run: python3 .automation/requirements.py
       - name: Process owner approvals
-        if: github.event.schedule == '*/15 * * * *' || inputs.operation == 'all' || inputs.operation == 'approvals'
+        if: github.event.schedule == '0 * * * *' || inputs.operation == 'all' || inputs.operation == 'approvals'
         run: python3 .automation/control.py approvals
       - name: Reuse artifacts or dispatch infrastructure fallback
-        if: github.event.schedule == '*/15 * * * *' || inputs.operation == 'all' || inputs.operation == 'scheduler'
+        if: github.event.schedule == '0 * * * *' || inputs.operation == 'all' || inputs.operation == 'scheduler'
         run: python3 .automation/scheduler.py

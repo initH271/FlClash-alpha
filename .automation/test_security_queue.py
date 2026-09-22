@@ -33,6 +33,15 @@ class SecurityQueueTests(unittest.TestCase):
         return {'created_at': timestamp, 'author': {'username': 'Aharon', 'is_npc': False},
                 'body': '<!-- flclash-security-run ' + json.dumps(queue.sign(data)) + ' -->'}
 
+    def test_assessed_unfixed_hit_stays_recorded_without_dispatch(self):
+        self.payload['history'][0]['aliases'] = ['GO-2026-5932']
+        note = {'author': {'username': 'Aharon', 'is_npc': False},
+                'body': 'GO-2026-5932 调用路径不可达，暂无修复，不派开发助手。'}
+        self.assertEqual('assessed', self.decide([note])[0])
+        self.payload['history'].append({'file': 'core/go.mod', 'ecosystem': 'Go', 'name': 'x/sys',
+                                        'aliases': ['GO-2'], 'state': '待评估（扫描命中）'})
+        self.assertEqual('start', self.decide([note])[0])
+
     def test_untouched_group_starts_without_waiting_for_daily_scan(self):
         self.assertEqual('start', self.decide()[0])
 

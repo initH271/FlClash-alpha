@@ -1,0 +1,74 @@
+name: 需求
+description: 填完即交给开发助手，不必再评论催
+title: "[需求] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提交后自动派开发助手，不必再评论催。
+  - type: markdown
+    attributes:
+      value: "## 要改什么"
+      includeInBody: true
+  - type: textarea
+    attributes:
+      label: 要改什么
+      description: 一句话
+      placeholder: 一句话说清要改的行为
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: "## 验收标准"
+      includeInBody: true
+  - type: textarea
+    attributes:
+      label: 验收标准
+      description: 每行一条，完成后可以核对
+      placeholder: 完成后可以核对的条件，每行一条
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: "## 不做什么"
+      includeInBody: true
+  - type: textarea
+    attributes:
+      label: 不做什么
+      placeholder: 不发 APK、不改 main
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: "## 影响范围"
+      includeInBody: true
+  - type: dropdown
+    attributes:
+      label: 影响范围
+      multiple: true
+      options:
+        - Flutter UI
+        - Go core
+        - Android
+        - 桌面
+        - 自动化配置
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: "## 允许改自动化配置"
+      includeInBody: true
+  - type: checkboxes
+    attributes:
+      label: 允许改自动化配置
+      description: 默认不允许。勾选后 PR 才可以改 .automation、.cnb、.github
+      options:
+        - label: 允许本次 PR 修改 .automation、.cnb、.github
+  - type: markdown
+    attributes:
+      value: "## 相关文件或界面"
+      includeInBody: true
+  - type: textarea
+    attributes:
+      label: 相关文件或界面
+      placeholder: 可留空

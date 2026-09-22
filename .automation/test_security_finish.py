@@ -106,12 +106,14 @@ class SecurityFinishTests(unittest.TestCase):
                 return [] if method == 'GET' else {'merged': True}
             with (patch.object(finish, 'api', side_effect=api) as call,
                   patch.object(finish, 'pages', return_value=[target]),
-                  patch.object(finish, 'mirror_attestation', return_value='verified')):
+                  patch.object(finish, 'mirror_attestation', return_value='verified'),
+                  patch.object(finish, 'after_github_merge') as follow):
                 finish.forward_pull({'number': '26'}, {'number': '8', 'head': {'sha': payload['head']}}, payload['base'])
                 writes = [c for c in call.call_args_list if len(c.args) > 1]
                 self.assertEqual(1, len(writes))
                 self.assertEqual(finish.GH + '/pulls/9/merge', writes[0].args[0])
                 self.assertEqual(payload['head'], writes[0].args[2]['sha'])
+                follow.assert_called_once_with(payload['head'])
 
     def test_closed_master_prevents_forwarding(self):
         with patch.object(finish, 'api', return_value={'state': 'closed'}), patch.object(finish, 'pages') as pages:
