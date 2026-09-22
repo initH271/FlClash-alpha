@@ -106,7 +106,7 @@ main:
   "crontab: */15 * * * *":
     - *mirror
 $:
-  issue:
+  issue.open:
     - *controller-wake
   issue.comment:
     - name: Wake GitHub controller after approval or review

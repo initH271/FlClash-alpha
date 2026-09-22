@@ -49,10 +49,12 @@ class RequirementTests(unittest.TestCase):
         return {'at': at, 'state': state, 'detail': detail, 'sn': sn, 'role': role}
 
     def decide(self, comments=None, rows=None, tree='', **kwargs):
-        defaults = {'contained': False, 'checks_green': False, 'review_failed': False, 'review_text': ''}
+        defaults = {'contained': False, 'checks_green': False, 'review_failed': False, 'review_text': '',
+                    'has_pull': False, 'sha': ''}
         defaults.update(kwargs)
         return req.decide(self.issue, comments or [], rows or [], tree, defaults['contained'],
-                          defaults['checks_green'], defaults['review_failed'], defaults['review_text'], self.now)
+                          defaults['checks_green'], defaults['review_failed'], defaults['review_text'], self.now,
+                          has_pull=defaults['has_pull'], sha=defaults['sha'])
 
     def test_placeholder_form_is_not_dispatched_twice(self):
         self.issue['body'] = BODY.replace('加快日志导出', '一句话说清要改的行为')
@@ -100,6 +102,17 @@ class RequirementTests(unittest.TestCase):
         self.assertEqual(120, raised['rung'])
         self.assertIn('abc', raised['instruction'])
         self.assertEqual('forward', self.decide(comments, rows, tree='abc', checks_green=True)['kind'])
+
+    def test_successful_commit_opens_a_pr_instead_of_another_rung(self):
+        started = '2026-09-22T02:00:00Z'
+        comments = [self.marker('dev', 60, '', started), {
+            'created_at': '2026-09-22T02:05:00Z', 'body': '提交 SHA 已满足验收',
+            'author': {'username': '507space/FlClash-alpha(开发助手)', 'is_npc': True}}]
+        rows = [self.attempt('success', started)]
+        opened = self.decide(comments, rows, tree='abc')
+        self.assertEqual('open-pr', opened['kind'])
+        self.assertEqual('wait', self.decide(comments, rows, tree='abc', has_pull=True)['kind'])
+        self.assertIn('开 CNB PR', self.decide()['instruction'])
 
     def test_running_or_recent_dispatch_does_not_start_another_rung(self):
         started = '2026-09-22T02:50:00Z'

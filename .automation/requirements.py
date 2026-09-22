@@ -122,13 +122,14 @@ def envelope(payload):
     return '<!-- flclash-requirement ' + json.dumps(sign(payload)) + ' -->'
 
 
-def instruction(parsed, rung, phase, tree, log, note, previous):
+def instruction(parsed, rung, phase, tree, log, note, previous, sha=''):
     reserve = max(1, rung * 3 // 4)
     lines = [
         f'本轮只用 {rung} 轮。约第 {reserve} 轮起停止扩大调查。',
         '把已改文件提交到指定分支，允许提交尚未完成的进度。',
         '阶段评论必须写提交 SHA、已核实的事实、已改文件、未完成项。还没改到文件时也要写这四项。',
         '环境里已有 Flutter、Go 和 Android SDK。不要现装这些工具。',
+        '提交后立刻开 CNB PR，head 是指定分支，base 是 main。',
         '不推 main，不合并，不发版。和 main 冲突时拉取后合并，不强推。',
     ]
     if parsed['allowed']:
@@ -140,8 +141,8 @@ def instruction(parsed, rung, phase, tree, log, note, previous):
     lines.append(f'不做什么：{parsed["limits"]}')
     if parsed['files']:
         lines.append(f'相关文件或界面：{parsed["files"]}')
-    if tree:
-        lines.append(f'从已有提交 `{tree}` 继续，先 git fetch。已核实的事实不要重头搜索。')
+    if sha or tree:
+        lines.append(f'从已有提交 `{sha or tree}` 继续，先 git fetch。已核实的事实不要重头搜索。')
     if previous:
         lines.append('上一轮阶段评论：\n' + previous[:1500])
     if log:
@@ -158,13 +159,14 @@ def instruction(parsed, rung, phase, tree, log, note, previous):
     return '\n'.join(lines)
 
 
-def dispatch_action(parsed, phase, rung, tree, log, note, previous, role):
+def dispatch_action(parsed, phase, rung, tree, log, note, previous, role, sha=''):
     return {'kind': 'dispatch', 'phase': phase, 'rung': rung, 'tree': tree or '',
             'role': role, 'work_mode': role == '开发助手',
-            'instruction': instruction(parsed, rung, phase, tree, log, note, previous)}
+            'instruction': instruction(parsed, rung, phase, tree, log, note, previous, sha)}
 
 
-def decide(issue, comments, rows, tree, contained, checks_green, review_failed, review_text, now):
+def decide(issue, comments, rows, tree, contained, checks_green, review_failed, review_text, now,
+           has_pull=False, sha=''):
     parsed = parse(issue.get('body', ''))
     known = [item for item in markers(comments) if item.get('issue') == str(issue['number'])]
     form = [item for item in known if item.get('phase') == 'invalid']
@@ -197,8 +199,8 @@ def decide(issue, comments, rows, tree, contained, checks_green, review_failed, 
     if not later and not review_rows:
         age = now - _stamp(last['at'])
         if age.total_seconds() > 1800:
-            return dispatch_action(parsed, last['phase'], last['rung'], tree, '', '上次派发没有回执，按原档重派。', '', 
-                                   '审查助手' if last['phase'] == 'diagnose' else '开发助手')
+            return dispatch_action(parsed, last['phase'], last['rung'], tree, '', '上次派发没有回执，按原档重派。', '',
+                               '审查助手' if last['phase'] == 'diagnose' else '开发助手', sha)
         return {'kind': 'wait'}
     if last['phase'] == 'diagnose':
         text = reported(comments, last['at'], '审查助手')
@@ -207,7 +209,7 @@ def decide(issue, comments, rows, tree, contained, checks_green, review_failed, 
         if not text:
             return {'kind': 'stop', 'phase': 'stuck', 'rung': last['rung'], 'tree': tree or '',
                     'body': f'审查没有留下结论，tree `{tree or "无"}` 未变，停止加轮次。'}
-        return dispatch_action(parsed, 'targeted', last['rung'], tree, '', text, '', '开发助手')
+        return dispatch_action(parsed, 'targeted', last['rung'], tree, '', text, '', '开发助手', sha)
     if last['phase'] == 'targeted' and (not tree or tree == last.get('tree')):
         if not later or later[-1]['state'] not in TERMINAL:
             return {'kind': 'wait'}
@@ -216,22 +218,26 @@ def decide(issue, comments, rows, tree, contained, checks_green, review_failed, 
     current = later[-1] if later else None
     if current and current['state'] not in TERMINAL:
         return {'kind': 'wait'}
+    if current and current['state'] == 'success' and tree and not review_failed:
+        if not has_pull:
+            return {'kind': 'open-pr', 'tree': tree}
+        return {'kind': 'wait'}
     progressed = bool(tree) and tree != (last.get('tree') or '')
     if review_failed and not (last['phase'] == 'targeted' and last.get('tree') == tree):
         return dispatch_action(parsed, 'targeted', next_rung(last['rung']), tree, '', review_text,
-                               reported(comments, last['at'], '开发助手'), '开发助手')
+                               reported(comments, last['at'], '开发助手'), '开发助手', sha)
     if current and not re.fullmatch(r'cnb-[a-z0-9-]+', current['sn'] or ''):
-        return dispatch_action(parsed, 'retry', last['rung'], tree, '', '上次构建号异常，按原档续跑。', '', '开发助手')
+        return dispatch_action(parsed, 'retry', last['rung'], tree, '', '上次构建号异常，按原档续跑。', '', '开发助手', sha)
     if progressed:
         note = '先读失败日志，改完推同一分支。' if review_failed else ''
         return dispatch_action(parsed, 'dev', next_rung(last['rung']), tree, '', note,
-                               reported(comments, last['at'], '开发助手'), '开发助手')
+                               reported(comments, last['at'], '开发助手'), '开发助手', sha)
     if last['phase'] != 'retry':
         log = ''
         if current and re.fullmatch(r'cnb-[a-z0-9-]+', current['sn'] or ''):
             log = f'https://cnb.cool/{POLICY["cnb"]}/-/build/logs/{current["sn"]}'
-        return dispatch_action(parsed, 'retry', last['rung'], tree, log, '', '', '开发助手')
-    return dispatch_action(parsed, 'diagnose', 60, tree, '', '', reported(comments, last['at'], '开发助手'), '审查助手')
+        return dispatch_action(parsed, 'retry', last['rung'], tree, log, '', '', '开发助手', sha)
+    return dispatch_action(parsed, 'diagnose', 60, tree, '', '', reported(comments, last['at'], '开发助手'), '审查助手', sha)
 
 
 def _stamp(value):
@@ -304,6 +310,9 @@ def act(issue, action, sha):
     if action['kind'] == 'forward':
         forward(issue, number, sha)
         return
+    if action['kind'] == 'open-pr':
+        open_cnb_pr(issue, number, sha)
+        return
     payload = {'issue': number, 'scope': parse(issue.get('body', ''))['scope'] if action['phase'] != 'invalid' else 'form',
                'phase': action['phase'], 'rung': action['rung'], 'tree': action.get('tree') or sha or ''}
     if action['kind'] == 'note':
@@ -325,6 +334,15 @@ def close_done(issue, number):
         api(f'{CNB}/pulls/{pull["number"]}', 'PATCH', {'state': 'closed'})
     if issue.get('state') == 'open':
         api(f'{CNB}/issues/{number}', 'PATCH', {'state': 'closed', 'state_reason': 'completed'})
+
+
+def open_cnb_pr(issue, number, sha):
+    if pull_for(number, list(pages(f'{CNB}/pulls?state=open'))):
+        return
+    api(f'{CNB}/pulls', 'POST', {
+        'base': 'main', 'head': branch_name(number),
+        'title': issue.get('title', f'[需求] {number}'),
+        'body': f'需求 #{number}，提交 `{sha}`。检查由流水线跑，控制器不在这里合并。'})
 
 
 def forward(issue, number, sha):
@@ -388,7 +406,8 @@ def reconcile():
         if failed and not text:
             text = 'CI 未通过。先读失败日志，再推同一分支。'
             blocked = False
-        action = decide(issue, comments, rows, tree, contained(sha), green, blocked, text, now)
+        action = decide(issue, comments, rows, tree, contained(sha), green, blocked, text, now,
+                        has_pull=bool(pull), sha=sha)
         if action['kind'] == 'dispatch' and failed:
             action['instruction'] += '\n' + text
         act(issue, action, sha)
