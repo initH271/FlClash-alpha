@@ -55,7 +55,7 @@ jobs:
       - uses: actions/setup-go@v5
         if: steps.plan.outputs.compile == 'true'
         with:
-          go-version: '1.26.4'
+          go-version: '1.26.8'
           cache-dependency-path: core/go.sum
       - uses: actions/setup-java@v4
         if: steps.plan.outputs.active == 'true'

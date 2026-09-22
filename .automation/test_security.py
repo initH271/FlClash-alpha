@@ -109,15 +109,116 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual({'go-core', 'rust-helper', 'rust-api'}, set(grouped))
         self.assertEqual(2, len(grouped['go-core']))
 
+    def report(self, findings, packages=None, version='go1.26.8', pins=None):
+        return {'findings': list(findings), 'packages': packages if packages is not None else [self.finding()],
+                'unscanned': [],
+                'toolchain': {'core/go.mod': {'version': version, 'language': '1.26',
+                                              'pins': pins if pins is not None else {'pins': [version]}}}}
+
     def test_partial_group_repair_must_improve_without_new_risks(self):
         a = self.finding()
         b = self.finding('GO-2', ['CVE-2026-2222'])
-        base = {'findings': [a, b], 'packages': [a], 'unscanned': []}
-        scan.require_group_progress(base, {'findings': [b], 'unscanned': []}, 'go-core')
-        for head in (base, {'findings': [self.finding('GO-3', ['CVE-2026-3333'])], 'unscanned': []},
-                     {'findings': [], 'unscanned': [a]}):
+        base = self.report([a, b])
+        scan.require_group_progress(base, self.report([b]), 'go-core')
+        for head in (base, self.report([self.finding('GO-3', ['CVE-2026-3333'])]),
+                     {'findings': [], 'unscanned': [a], 'packages': [a], 'toolchain': base['toolchain']}):
             with self.assertRaises(ValueError):
                 scan.require_group_progress(base, head, 'go-core')
+
+    def test_toolchain_upgrade_counts_as_group_progress_without_removing_a_match(self):
+        a = self.finding()
+        base = self.report([a], version='go1.26.4')
+        moved = dict(self.report([a], version='go1.26.8'), findings=[dict(a, version='v1.0.1')])
+        scan.require_group_progress(base, moved, 'go-core')
+
+    def test_a_lowered_toolchain_pin_is_not_group_progress(self):
+        # The headline version is the highest pin, so lowering one pin while
+        # raising another must not read as an upgrade.
+        pins = {'.cnb.yml': ['1.26.4'], '.cnb/Dockerfile': ['1.26.8']}
+        base = self.report([self.finding()], version='1.26.8', pins=pins)
+        lowered = self.report([self.finding()], version='1.26.8',
+                              pins={'.cnb.yml': ['1.24.0'], '.cnb/Dockerfile': ['1.26.8']})
+        self.assertFalse(scan.toolchain_moved(base, lowered))
+        with self.assertRaises(ValueError):
+            scan.require_group_progress(base, lowered, 'go-core')
+
+    def test_a_removed_toolchain_pin_is_not_group_progress(self):
+        base = self.report([self.finding()], version='1.26.4', pins={'.cnb.yml': ['1.26.4']})
+        dropped = self.report([self.finding()], version='1.26.8', pins={})
+        self.assertFalse(scan.toolchain_moved(base, dropped))
+        with self.assertRaises(ValueError):
+            scan.require_group_progress(base, dropped, 'go-core')
+
+    def test_every_pin_may_not_move_backwards(self):
+        moved = self.report([self.finding()], version='1.26.8',
+                            pins={'.cnb.yml': ['1.26.8'], '.cnb/Dockerfile': ['1.26.8']})
+        mixed = self.report([self.finding()], version='1.26.8',
+                            pins={'.cnb.yml': ['1.26.8'], '.cnb/Dockerfile': ['1.24.0']})
+        base = self.report([self.finding()], version='1.26.4',
+                           pins={'.cnb.yml': ['1.26.4'], '.cnb/Dockerfile': ['1.26.4']})
+        self.assertFalse(scan.toolchain_moved(base, mixed))
+        self.assertTrue(scan.toolchain_moved(base, moved))
+
+    def test_an_unreadable_toolchain_version_is_not_group_progress(self):
+        base = self.report([self.finding()], version='go1.26.4')
+        for version in ('', 'devel go1.27-abc'):
+            changed = self.report([self.finding()], version=version, pins={'pins': [version]})
+            self.assertFalse(scan.toolchain_moved(base, changed))
+            with self.assertRaises(ValueError):
+                scan.require_group_progress(base, changed, 'go-core')
+
+    def test_pinned_toolchain_is_read_from_the_tree_not_the_ambient_go(self):
+        # A baseline and a PR scan share one image, so GOVERSION cannot tell them
+        # apart; only the versions pinned in the tree can prove a toolchain move.
+        with patch.object(scan.pathlib.Path, 'is_file', return_value=True), \
+                patch.object(scan.pathlib.Path, 'read_text', side_effect=lambda *a, **k: 'image: golang:1.26.8'):
+            toolchain = scan.core_toolchain(scan.pathlib.Path('.'))
+        self.assertEqual({'version': '1.26.8', 'pins': {'.cnb.yml': ['1.26.8']}}, toolchain)
+
+    def test_placeholder_go_version_pins_are_not_read_as_a_version(self):
+        with patch.object(scan.pathlib.Path, 'is_file', return_value=True), \
+                patch.object(scan.pathlib.Path, 'read_text',
+                             side_effect=lambda *a, **k: "go-version: ${{ env.GO_VERSION }}"):
+            toolchain = scan.core_toolchain(scan.pathlib.Path('.'))
+        self.assertEqual('', toolchain['version'])
+        self.assertEqual({}, toolchain['pins'])
+
+    def test_a_new_pin_below_the_advanced_version_is_not_progress(self):
+        base = self.report([self.finding()], version='1.26.4', pins={'.cnb.yml': ['1.26.4']})
+        low = self.report([self.finding()], version='1.26.8',
+                          pins={'.cnb.yml': ['1.26.8'], '.cnb/Dockerfile': ['1.20.0']})
+        matched = self.report([self.finding()], version='1.26.8',
+                              pins={'.cnb.yml': ['1.26.8'], '.cnb/Dockerfile': ['1.26.8']})
+        self.assertFalse(scan.toolchain_moved(base, low))
+        self.assertTrue(scan.toolchain_moved(base, matched))
+
+    def test_unchanged_group_scan_is_still_rejected(self):
+        base = self.report([self.finding()])
+        with self.assertRaises(ValueError):
+            scan.require_group_progress(base, self.report([self.finding()]), 'go-core')
+
+    def test_missing_go_inventory_cannot_pass_as_progress(self):
+        a = self.finding()
+        base = self.report([a], version='go1.26.4')
+        for head in (self.report([a], packages=[], version='go1.26.8'),):
+            with self.assertRaises(ValueError):
+                scan.toolchain_moved(base, head)
+            with self.assertRaises(ValueError):
+                scan.require_group_progress(base, head, 'go-core')
+
+    def test_a_toolchain_move_still_needs_readable_pins(self):
+        base = self.report([self.finding()], version='go1.26.4', pins={})
+        moved = self.report([self.finding()], version='go1.26.8', pins={})
+        self.assertFalse(scan.toolchain_moved(base, moved))
+
+    def test_other_groups_keep_the_advisory_removal_requirement(self):
+        item = {'file': 'services/helper/Cargo.lock', 'ecosystem': 'crates.io', 'name': 'tokio',
+                'version': '1.0.0', 'id': 'RUSTSEC-1', 'aliases': ['RUSTSEC-1'], 'fixed': ['1.0.1']}
+        base = {'findings': [item], 'packages': [item], 'unscanned': [],
+                'toolchain': {'core/go.mod': {'version': 'go1.26.4', 'language': '1.26'}}}
+        moved = {**base, 'toolchain': {'core/go.mod': {'version': 'go1.26.8', 'language': '1.26'}}}
+        with self.assertRaises(ValueError):
+            scan.require_group_progress(base, moved, 'rust-helper')
 
     def test_migration_closes_records_as_consolidated_not_fixed(self):
         item = self.finding()
