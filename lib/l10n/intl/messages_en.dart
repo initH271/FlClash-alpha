@@ -752,7 +752,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "password": MessageLookupByLibrary.simpleMessage("Password"),
     "paste": MessageLookupByLibrary.simpleMessage("Paste"),
     "personalForkDescription": MessageLookupByLibrary.simpleMessage(
-      "FlClash-alpha is maintained by Aharon, based on chen08209/FlClash. Includes rolling log history and dual-channel updates.",
+      "FlClash-alpha is maintained by Aharon and based on chen08209/FlClash. It keeps rolling logs and updates from GitHub and CNB.",
     ),
     "pickFromAlbum": MessageLookupByLibrary.simpleMessage("Choose from album"),
     "pinWindow": MessageLookupByLibrary.simpleMessage("Pin window"),

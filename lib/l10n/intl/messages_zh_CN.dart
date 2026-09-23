@@ -534,7 +534,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "password": MessageLookupByLibrary.simpleMessage("密码"),
     "paste": MessageLookupByLibrary.simpleMessage("粘贴"),
     "personalForkDescription": MessageLookupByLibrary.simpleMessage(
-      "FlClash-alpha 由 Aharon维护，基于 chen08209/FlClash，增强了滚动日志记录和双渠道更新。",
+      "FlClash-alpha 由 Aharon 维护，基于 chen08209/FlClash。支持滚动日志，并可从 GitHub 与 CNB 更新。",
     ),
     "pickFromAlbum": MessageLookupByLibrary.simpleMessage("从相册选择"),
     "pinWindow": MessageLookupByLibrary.simpleMessage("窗口置顶"),

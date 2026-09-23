@@ -165,8 +165,14 @@ void main() {
         await tester.pump();
       }
     }
-    expect(find.textContaining('GitHub'), findsOneWidget);
-    expect(find.textContaining('CNB'), findsOneWidget);
+    expect(find.textContaining('Project · GitHub'), findsOneWidget);
+    expect(find.textContaining('Project · CNB'), findsOneWidget);
+    expect(
+      find.textContaining(
+        'It keeps rolling logs and updates from GitHub and CNB.',
+      ),
+      findsOneWidget,
+    );
     expect(tester.takeException(), null);
   });
 
