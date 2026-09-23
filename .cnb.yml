@@ -88,6 +88,9 @@ main:
             git submodule update --init --recursive
             flutter pub get
             flutter analyze --no-fatal-infos
+            cp pubspec.yaml /tmp/flclash-pubspec.yaml
+            trap 'cp /tmp/flclash-pubspec.yaml pubspec.yaml' EXIT
+            sed -i 's/build_assets: true/build_assets: false/g' pubspec.yaml
             flutter test --reporter expanded
     - name: Rust dependency regression tests
       runner: { cpus: 2 }
