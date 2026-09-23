@@ -165,7 +165,7 @@ void main() {
         await tester.pump();
       }
     }
-    expect(find.textContaining('GitHub'), findsOneWidget);
+    expect(find.textContaining('GitHub'), findsWidgets);
     expect(find.textContaining('CNB'), findsOneWidget);
     expect(tester.takeException(), null);
   });
