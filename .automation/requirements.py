@@ -377,7 +377,8 @@ def forward(issue, number, sha):
     from security_finish import dispatch_workflow
     dispatch_workflow('reviews.yaml', 'main')
     ensure_branch_scan(sha, branch)
-    merge_when_settled(created['number'])
+    if merge_when_settled(created['number']):
+        close_done(issue, number)
 
 
 def merge_when_settled(number, attempts=12, pause=10):
@@ -387,6 +388,7 @@ def merge_when_settled(number, attempts=12, pause=10):
             break
         time.sleep(pause)
     merge_ready()
+    return bool(api(f'{GH}/pulls/{number}').get('merged'))
 
 
 def reconcile():

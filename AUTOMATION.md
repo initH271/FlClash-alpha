@@ -198,9 +198,14 @@ has passed. That pipeline's own pending status is excluded when the controller
 reads CNB checks. All wakes dispatch `operation=all`. Known developer and reviewer
 reports also wake the controller through issue comments. When the controller
 forwards a requirement to GitHub, it waits for GitHub to settle the merge state
-and merges in the same run. The hourly GitHub schedule is only a backstop and is
-often delayed. CNB PR closure and silent NPC failures are still discovered by that
-backstop. An unsuccessful dispatch fails visibly in CNB.
+and merges in the same run. Every five minutes a CNB job without the dispatch
+credential looks for requirement states no event will advance: a bridge that never
+fired, a dispatch with no receipt after 35 minutes, an NPC run that ended without a
+report, green checks that were never forwarded, or a forwarded PR still open. It
+writes one `<!-- flclash-requirement-wake <state> -->` comment per state, which the
+`issue.comment` pipeline turns into a dispatch; forwarded PRs get at most three
+retries. Stopped, quota and invalid requirements are left alone. The hourly GitHub
+schedule remains a further backstop. An unsuccessful dispatch fails visibly in CNB.
 
 Deployment prerequisite: in the existing private `github-dispatch.yml` KeyStore,
 retain the exact repository and `main` branch restrictions and token value, and

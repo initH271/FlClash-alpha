@@ -108,6 +108,15 @@ main:
     - *mirror
   "crontab: */15 * * * *":
     - *mirror
+  "crontab: */5 * * * *":
+    - name: Wake stalled requirements
+      runner: { cpus: 1 }
+      docker:
+        image: python:3.12-slim
+      stages:
+        - name: Bridge stalled requirements into comment wakes
+          script: python3 .automation/wake.py watchdog
+          timeout: 3m
 $:
   issue.open:
     - name: Wake task controller

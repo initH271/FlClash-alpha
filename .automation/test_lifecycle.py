@@ -1,5 +1,6 @@
 import json
 import os
+import time
 import unittest
 from unittest.mock import patch
 
@@ -67,6 +68,57 @@ class LifecycleTests(unittest.TestCase):
             wake.wake()
             dispatch.assert_not_called()
             comment.assert_not_called()
+
+    def test_watchdog_wakes_each_stalled_requirement_state_once(self):
+        now = 1_790_200_000
+        stamp = lambda minutes: time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(now - minutes * 60))
+        issue = {'created_at': stamp(60)}
+
+        def signed(phase, minutes, *states, sn='cnb-a-1'):
+            payload = json.dumps({'payload': {'phase': phase}, 'signature': 'x'})
+            npc = [{'context': {'npc.name': '开发助手', 'sn': sn}, 'statuses': [{'state': s} for s in states]}]
+            return {'id': f'm{minutes}', 'created_at': stamp(minutes),
+                    'body': f'<!-- flclash-requirement {payload} -->', 'statuses': {'npc': npc if states else []}}
+
+        green = [{'context': 'x(Flutter and Android requirement tests)', 'state': 'success'}]
+        pull = {'head': {'sha': 'abc'}}
+        self.assertEqual('', wake.stalled({'created_at': stamp(2)}, [], None, [], now))
+        self.assertEqual('open', wake.stalled(issue, [], None, [], now))
+        self.assertEqual('', wake.stalled(issue, [signed('stuck', 50)], pull, green, now))
+        self.assertEqual('', wake.stalled(issue, [signed('dev', 10)], None, [], now))
+        self.assertEqual('stall-m50', wake.stalled(issue, [signed('dev', 50)], None, [], now))
+        self.assertEqual('', wake.stalled(issue, [signed('dev', 50, 'pending')], None, [], now))
+        self.assertEqual('silent-cnb-a-1', wake.stalled(issue, [signed('dev', 50, 'error')], None, [], now))
+        report = {'created_at': stamp(20), 'body': '阶段汇报',
+                  'author': {'username': '507space/FlClash-alpha(开发助手)'}}
+        self.assertEqual('', wake.stalled(issue, [signed('dev', 50, 'success'), report], None, [], now))
+        self.assertEqual('green-abc', wake.stalled(issue, [signed('dev', 50, 'success'), report], pull, green, now))
+        forwarded = {'created_at': stamp(5), 'body': '需求已送至 GitHub：https://github.com/x/pull/1'}
+        self.assertTrue(wake.stalled(issue, [signed('dev', 50), forwarded], pull, green, now).startswith('merge-'))
+        retried = [{'body': f'{wake.WAKE_MARKER} merge-{n} -->'} for n in range(wake.MERGE_RETRIES)]
+        self.assertEqual('', wake.stalled(issue, [signed('dev', 50), forwarded, *retried], pull, green, now))
+
+        owner = {'number': '7', 'title': '[需求] x', 'created_at': stamp(60),
+                 'author': {'username': 'Aharon', 'is_npc': False}}
+        visitor = {**owner, 'number': '8', 'author': {'username': 'visitor', 'is_npc': False}}
+        comments = {'7': [signed('dev', 50, 'error')], '8': [signed('dev', 50, 'error')]}
+
+        def pages(url):
+            if url.endswith('/pulls?state=open'):
+                return []
+            if url.endswith('/issues?state=open'):
+                return [owner, visitor]
+            return comments[url.split('/issues/')[1].split('/')[0]]
+        with (patch.object(wake, 'pages', side_effect=pages), patch.object(wake, 'api'),
+              patch.object(wake, 'post_comment') as comment):
+            wake.watchdog(now)
+            comment.assert_called_once_with('7', f'{wake.WAKE_MARKER} silent-cnb-a-1 -->')
+            comments['7'].append({'body': f'{wake.WAKE_MARKER} silent-cnb-a-1 -->'})
+            wake.watchdog(now)
+            comment.assert_called_once()
+        self.assertTrue(wake.should_wake({'state': 'open', 'title': '[需求] x', 'body': ''},
+                                         {'author': {'username': 'OCI', 'is_npc': True},
+                                          'body': f'{wake.WAKE_MARKER} silent-cnb-a-1 -->'}))
 
     def test_waker_dispatches_only_after_every_other_check_passes(self):
         pull = {'state': 'open', 'number': '5', 'base': {'sha': 'b'}, 'head': {'sha': 'h'}}
