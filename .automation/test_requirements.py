@@ -116,11 +116,14 @@ class RequirementTests(unittest.TestCase):
             self.assertEqual((False, True), req.check_state('5'))
 
     def test_forwarded_pull_merges_once_github_settles(self):
-        states = iter([{'mergeable_state': 'unknown'}, {'mergeable_state': 'unstable'}])
+        states = iter([{'mergeable_state': 'unknown'}, {'mergeable_state': 'unstable'}, {'merged': True}])
         with (patch.object(req, 'api', side_effect=lambda url: next(states)),
               patch.object(req, 'merge_ready') as merge):
-            req.merge_when_settled('7', attempts=5, pause=0)
+            self.assertTrue(req.merge_when_settled('7', attempts=5, pause=0))
         merge.assert_called_once()
+        states = iter([{'mergeable_state': 'blocked'}, {'merged': False}])
+        with patch.object(req, 'api', side_effect=lambda url: next(states)), patch.object(req, 'merge_ready'):
+            self.assertFalse(req.merge_when_settled('7', attempts=1, pause=0))
 
     def test_successful_commit_opens_a_pr_instead_of_another_rung(self):
         started = '2026-09-22T02:00:00Z'
