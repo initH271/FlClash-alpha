@@ -32,7 +32,7 @@ void main() {
         MediaQuery(
           data: const MediaQueryData(padding: viewPadding),
           child: Directionality(
-            textDirection: TextDirection.ltr,
+            textDirection: const TextDirection.ltr,
             child: CommonScrollBar(
               controller: ScrollController(),
               padding: const EdgeInsets.only(top: sheetAppBarHeight),
