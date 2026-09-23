@@ -619,7 +619,7 @@
   "installedAppsPermissionDesc": "このシステムでは、許可するまでインストール済みアプリの一覧が提供されません。許可すると、アプリごとのプロキシを設定できます。",
   "installedAppsPermissionDeniedMessage": "アプリ一覧の権限が拒否されたため、インストール済みアプリを取得できません。システム設定から手動で許可してください。",
   "upstreamProject": "元のプロジェクト",
-  "personalForkDescription": "FlClash-alpha は Aharonが保守する chen08209/FlClash の派生版です。ログの継続保存と2つの配信元からの更新に対応します。",
+  "personalForkDescription": "FlClash-alpha は Aharon が保守し、chen08209/FlClash をベースにしています。ログを継続保存し、GitHub と CNB から更新できます。",
   "updateDownloading": "更新をダウンロード中…",
   "updateVerifying": "インストールパッケージを検証中…",
   "updateReady": "ダウンロードと検証が完了しました。「更新をインストール」を押してください。",
