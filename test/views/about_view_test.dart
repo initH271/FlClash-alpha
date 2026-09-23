@@ -7,15 +7,18 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../helpers/test_app.dart';
 
 void main() {
+  setUpAll(() {
+    globalState.packageInfo = PackageInfo(
+      appName: 'FlClash',
+      packageName: 'com.follow.clash.dev',
+      version: '0.8.97',
+      buildNumber: '42',
+    );
+  });
+
   testWidgets(
     'about credits the maintainer and exposes both project channels',
     (tester) async {
-      globalState.packageInfo = PackageInfo(
-        appName: 'FlClash',
-        packageName: 'com.follow.clash.dev',
-        version: '0.8.97',
-        buildNumber: '42',
-      );
       tester.view.physicalSize = const Size(1200, 1800);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
@@ -51,12 +54,6 @@ void main() {
   testWidgets(
     'about 页在中文下展示个人分支说明',
     (tester) async {
-      globalState.packageInfo = PackageInfo(
-        appName: 'FlClash',
-        packageName: 'com.follow.clash.dev',
-        version: '0.8.97',
-        buildNumber: '42',
-      );
       tester.view.physicalSize = const Size(1200, 1800);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
