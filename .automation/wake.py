@@ -1,11 +1,16 @@
 import json
 import os
 import re
+import sys
+import time
 import urllib.error
 import urllib.request
 
-from control import CNB, GH, POLICY, api, approved, comment as post_comment, pages
-from reviews import ROLES
+from control import CNB, GH, POLICY, api, approved, check_name, comment as post_comment, gating_statuses, pages
+from reviews import ROLES, scope
+
+SETTLED = {'success', 'error', 'failure', 'cancel', 'cancelled'}
+EXPECTED = {'Paired review gate', 'Dependency vulnerability gate'}
 
 
 def should_wake(issue, comment):
@@ -76,5 +81,28 @@ def wake():
     dispatch()
 
 
+def wake_when_green(attempts=100, pause=30):
+    number = os.environ['CNB_PULL_REQUEST_IID']
+    head = os.environ['CNB_PULL_REQUEST_SHA']
+    for _ in range(attempts):
+        pull = api(f'{CNB}/pulls/{number}')
+        if pull.get('state') != 'open' or scope('cnb', pull)['head'] != head:
+            print('PR moved; the newer event owns the wake')
+            return
+        statuses = gating_statuses(api(f'{CNB}/pulls/{number}/commit-statuses'))
+        if EXPECTED <= {check_name(item) for item in statuses} and all(
+                item['state'] in SETTLED for item in statuses):
+            if all(item['state'] == 'success' for item in statuses):
+                dispatch()
+            else:
+                print('Checks failed; the failure path owns the next step')
+            return
+        time.sleep(pause)
+    print('Checks did not settle in time')
+
+
 if __name__ == '__main__':
-    wake()
+    if sys.argv[1:] == ['settled']:
+        wake_when_green()
+    else:
+        wake()

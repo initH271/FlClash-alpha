@@ -16,6 +16,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 POLICY = json.loads((ROOT / '.automation/policy.json').read_text())
 GH = 'https://api.github.com/repos/' + POLICY['github']
 CNB = 'https://api.cnb.cool/' + POLICY['cnb'] + '/-'
+CHECK_WAKER = 'Wake controller after checks'
 
 
 def api(url, method='GET', data=None, missing=False):
@@ -55,6 +56,15 @@ def pages(url, page_key='page', size_key='page_size'):
         if len(rows) < 100:
             return
     raise RuntimeError('Pagination exceeded safe limit')
+
+
+def check_name(status):
+    return status['context'].split('(')[-1].rstrip(')')
+
+
+def gating_statuses(checks):
+    # The waker is still pending while the controller it started reads these.
+    return [item for item in (checks or {}).get('statuses') or [] if check_name(item) != CHECK_WAKER]
 
 
 def git(*args, check=True, env=None):

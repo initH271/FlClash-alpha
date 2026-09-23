@@ -191,14 +191,16 @@ this is a prompt-level stopping strategy, not a guaranteed pre-timeout callback.
 
 ## Controller wakeup and security queue
 
-The main-branch CNB 15-minute schedule now runs a separate one-CPU controller
-wakeup alongside artifact mirroring. Trusted `pull_request.target` events wake
-the same controller immediately. These dispatch `operation=all`, so recovery and
-queue advancement are not skipped as they were by approvals-only dispatches.
-Known security developer reports also wake the controller through issue comments.
-GitHub's schedule remains a secondary trigger. CNB PR closure, silent NPC failures
-and CI completion are discovered by the watchdog; they are not direct completion
-webhooks in this version. An unsuccessful dispatch fails visibly in CNB.
+The CNB 15-minute schedule only mirrors artifacts. Trusted `pull_request.target`
+events wake the controller twice: once when the PR opens or moves, and once from
+the `Wake controller after checks` pipeline after every other check on that head
+has passed. That pipeline's own pending status is excluded when the controller
+reads CNB checks. All wakes dispatch `operation=all`. Known developer and reviewer
+reports also wake the controller through issue comments. When the controller
+forwards a requirement to GitHub, it waits for GitHub to settle the merge state
+and merges in the same run. The hourly GitHub schedule is only a backstop and is
+often delayed. CNB PR closure and silent NPC failures are still discovered by that
+backstop. An unsuccessful dispatch fails visibly in CNB.
 
 Deployment prerequisite: in the existing private `github-dispatch.yml` KeyStore,
 retain the exact repository and `main` branch restrictions and token value, and

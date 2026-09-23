@@ -102,6 +102,25 @@ class RequirementTests(unittest.TestCase):
         self.assertEqual(120, raised['rung'])
         self.assertIn('abc', raised['instruction'])
         self.assertEqual('forward', self.decide(comments, rows, tree='abc', checks_green=True)['kind'])
+        stale = rows + [self.attempt('pending', '2026-09-22T02:40:00Z', sn='cnb-test-2')]
+        self.assertEqual('forward', self.decide(comments, stale, tree='abc', checks_green=True)['kind'])
+
+    def test_green_checks_ignore_the_pending_waker(self):
+        statuses = {'state': 'pending', 'statuses': [
+            {'context': 'cnb/pipeline-1(Flutter and Android requirement tests)', 'state': 'success'},
+            {'context': 'cnb/pipeline-2(Wake controller after checks)', 'state': 'pending'}]}
+        with patch.object(req, 'api', return_value=statuses):
+            self.assertEqual((True, False), req.check_state('5'))
+        statuses['statuses'][0]['state'] = 'error'
+        with patch.object(req, 'api', return_value=statuses):
+            self.assertEqual((False, True), req.check_state('5'))
+
+    def test_forwarded_pull_merges_once_github_settles(self):
+        states = iter([{'mergeable_state': 'unknown'}, {'mergeable_state': 'unstable'}])
+        with (patch.object(req, 'api', side_effect=lambda url: next(states)),
+              patch.object(req, 'merge_ready') as merge):
+            req.merge_when_settled('7', attempts=5, pause=0)
+        merge.assert_called_once()
 
     def test_successful_commit_opens_a_pr_instead_of_another_rung(self):
         started = '2026-09-22T02:00:00Z'

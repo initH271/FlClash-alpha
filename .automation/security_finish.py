@@ -5,7 +5,7 @@ import os
 import re
 import tomllib
 
-from control import CNB, GH, POLICY, api, comment, git, pages, sign, sync_branch, verify
+from control import CNB, GH, POLICY, api, check_name, comment, gating_statuses, git, pages, sign, sync_branch, verify
 from reviews import find_request, result, scope, state, reconcile as review_reconcile
 from security_groups import GROUPS, repair_branch
 from security_watch import active_developer, record
@@ -63,9 +63,9 @@ def safe_files(base, head, group=None):
 
 def passed_checks(number, request=None):
     checks = api(f'{CNB}/pulls/{number}/commit-statuses')
-    statuses = checks.get('statuses', [])
-    names = {s['context'].split('(')[-1].rstrip(')') for s in statuses if s['state'] == 'success'}
-    passed = checks.get('state') == 'success' and CHECKS <= names and all(s['state'] == 'success' for s in statuses)
+    statuses = gating_statuses(checks)
+    names = {check_name(s) for s in statuses if s['state'] == 'success'}
+    passed = CHECKS <= names and all(s['state'] == 'success' for s in statuses)
     if not passed or request is None:
         return passed
     sha = checks.get('sha', '')
