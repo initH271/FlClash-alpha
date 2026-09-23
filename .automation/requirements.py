@@ -1,10 +1,11 @@
 import hashlib
 import json
 import re
+import time
 
-from control import CNB, GH, POLICY, api, comment, git, pages, sign, verify
+from control import CNB, GH, POLICY, api, comment, gating_statuses, git, pages, sign, verify
 from reviews import find_request, reconcile as review_reconcile, scope, state
-from security_finish import ensure_branch_scan, push_github
+from security_finish import ensure_branch_scan, merge_ready, push_github
 
 HEADINGS = ('要改什么', '验收标准', '不做什么', '影响范围', '允许改自动化配置', '相关文件或界面')
 REQUIRED = ('要改什么', '验收标准', '不做什么', '影响范围')
@@ -182,10 +183,10 @@ def decide(issue, comments, rows, tree, contained, checks_green, review_failed, 
         return {'kind': 'wait'}
     if any(item.get('phase') == 'stuck' for item in scoped):
         return {'kind': 'wait'}
-    if running(rows):
-        return {'kind': 'wait'}
     if checks_green:
         return {'kind': 'forward'}
+    if running(rows):
+        return {'kind': 'wait'}
     last = scoped[-1] if scoped else None
     if last and quota(last.get('detail', '')):
         return {'kind': 'wait'}
@@ -275,11 +276,9 @@ def pull_for(number, pulls):
 def check_state(number):
     if not number:
         return False, False
-    checks = api(f'{CNB}/pulls/{number}/commit-statuses')
-    statuses = checks.get('statuses') or []
+    statuses = gating_statuses(api(f'{CNB}/pulls/{number}/commit-statuses'))
     failed = any(item['state'] in {'error', 'failure'} for item in statuses)
-    green = checks.get('state') == 'success' and bool(statuses) and all(
-        item['state'] == 'success' for item in statuses)
+    green = bool(statuses) and all(item['state'] == 'success' for item in statuses)
     return green, failed
 
 
@@ -378,6 +377,16 @@ def forward(issue, number, sha):
     from security_finish import dispatch_workflow
     dispatch_workflow('reviews.yaml', 'main')
     ensure_branch_scan(sha, branch)
+    merge_when_settled(created['number'])
+
+
+def merge_when_settled(number, attempts=12, pause=10):
+    # Nothing else wakes the controller after this run, so merge here once GitHub settles.
+    for _ in range(attempts):
+        if api(f'{GH}/pulls/{number}').get('mergeable_state') in {'clean', 'unstable'}:
+            break
+        time.sleep(pause)
+    merge_ready()
 
 
 def reconcile():

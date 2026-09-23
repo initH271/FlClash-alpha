@@ -68,6 +68,31 @@ class LifecycleTests(unittest.TestCase):
             dispatch.assert_not_called()
             comment.assert_not_called()
 
+    def test_waker_dispatches_only_after_every_other_check_passes(self):
+        pull = {'state': 'open', 'number': '5', 'base': {'sha': 'b'}, 'head': {'sha': 'h'}}
+
+        def checks(*states):
+            names = ('Paired review gate', 'Dependency vulnerability gate', 'Flutter and Android requirement tests')
+            statuses = [{'context': f'cnb/pipeline-{i}({name})', 'state': state}
+                        for i, (name, state) in enumerate(zip(names, states))]
+            statuses.append({'context': 'cnb/pipeline-9(Wake controller after checks)', 'state': 'pending'})
+            return {'state': 'pending', 'statuses': statuses}
+
+        def run(*responses, head='h'):
+            replies = iter(responses)
+
+            def api(url):
+                return {**pull, 'head': {'sha': head}} if url.endswith('/pulls/5') else next(replies)
+            with (patch.dict(os.environ, {'CNB_PULL_REQUEST_IID': '5', 'CNB_PULL_REQUEST_SHA': 'h'}),
+                  patch.object(wake, 'api', side_effect=api), patch.object(wake, 'dispatch') as dispatch):
+                wake.wake_when_green(attempts=3, pause=0)
+            return dispatch.call_count
+
+        self.assertEqual(1, run(checks('success', 'success', 'pending'), checks('success', 'success', 'success')))
+        self.assertEqual(0, run(checks('success', 'success', 'error')))
+        self.assertEqual(0, run(checks('success', 'success', 'success'), head='newer'))
+        self.assertEqual(0, run({'statuses': [{'context': 'x(Wake task controller)', 'state': 'success'}]}, {}, {}))
+
     def test_close_only_signed_reviews_of_finished_prs(self):
         with patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'}):
             request = {'platform': 'github', 'number': '2', 'base': 'a' * 40, 'head': 'b' * 40}

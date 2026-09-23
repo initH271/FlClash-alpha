@@ -135,6 +135,15 @@ $:
         - name: Require both independent reviews for current PR
           script: python3 .automation/reviews.py cnb-gate
           timeout: 32m
+    - name: Wake controller after checks
+      runner: { cpus: 1 }
+      docker:
+        image: python:3.12-slim
+      stages:
+        - name: Dispatch reconciliation once every check passes
+          imports: https://cnb.cool/507space/FlClash-alpha-secrets/-/blob/main/github-dispatch.yml
+          script: python3 .automation/wake.py settled
+          timeout: 55m
   api_trigger:
     - *mirror
   web_trigger:
