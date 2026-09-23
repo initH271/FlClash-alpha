@@ -618,7 +618,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "password": MessageLookupByLibrary.simpleMessage("パスワード"),
     "paste": MessageLookupByLibrary.simpleMessage("貼り付け"),
     "personalForkDescription": MessageLookupByLibrary.simpleMessage(
-      "FlClash-alpha は Aharonが保守する chen08209/FlClash の派生版です。ログの継続保存と2つの配信元からの更新に対応します。",
+      "FlClash-alpha は Aharon が保守し、chen08209/FlClash をベースにしています。ログを継続保存し、GitHub と CNB から更新できます。",
     ),
     "pickFromAlbum": MessageLookupByLibrary.simpleMessage("アルバムから選択"),
     "pinWindow": MessageLookupByLibrary.simpleMessage("最前面に固定"),
