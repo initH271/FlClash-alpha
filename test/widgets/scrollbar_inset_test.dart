@@ -15,7 +15,7 @@ Widget _list() {
 }
 
 final _desktop = TargetPlatformVariant.only(TargetPlatform.macOS);
-final _everyPlatform = TargetPlatformVariant(const {
+final _everyPlatform = TargetPlatformVariant({
   TargetPlatform.macOS,
   TargetPlatform.android,
 });
@@ -32,7 +32,7 @@ void main() {
         MediaQuery(
           data: const MediaQueryData(padding: viewPadding),
           child: Directionality(
-            textDirection: const TextDirection.ltr,
+            textDirection: TextDirection.ltr,
             child: CommonScrollBar(
               controller: ScrollController(),
               padding: const EdgeInsets.only(top: sheetAppBarHeight),
