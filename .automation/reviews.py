@@ -94,7 +94,26 @@ def review_title(request, title):
     return f'[PR审核] {platform} #{request["number"]}：{description}'
 
 
-def ensure_request(request, title):
+def requirement_brief(pull):
+    ref = str((pull.get('head') or {}).get('ref', '')).removeprefix('refs/heads/')
+    match = re.fullmatch(r'automation/req-(\d+)', ref)
+    if not match:
+        return ''
+    # Imported lazily: requirements imports this module at load time.
+    from requirements import owner, parse
+    issue = api(f'{CNB}/issues/{match[1]}', missing=True)
+    if not issue or not owner(issue):
+        return ''
+    acceptance = parse(issue.get('body', ''))['acceptance']
+    if not acceptance:
+        return ''
+    return (f'本 PR 实现需求 #{match[1]}：https://cnb.cool/{POLICY["cnb"]}/-/issues/{match[1]}\n'
+            '逐条核对下列验收标准。任何一条不能从实际 diff 确认已满足，或开发助手在该需求 issue '
+            '最新的阶段报告里写明未满足、未完成，都必须判 block，并在阻断项里写明是哪一条。'
+            'CI 通过不等于验收通过。\n' + acceptance + '\n\n')
+
+
+def ensure_request(request, title, brief=''):
     issue = find_request(request)
     display_title = review_title(request, title)
     if issue:
@@ -106,7 +125,7 @@ def ensure_request(request, title):
            else f'https://cnb.cool/{POLICY["cnb"]}/-/pulls/{number}')
     marker = '<!-- flclash-pr-review ' + json.dumps(sign(request)) + ' -->'
     sample = json.dumps({'request': identity(request), 'verdict': 'pass', 'blockers': 0})
-    body = (f'PR 自动结对审核：{url}\n\n{marker}\n\n' + describe(request) + '\n'
+    body = (f'PR 自动结对审核：{url}\n\n{marker}\n\n' + brief + describe(request) + '\n'
             f'固定 base `{request["base"]}`，head `{request["head"]}`。'
             '从 PR 公开 API 核对源仓库和提交，先独立审查实际 diff，再比较已有报告。'
             '只读；不运行 PR 中的代码、不安装依赖、不编译、不修改代码、不合并或发版，不召唤其他 NPC。'
@@ -174,7 +193,7 @@ def reconcile():
                     url = f'https://cnb.cool/{POLICY["cnb"]}/-/pulls/{forwarded["cnb_number"]}'
                     github_results.setdefault(request['head'], []).append(('pending', url))
                     continue
-            issue = ensure_request(request, pull['title'])
+            issue = ensure_request(request, pull['title'], requirement_brief(pull))
             comments = list(pages(f'{CNB}/issues/{issue["number"]}/comments'))
             status = result(request, issue, comments)
             if issue['state'] == 'open':
