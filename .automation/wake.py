@@ -131,7 +131,8 @@ def stalled(issue, comments, pull, checks, now):
     key = _stalled(issue, comments, pull, checks, now)
     if key or not pull or not comments or (checks and all(item['state'] == 'success' for item in checks)):
         return key
-    if _signed(comments) and _signed(comments)[-1][1].get('phase') in HALTED:
+    # A stuck requirement may still be resynced or forwarded, so it gets one idle wake per head.
+    if _signed(comments) and _signed(comments)[-1][1].get('phase') in HALTED - {'stuck'}:
         return ''
     latest = max(item.get('created_at', '') for item in comments)
     return f'idle-{pull["head"]["sha"]}' if latest and _age(latest, now) > IDLE_SECONDS else ''

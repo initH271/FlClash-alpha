@@ -50,11 +50,12 @@ class RequirementTests(unittest.TestCase):
 
     def decide(self, comments=None, rows=None, tree='', **kwargs):
         defaults = {'contained': False, 'checks_green': False, 'review_failed': False, 'review_text': '',
-                    'has_pull': False, 'sha': '', 'behind': False}
+                    'has_pull': False, 'sha': '', 'behind': False, 'review_only': False}
         defaults.update(kwargs)
         return req.decide(self.issue, comments or [], rows or [], tree, defaults['contained'],
                           defaults['checks_green'], defaults['review_failed'], defaults['review_text'], self.now,
-                          has_pull=defaults['has_pull'], sha=defaults['sha'], behind=defaults['behind'])
+                          has_pull=defaults['has_pull'], sha=defaults['sha'], behind=defaults['behind'],
+                          review_only=defaults['review_only'])
 
     def test_placeholder_form_is_not_dispatched_twice(self):
         self.issue['body'] = BODY.replace('加快日志导出', '一句话说清要改的行为')
@@ -121,6 +122,18 @@ class RequirementTests(unittest.TestCase):
         rows = [self.attempt('success', started)]
         self.assertEqual('sync-main', self.decide(comments, rows, tree='abc', checks_green=True, behind=True)['kind'])
         self.assertEqual('forward', self.decide(comments, rows, tree='abc', checks_green=True)['kind'])
+
+    def test_stopped_ladder_never_holds_back_green_work(self):
+        comments = [self.marker('dev', 60, '', '2026-09-22T02:00:00Z'),
+                    self.marker('stuck', 120, 'abc', '2026-09-22T02:30:00Z')]
+        self.assertEqual('forward', self.decide(comments, tree='abc', checks_green=True)['kind'])
+        self.assertEqual('wait', self.decide(comments, tree='abc', review_failed=True)['kind'])
+        self.assertEqual('sync-main', self.decide(comments, tree='abc', review_failed=True,
+                                                  review_only=True, behind=True)['kind'])
+        self.assertEqual('wait', self.decide(comments, tree='abc', review_failed=True, review_only=True)['kind'])
+        quota = [self.marker('quota', 60, 'abc', '2026-09-22T02:30:00Z')]
+        self.assertEqual('forward', self.decide(quota, tree='abc', checks_green=True)['kind'])
+        self.assertEqual('wait', self.decide(quota, tree='abc', review_only=True, behind=True)['kind'])
 
     def test_main_drift_reports_behind_and_conflicts(self):
         main = {'object': {'sha': 'm' * 40}}

@@ -102,7 +102,9 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual('idle-abc', wake.stalled(issue, quiet, pull, red, now))
         busy = [signed('dev', 90, 'success'), dict(report, created_at=stamp(10))]
         self.assertEqual('', wake.stalled(issue, busy, pull, red, now))
-        self.assertEqual('', wake.stalled(issue, [signed('stuck', 90)], pull, red, now))
+        self.assertEqual('idle-abc', wake.stalled(issue, [signed('stuck', 90)], pull, red, now))
+        self.assertEqual('', wake.stalled(issue, [signed('quota', 90)], pull, red, now))
+        self.assertEqual('', wake.stalled(issue, [signed('stuck', 90)], None, [], now))
 
         owner = {'number': '7', 'title': '[需求] x', 'created_at': stamp(60),
                  'author': {'username': 'Aharon', 'is_npc': False}}

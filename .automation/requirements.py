@@ -168,7 +168,7 @@ def dispatch_action(parsed, phase, rung, tree, log, note, previous, role, sha=''
 
 
 def decide(issue, comments, rows, tree, contained, checks_green, review_failed, review_text, now,
-           has_pull=False, sha='', behind=False):
+           has_pull=False, sha='', behind=False, review_only=False):
     parsed = parse(issue.get('body', ''))
     known = [item for item in markers(comments) if item.get('issue') == str(issue['number'])]
     form = [item for item in known if item.get('phase') == 'invalid']
@@ -180,12 +180,15 @@ def decide(issue, comments, rows, tree, contained, checks_green, review_failed, 
     if contained:
         return {'kind': 'close'}
     scoped = [item for item in known if item.get('scope') == parsed['scope'] and item.get('phase') != 'invalid']
-    if any(item.get('phase') == 'quota' for item in scoped):
-        return {'kind': 'wait'}
-    if any(item.get('phase') == 'stuck' for item in scoped):
-        return {'kind': 'wait'}
+    # Quota and stuck stop spending developer rounds; they never hold back work that already passed.
     if checks_green:
         return {'kind': 'sync-main'} if behind else {'kind': 'forward'}
+    stuck = any(item.get('phase') == 'stuck' for item in scoped)
+    if stuck and review_only and behind:
+        # The developer found nothing to change for a review-only block; a synced head gets a fresh review.
+        return {'kind': 'sync-main'}
+    if stuck or any(item.get('phase') == 'quota' for item in scoped):
+        return {'kind': 'wait'}
     if running(rows):
         return {'kind': 'wait'}
     last = scoped[-1] if scoped else None
@@ -285,6 +288,12 @@ def check_state(number, pull=None):
     failed = any(item['state'] in {'error', 'failure'} for item in statuses)
     green = bool(statuses) and all(item['state'] == 'success' for item in statuses)
     return green, failed
+
+
+def ci_passed(number):
+    statuses = [item for item in gating_statuses(api(f'{CNB}/pulls/{number}/commit-statuses'))
+                if check_name(item) != REVIEW_GATE]
+    return bool(statuses) and all(item['state'] == 'success' for item in statuses)
 
 
 def review_block(pull):
@@ -481,14 +490,18 @@ def reconcile():
         if failed and not text:
             text = 'CI 未通过。先读失败日志，再推同一分支。'
             blocked = False
-        behind = False
+        behind = review_only = False
         if green:
             behind, conflict = main_drift(sha)
             if conflict:
                 green, blocked = False, True
                 text = '分支落后 main 且合并有冲突。先把最新 main 合进指定分支、解决冲突并跑相关测试，再推同一分支。'
+        elif blocked and pull and sha and ci_passed(pull['number']):
+            review_only = True
+            behind, conflict = main_drift(sha)
+            behind = behind and not conflict
         action = decide(issue, comments, rows, tree, contained(sha), green, blocked, text, now,
-                        has_pull=bool(pull), sha=sha, behind=behind)
+                        has_pull=bool(pull), sha=sha, behind=behind, review_only=review_only)
         if action['kind'] == 'dispatch' and failed:
             action['instruction'] += '\n' + text
         act(issue, action, sha)

@@ -6,6 +6,15 @@ import review_evidence as evidence
 
 
 class ReviewEvidenceTests(unittest.TestCase):
+    def test_reviewers_get_the_exact_fetch_command_for_the_pinned_commits(self):
+        for platform, host in (('cnb', 'https://cnb.cool/'), ('github', 'https://github.com/')):
+            request = {'platform': platform, 'base': 'a' * 40, 'head': 'b' * 40}
+            with patch.object(evidence, 'evidence', return_value={}):
+                text = evidence.describe(request)
+            self.assertIn(f'git fetch --no-tags {host}', text)
+            self.assertIn(f'{"a" * 40} {"b" * 40}`', text)
+            self.assertIn(f'git show {"b" * 40}:', text)
+
     def test_manifest_uses_merge_base_diff_and_fixed_blobs(self):
         request = {'platform': 'cnb', 'base': 'a' * 40, 'head': 'b' * 40}
         calls = []
