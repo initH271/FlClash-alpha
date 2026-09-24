@@ -201,11 +201,23 @@ forwards a requirement to GitHub, it waits for GitHub to settle the merge state
 and merges in the same run. Every five minutes a CNB job without the dispatch
 credential looks for requirement states no event will advance: a bridge that never
 fired, a dispatch with no receipt after 35 minutes, an NPC run that ended without a
-report, green checks that were never forwarded, or a forwarded PR still open. It
+report, green checks that were never forwarded, a forwarded PR still open, or a
+requirement PR that has sat on the same head for 40 minutes without green checks. It
 writes one `<!-- flclash-requirement-wake <state> -->` comment per state, which the
 `issue.comment` pipeline turns into a dispatch; forwarded PRs get at most three
 retries. Stopped, quota and invalid requirements are left alone. The hourly GitHub
 schedule remains a further backstop. An unsuccessful dispatch fails visibly in CNB.
+
+Requirement PRs (`automation/req-<n>`) give reviewers the issue's acceptance
+criteria; a criterion that the diff cannot confirm, or that the developer's latest
+report calls unmet, is a block even when CI is green. A reviewer whose bounded
+recheck still omits the machine verdict gets one request to restate its own
+conclusion. The `Paired review gate` check only polls for 32 minutes, so once the
+review for that base/head has passed, a timed-out gate no longer holds the PR back.
+Before forwarding, the controller merges the latest GitHub `main` into a green
+requirement branch that has fallen behind (branch protection requires it) and lets
+checks and review rerun; a merge conflict goes back to the developer. An open
+GitHub PR is fast-forwarded to the new commit with a refreshed mirror record.
 
 Deployment prerequisite: in the existing private `github-dispatch.yml` KeyStore,
 retain the exact repository and `main` branch restrictions and token value, and

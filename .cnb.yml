@@ -207,7 +207,7 @@ $:
           if: '[ "$CNB_NPC_NAME" != "GLM复核助手" ]'
           type: npc:go
           options:
-            maxTurns: 60
+            maxTurns: 120
             model: deepseek-v4.1-flash
             contextWindow: 1m
             thinkingLevel: 'off'

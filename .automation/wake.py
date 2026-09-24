@@ -15,6 +15,7 @@ WAKE_MARKER = '<!-- flclash-requirement-wake'
 HALTED = {'stuck', 'quota', 'invalid'}
 STALL_SECONDS = 35 * 60
 OPEN_GRACE_SECONDS = 10 * 60
+IDLE_SECONDS = 40 * 60
 MERGE_RETRY_SECONDS = 30 * 60
 MERGE_RETRIES = 3
 
@@ -127,6 +128,16 @@ def _age(stamp, now):
 
 def stalled(issue, comments, pull, checks, now):
     """Return a one-time key for a requirement state no event will advance, or ''."""
+    key = _stalled(issue, comments, pull, checks, now)
+    if key or not pull or not comments or (checks and all(item['state'] == 'success' for item in checks)):
+        return key
+    if _signed(comments) and _signed(comments)[-1][1].get('phase') in HALTED:
+        return ''
+    latest = max(item.get('created_at', '') for item in comments)
+    return f'idle-{pull["head"]["sha"]}' if latest and _age(latest, now) > IDLE_SECONDS else ''
+
+
+def _stalled(issue, comments, pull, checks, now):
     signed = _signed(comments)
     if signed and signed[-1][1].get('phase') in HALTED:
         return ''

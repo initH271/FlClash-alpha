@@ -61,6 +61,34 @@ class ReviewGateTests(unittest.TestCase):
                 self.assertEqual({'title': '[PR审核] GitHub #1：提高 GLM 审核轮次'}, api.call_args.args[2])
                 self.assertFalse(any(len(c.args) > 1 and c.args[1] == 'POST' for c in api.call_args_list))
 
+    def test_malformed_recheck_gets_one_verdict_only_follow_up(self):
+        issue = dict(self.issue, number='42')
+        role, other = reviews.ROLES
+        with (patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'}),
+              patch.object(reviews, 'describe', return_value='verified diff evidence'),
+              patch.object(reviews, 'api') as api):
+            reports = [self.report(other)]
+            malformed = dict(self.report(role), body='报告写完了，但忘了机器结论行')
+            reports.append(malformed)
+            reviews.reconsider(self.request, issue, reports)
+            recheck = api.call_args.args[2]['body']
+            self.assertIn('有界复核', recheck)
+            owner = {'username': 'Aharon', 'is_npc': False}
+            reports.append({'id': '5', 'created_at': '2026-09-20T00:02:00Z', 'body': recheck, 'author': owner})
+            api.reset_mock()
+            reviews.reconsider(self.request, issue, reports)
+            api.assert_not_called()
+            reports.append(dict(malformed, id='6', created_at='2026-09-20T00:03:00Z'))
+            reviews.reconsider(self.request, issue, reports)
+            follow_up = api.call_args.args[2]['body']
+            self.assertIn('不要重新审核', follow_up)
+            self.assertIn('FLCLASH_REVIEW', follow_up)
+            reports.append({'id': '7', 'created_at': '2026-09-20T00:04:00Z', 'body': follow_up, 'author': owner})
+            reports.append(dict(malformed, id='8', created_at='2026-09-20T00:05:00Z'))
+            api.reset_mock()
+            reviews.reconsider(self.request, issue, reports)
+            api.assert_not_called()
+
     def test_requirement_pull_carries_the_acceptance_criteria_to_reviewers(self):
         body = '## 要改什么\n\n清掉提示\n\n## 验收标准\n\nflutter analyze 输出 No issues found!\n\n## 不做什么\n\n不发版\n\n## 影响范围\n\nFlutter UI\n'
         owner = {'body': body, 'author': {'username': reviews.POLICY['approver'], 'is_npc': False}}

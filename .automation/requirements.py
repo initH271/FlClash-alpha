@@ -3,7 +3,7 @@ import json
 import re
 import time
 
-from control import CNB, GH, POLICY, api, comment, gating_statuses, git, pages, sign, verify
+from control import CNB, GH, POLICY, api, check_name, comment, gating_statuses, git, pages, sign, verify
 from reviews import find_request, reconcile as review_reconcile, scope, state
 from security_finish import ensure_branch_scan, merge_ready, push_github
 
@@ -18,6 +18,7 @@ RUNGS = (60, 120, 240)
 TERMINAL = {'success', 'error', 'failure', 'cancel', 'cancelled'}
 ROLES = ('开发助手', '审查助手')
 QUOTA = ('额度', '配额', '余额不足')
+REVIEW_GATE = 'Paired review gate'
 
 
 def owner(issue):
@@ -167,7 +168,7 @@ def dispatch_action(parsed, phase, rung, tree, log, note, previous, role, sha=''
 
 
 def decide(issue, comments, rows, tree, contained, checks_green, review_failed, review_text, now,
-           has_pull=False, sha=''):
+           has_pull=False, sha='', behind=False):
     parsed = parse(issue.get('body', ''))
     known = [item for item in markers(comments) if item.get('issue') == str(issue['number'])]
     form = [item for item in known if item.get('phase') == 'invalid']
@@ -184,7 +185,7 @@ def decide(issue, comments, rows, tree, contained, checks_green, review_failed, 
     if any(item.get('phase') == 'stuck' for item in scoped):
         return {'kind': 'wait'}
     if checks_green:
-        return {'kind': 'forward'}
+        return {'kind': 'sync-main'} if behind else {'kind': 'forward'}
     if running(rows):
         return {'kind': 'wait'}
     last = scoped[-1] if scoped else None
@@ -273,10 +274,14 @@ def pull_for(number, pulls):
     return max(matching, key=lambda item: int(item['number']), default=None)
 
 
-def check_state(number):
+def check_state(number, pull=None):
     if not number:
         return False, False
     statuses = gating_statuses(api(f'{CNB}/pulls/{number}/commit-statuses'))
+    if pull and any(check_name(item) == REVIEW_GATE and item['state'] != 'success' for item in statuses):
+        # The gate only polls for 32 minutes; a review that finishes later must still count.
+        if state(scope('cnb', pull)) == 'success':
+            statuses = [item for item in statuses if check_name(item) != REVIEW_GATE]
     failed = any(item['state'] in {'error', 'failure'} for item in statuses)
     green = bool(statuses) and all(item['state'] == 'success' for item in statuses)
     return green, failed
@@ -312,6 +317,9 @@ def act(issue, action, sha):
     if action['kind'] == 'open-pr':
         open_cnb_pr(issue, number, sha)
         return
+    if action['kind'] == 'sync-main':
+        sync_main(number, sha)
+        return
     payload = {'issue': number, 'scope': parse(issue.get('body', ''))['scope'] if action['phase'] != 'invalid' else 'form',
                'phase': action['phase'], 'rung': action['rung'], 'tree': action.get('tree') or sha or ''}
     if action['kind'] == 'note':
@@ -344,10 +352,17 @@ def open_cnb_pr(issue, number, sha):
         'body': f'需求 #{number}，提交 `{sha}`。检查由流水线跑，控制器不在这里合并。'})
 
 
+def mirror_body(payload):
+    return ('承接 CNB 需求分支。GitHub 是唯一合并入口。检查成功后由控制器合并。\n\n'
+            + '<!-- flclash-security-mirror ' + json.dumps(sign(payload)) + ' -->')
+
+
 def forward(issue, number, sha):
     branch = branch_name(number)
     owner_name = POLICY['github'].split('/')[0]
-    if api(f'{GH}/pulls?state=open&head={owner_name}:{branch}'):
+    opened = api(f'{GH}/pulls?state=open&head={owner_name}:{branch}')
+    if opened:
+        advance(issue, number, sha, opened[0])
         return
     closed = api(f'{GH}/pulls?state=closed&head={owner_name}:{branch}')
     if closed:
@@ -370,15 +385,64 @@ def forward(issue, number, sha):
     created = api(f'{GH}/pulls', 'POST', {
         'base': 'main', 'head': branch,
         'title': issue.get('title', f'[需求] {number}'),
-        'body': '承接 CNB 需求分支。GitHub 是唯一合并入口。检查成功后由控制器合并。\n\n'
-                + '<!-- flclash-security-mirror ' + json.dumps(sign(payload)) + ' -->'})
+        'body': mirror_body(payload)})
     comment(number, '需求已送至 GitHub：' + created['html_url'])
+    settle(issue, number, sha, created['number'])
+
+
+def advance(issue, number, sha, pull):
+    # The CNB branch moved on (usually a main sync); fast-forward the open GitHub PR to it.
+    old = pull['head']['sha']
+    if old == sha:
+        return
+    git('fetch', '--no-tags', f'https://github.com/{POLICY["github"]}.git', old)
+    if git('merge-base', '--is-ancestor', old, sha, check=False).returncode != 0:
+        print(f'{branch_name(number)} on GitHub is not an ancestor of {sha}; not overwriting it')
+        return
+    source = pull_for(number, list(pages(f'{CNB}/pulls?state=open')))
+    if not source:
+        return
+    push_github(sha, branch_name(number))
+    payload = {'base': api(f'{GH}/git/ref/heads/main')['object']['sha'], 'head': sha,
+               'tree': git('rev-parse', sha + '^{tree}'), 'cnb_number': str(source['number']),
+               'branch': branch_name(number)}
+    api(f'{GH}/pulls/{pull["number"]}', 'PATCH', {'body': mirror_body(payload)})
+    comment(number, f'GitHub PR 已跟进到 `{sha[:12]}`：' + pull['html_url'])
+    settle(issue, number, sha, pull['number'])
+
+
+def settle(issue, number, sha, pull_number):
     review_reconcile()
     from security_finish import dispatch_workflow
     dispatch_workflow('reviews.yaml', 'main')
-    ensure_branch_scan(sha, branch)
-    if merge_when_settled(created['number']):
+    ensure_branch_scan(sha, branch_name(number))
+    if merge_when_settled(pull_number):
         close_done(issue, number)
+
+
+def main_drift(sha):
+    """Return (behind, conflict) for the requirement commit against GitHub main."""
+    main = api(f'{GH}/git/ref/heads/main')['object']['sha']
+    git('fetch', '--no-tags', f'https://github.com/{POLICY["github"]}.git', main)
+    if git('merge-base', '--is-ancestor', main, sha, check=False).returncode == 0:
+        return False, False
+    merged = git('merge-tree', '--write-tree', sha, main, check=False)
+    return True, merged.returncode != 0
+
+
+def sync_main(number, sha):
+    branch = branch_name(number)
+    main = api(f'{GH}/git/ref/heads/main')['object']['sha']
+    git('fetch', '--no-tags', f'https://github.com/{POLICY["github"]}.git', main)
+    merged = git('merge-tree', '--write-tree', sha, main, check=False)
+    if merged.returncode != 0:
+        return
+    commit = git('commit-tree', merged.stdout.splitlines()[0], '-p', sha, '-p', main,
+                 '-m', f'Merge main into {branch}')
+    from control import sync_branch
+    sync_branch(branch, commit)
+    comment(number, f'分支落后 main，已把 main（`{main[:12]}`）合入 `{branch}`，新提交 `{commit[:12]}`。'
+            '检查和结对审核会在新提交上重跑。')
 
 
 def merge_when_settled(number, attempts=12, pause=10):
@@ -412,13 +476,19 @@ def reconcile():
             if re.fullmatch(r'cnb-[a-z0-9-]+', row['sn'] or ''):
                 status = api(f'{CNB}/build/status/{row["sn"]}', missing=True) or {}
                 row['detail'] = (row['detail'] + '\n' + json.dumps(status, ensure_ascii=False))[:500]
-        green, failed = check_state(pull['number'] if pull else '')
+        green, failed = check_state(pull['number'] if pull else '', pull)
         blocked, text = review_block(pull) if failed or (pull and not green) else (False, '')
         if failed and not text:
             text = 'CI 未通过。先读失败日志，再推同一分支。'
             blocked = False
+        behind = False
+        if green:
+            behind, conflict = main_drift(sha)
+            if conflict:
+                green, blocked = False, True
+                text = '分支落后 main 且合并有冲突。先把最新 main 合进指定分支、解决冲突并跑相关测试，再推同一分支。'
         action = decide(issue, comments, rows, tree, contained(sha), green, blocked, text, now,
-                        has_pull=bool(pull), sha=sha)
+                        has_pull=bool(pull), sha=sha, behind=behind)
         if action['kind'] == 'dispatch' and failed:
             action['instruction'] += '\n' + text
         act(issue, action, sha)
