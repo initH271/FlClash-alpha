@@ -129,7 +129,7 @@ def instruction(parsed, rung, phase, tree, log, note, previous, sha=''):
         f'本轮只用 {rung} 轮。约第 {reserve} 轮起停止扩大调查。',
         '把已改文件提交到指定分支，允许提交尚未完成的进度。',
         '阶段评论必须写提交 SHA、已核实的事实、已改文件、未完成项。还没改到文件时也要写这四项。',
-        '环境里已有 Flutter、Go 和 Android SDK。不要现装这些工具。',
+        '环境里已有 Flutter 3.47.1、Go 和 Rust，可以本轮跑 flutter analyze、flutter test 和 intl 生成；没有 Android SDK，不构建 APK。不要现装这些工具。',
         '提交后立刻开 CNB PR，head 是指定分支，base 是 main。',
         '不推 main，不合并，不发版。和 main 冲突时拉取后合并，不强推。',
     ]

@@ -197,36 +197,14 @@ $:
         - script: python3 .automation/release_permission_probe.py
           timeout: 2m
   issue.comment@npc:
-    - name: Project NPC
+    - &reviewer-npc
+      name: Project NPC review
       runner: { cpus: 2 }
       docker:
         image: cnbcool/default-npc:latest
-        volumes:
-          - /root/.pub-cache:copy-on-write
-          - /root/.gradle:copy-on-write
-          - /root/go:copy-on-write
-          - /root/.cache/go-build:copy-on-write
       stages:
-        - name: Reuse toolchain image
-          if: '[ "$CNB_NPC_NAME" = "开发助手" ]'
-          type: docker:cache
-          options:
-            dockerfile: .cnb/Dockerfile
-            versionBy: .cnb/Dockerfile
-          exports:
-            name: TOOLCHAIN_IMAGE
-        - name: DeepSeek development
-          if: '[ "$CNB_NPC_NAME" = "开发助手" ]'
-          image: $TOOLCHAIN_IMAGE
-          type: npc:go
-          options:
-            maxTurns: 240
-            model: deepseek-v4.1-flash
-            contextWindow: 1m
-            thinkingLevel: 'off'
-            supportImage: true
         - name: DeepSeek primary review
-          if: '[ "$CNB_NPC_NAME" != "开发助手" ] && [ "$CNB_NPC_NAME" != "GLM复核助手" ]'
+          if: '[ "$CNB_NPC_NAME" != "GLM复核助手" ]'
           type: npc:go
           options:
             maxTurns: 60
@@ -246,54 +224,7 @@ $:
             thinkingLevel: medium
             supportImage: true
   pull_request.comment@npc:
-    - name: Project NPC review
-      runner: { cpus: 2 }
-      docker:
-        image: cnbcool/default-npc:latest
-        volumes:
-          - /root/.pub-cache:copy-on-write
-          - /root/.gradle:copy-on-write
-          - /root/go:copy-on-write
-          - /root/.cache/go-build:copy-on-write
-      stages:
-        - name: Reuse toolchain image
-          if: '[ "$CNB_NPC_NAME" = "开发助手" ]'
-          type: docker:cache
-          options:
-            dockerfile: .cnb/Dockerfile
-            versionBy: .cnb/Dockerfile
-          exports:
-            name: TOOLCHAIN_IMAGE
-        - name: DeepSeek development
-          if: '[ "$CNB_NPC_NAME" = "开发助手" ]'
-          image: $TOOLCHAIN_IMAGE
-          type: npc:go
-          options:
-            maxTurns: 240
-            model: deepseek-v4.1-flash
-            contextWindow: 1m
-            thinkingLevel: 'off'
-            supportImage: true
-        - name: DeepSeek primary review
-          if: '[ "$CNB_NPC_NAME" != "开发助手" ] && [ "$CNB_NPC_NAME" != "GLM复核助手" ]'
-          type: npc:go
-          options:
-            maxTurns: 60
-            model: deepseek-v4.1-flash
-            contextWindow: 1m
-            thinkingLevel: 'off'
-            supportImage: true
-        - name: GLM independent review
-          if: '[ "$CNB_NPC_NAME" = "GLM复核助手" ]'
-          type: npc:go
-          timeout: 10m
-          options:
-            model: glm-5.3-flash
-            contextWindow: 128k
-            maxTurns: 60
-            maxTokens: 48k
-            thinkingLevel: medium
-            supportImage: true
+    - *reviewer-npc
   vscode:
     - name: FlClash cloud development
       runner: { cpus: 4 }
@@ -310,3 +241,28 @@ $:
         - name: Prepare development dependencies
           script: bash .cnb/run.sh prepare
           timeout: 20m
+开发助手:
+  issue.comment@npc:
+    - &developer-npc
+      name: Project NPC development
+      runner: { cpus: 4 }
+      docker:
+        build:
+          dockerfile: .cnb/npc.Dockerfile
+          versionBy:
+            - .cnb/npc.Dockerfile
+        volumes:
+          - /root/.pub-cache:copy-on-write
+          - /root/go:copy-on-write
+          - /root/.cache/go-build:copy-on-write
+      stages:
+        - name: DeepSeek development
+          type: npc:go
+          options:
+            maxTurns: 240
+            model: deepseek-v4.1-flash
+            contextWindow: 1m
+            thinkingLevel: 'off'
+            supportImage: true
+  pull_request.comment@npc:
+    - *developer-npc
