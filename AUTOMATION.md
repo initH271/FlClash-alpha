@@ -218,6 +218,11 @@ Before forwarding, the controller merges the latest GitHub `main` into a green
 requirement branch that has fallen behind (branch protection requires it) and lets
 checks and review rerun; a merge conflict goes back to the developer. An open
 GitHub PR is fast-forwarded to the new commit with a refreshed mirror record.
+`stuck` and `quota` only stop spending developer rounds: work whose checks and
+review are green is still forwarded. When a requirement stopped on a review-only
+block (CI green, developer found nothing to change) and its branch is behind
+`main`, the controller syncs `main`, which gives the new head a fresh review round.
+Review requests spell out the `git fetch` command for the pinned base and head.
 
 Deployment prerequisite: in the existing private `github-dispatch.yml` KeyStore,
 retain the exact repository and `main` branch restrictions and token value, and
