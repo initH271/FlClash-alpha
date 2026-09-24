@@ -46,6 +46,7 @@ VERSION = re.compile(r'(\d+)\.(\d+)\.(\d+)')
 TOOLCHAIN_PINS = (
     ('.cnb.yml', re.compile(r'image:\s*golang:(\d+\.\d+\.\d+)')),
     ('.cnb/Dockerfile', re.compile(r'/dl/go(\d+\.\d+\.\d+)\.linux-')),
+    ('.cnb/npc.Dockerfile', re.compile(r'/dl/go(\d+\.\d+\.\d+)\.linux-')),
     ('.github/workflows/build.yaml', re.compile(r"go-version:\s*'?([\w.]+)'?")),
     ('.github/workflows/security.yaml', re.compile(r"go-version:\s*'?([\w.]+)'?")),
     ('.github/upstream-build.yaml', re.compile(r"GO_VERSION:\s*'?([\w.]+)'?")),
