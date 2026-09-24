@@ -37,6 +37,8 @@ Read these only when the task touches their area:
 - Use `flutter test`, not `dart test`, because models pull in Flutter types.
 - Run code generation after modifying models, providers, or database schema.
 - Do not manually edit generated files.
+- Changes under `.automation/`, `.cnb/`, `.cnb.yml` and `.github/` go through a CNB `[需求]` issue with
+  "允许改自动化配置" checked, never a hand-pushed branch. See [.agents/rules.md](.agents/rules.md) for the rule.
 - Preserve lifecycle ownership: desktop Core process convergence belongs to `lib/core/desktop/`; Android service intent
   arbitration belongs to `ServiceState`. UI/provider code may request a transition but must not become a second source of
   truth.
