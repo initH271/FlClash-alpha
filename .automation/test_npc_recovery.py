@@ -44,6 +44,35 @@ class NpcRecoveryTests(unittest.TestCase):
                      'body': stopped[0].args[1]}
         self.assertEqual([], self.run_recovery([retry, stop_note]))
 
+    def test_a_hung_review_run_is_stopped_but_developer_work_is_not(self):
+        import datetime
+        import reviews
+        request = {'platform': 'cnb', 'number': '116', 'base': 'a' * 40, 'head': 'b' * 40}
+        review = {'number': '122', 'state': 'open', 'title': '[PR审核] CNB #116：x',
+                  'created_at': '2026-09-24T03:33:46Z', 'author': {'username': 'Aharon', 'is_npc': False},
+                  'body': '<!-- flclash-pr-review ' + json.dumps(reviews.sign(request)) + ' -->',
+                  'statuses': {'npc': [{'context': {'npc.slug': '507space/FlClash-alpha', 'npc.name': 'GLM复核助手',
+                                                    'sn': 'cnb-pug-1'}, 'statuses': [{'state': 'pending'}]}]}}
+        for issue, minutes, stops in ((review, 90, 1), (review, 30, 0), (self.issue, 90, 0)):
+            if issue is self.issue:
+                self.issue['statuses'] = self.status('pending')
+            now = datetime.datetime(2026, 9, 24, 3, 33, 46, tzinfo=datetime.timezone.utc) + datetime.timedelta(
+                minutes=minutes)
+            issue['created_at'] = '2026-09-24T03:33:46Z'
+            posted = []
+
+            def api(url, method='GET', *args, **kwargs):
+                if method == 'POST':
+                    posted.append(url)
+                    return {}
+                return {'status': 'pending'} if '/build/status/' in url else issue
+            with (patch.object(recovery, 'api', side_effect=api),
+                  patch.object(recovery, 'pages', side_effect=lambda url: [] if url.endswith('/comments') else [issue]),
+                  patch.object(recovery, 'comment') as post):
+                recovery.recover(now)
+            self.assertEqual(stops, sum(url.endswith('/build/stop/cnb-pug-1') for url in posted))
+            post.assert_not_called()
+
     def test_pending_or_cancelled_attempt_is_not_retried(self):
         for state in ('pending', 'cancel', 'success'):
             self.issue['statuses'] = self.status(state)

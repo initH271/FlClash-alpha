@@ -146,6 +146,16 @@ def ensure_request(request, title, brief=''):
     return issue
 
 
+def _checkpoint(request, role, kind):
+    payload = {'request': identity(request), 'role': role, 'kind': kind}
+    return '<!-- flclash-review-reconsider ' + json.dumps(sign(payload)) + ' -->'
+
+
+def _owner_comment(comments, marker):
+    return next((c for c in comments if c.get('author', {}).get('username') == POLICY['approver']
+                 and c.get('author', {}).get('is_npc') is False and marker in c.get('body', '')), None)
+
+
 def reconsider(request, issue, comments):
     from npc_recovery import latest_attempts
     latest = role_reports(request, issue, comments)
@@ -156,15 +166,26 @@ def reconsider(request, issue, comments):
         other = next(r for r in ROLES if r != role)
         if status == 'block' and latest.get(other) != 'pass':
             continue
-        checkpoint = {'request': identity(request), 'role': role, 'kind': 'reconsider'}
-        marker = '<!-- flclash-review-reconsider ' + json.dumps(sign(checkpoint)) + ' -->'
-        if any(c.get('author', {}).get('username') == POLICY['approver']
-               and c.get('author', {}).get('is_npc') is False and marker in c.get('body', '') for c in comments):
-            continue
         attempt = attempts.get(role)
         if attempt and api(f'{CNB}/build/status/{attempt[1]["sn"]}')['status'] not in ('success', 'error', 'failure'):
             continue
         sample = json.dumps({'request': identity(request), 'verdict': 'pass', 'blockers': 0})
+        reconsidered = _owner_comment(comments, _checkpoint(request, role, 'reconsider'))
+        if reconsidered:
+            answered = any(c.get('author', {}).get('username') == f'{POLICY["cnb"]}({role})'
+                           and c.get('created_at', '') > reconsidered.get('created_at', '') for c in comments)
+            if (status != 'malformed' or not answered
+                    or _owner_comment(comments, _checkpoint(request, role, 'verdict'))):
+                continue
+            # The bounded recheck still omitted the machine line; only ask it to restate its own conclusion.
+            body = (_checkpoint(request, role, 'verdict') + '\n\n'
+                    + f'@{POLICY["cnb"]}({role}) 你在本 Issue 最新的报告缺少机器结论行，门禁无法读取。'
+                    '不要重新审核，也不要调用工具；只根据你自己那份报告的结论回复一行机器结论。'
+                    '报告里有未解决的阻断、未验证的验收标准或无法确认的项时必须用 block：\n'
+                    + 'FLCLASH_REVIEW ' + sample)
+            api(f'{CNB}/issues/{issue["number"]}/comments', 'POST', {'body': body, 'work_mode': False})
+            continue
+        marker = _checkpoint(request, role, 'reconsider')
         body = (marker + '\n\n' + describe(request)
                 + f'@{POLICY["cnb"]}({role}) 报告格式不完整或双方结论有分歧，执行唯一一次有界复核。'
                 '最多8次工具调用；只核对实际差异和现有阻断，明确纠正已证实的事实错误。'

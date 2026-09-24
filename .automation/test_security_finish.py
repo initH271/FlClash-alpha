@@ -47,6 +47,15 @@ class SecurityFinishTests(unittest.TestCase):
         with patch.object(finish, 'api', return_value=checks):
             self.assertFalse(finish.passed_checks('1'))
 
+    def test_timed_out_gate_is_ignored_only_after_the_review_passed(self):
+        checks = {'statuses': [{'state': 'success', 'context': 'cnb/pipeline(' + name + ')'} for name in finish.CHECKS]
+                  + [{'state': 'error', 'context': 'cnb/pipeline-9(Paired review gate)'}]}
+        with patch.object(finish, 'api', return_value=checks), patch.object(finish, 'state', return_value='failure'):
+            self.assertFalse(finish.passed_checks('1', {'base': 'a', 'head': 'b'}))
+        with patch.object(finish, 'api', return_value=checks), patch.object(finish, 'state') as review:
+            self.assertFalse(finish.passed_checks('1'))
+            review.assert_not_called()
+
     def test_old_ci_tree_is_not_valid_for_current_merge(self):
         checks = {'state': 'success', 'sha': 'c' * 40, 'statuses': [
             {'state': 'success', 'context': 'cnb/pipeline(' + name + ')'} for name in finish.CHECKS]}
