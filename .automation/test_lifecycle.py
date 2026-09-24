@@ -99,10 +99,17 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual('', wake.stalled(issue, [signed('dev', 50), forwarded, *retried], pull, green, now))
         red = [{'context': 'x(Paired review gate)', 'state': 'error'}]
         quiet = [signed('dev', 90, 'success'), dict(report, created_at=stamp(45))]
-        self.assertEqual('idle-abc', wake.stalled(issue, quiet, pull, red, now))
+        self.assertEqual('idle-abc-1', wake.stalled(issue, quiet, pull, red, now))
+        waited = quiet + [{'created_at': stamp(45), 'body': f'{wake.WAKE_MARKER} idle-abc -->'}]
+        self.assertEqual('idle-abc-2', wake.stalled(issue, waited, pull, red, now))
+        recent = quiet + [{'created_at': stamp(5), 'body': f'{wake.WAKE_MARKER} idle-abc-1 -->'}]
+        self.assertEqual('', wake.stalled(issue, recent, pull, red, now))
+        spent = quiet + [{'created_at': stamp(45), 'body': f'{wake.WAKE_MARKER} idle-abc-{n} -->'}
+                         for n in range(1, wake.IDLE_RETRIES + 1)]
+        self.assertEqual('', wake.stalled(issue, spent, pull, red, now))
         busy = [signed('dev', 90, 'success'), dict(report, created_at=stamp(10))]
         self.assertEqual('', wake.stalled(issue, busy, pull, red, now))
-        self.assertEqual('idle-abc', wake.stalled(issue, [signed('stuck', 90)], pull, red, now))
+        self.assertEqual('idle-abc-1', wake.stalled(issue, [signed('stuck', 90)], pull, red, now))
         self.assertEqual('', wake.stalled(issue, [signed('quota', 90)], pull, red, now))
         self.assertEqual('', wake.stalled(issue, [signed('stuck', 90)], None, [], now))
 

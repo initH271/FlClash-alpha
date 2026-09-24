@@ -16,6 +16,7 @@ HALTED = {'stuck', 'quota', 'invalid'}
 STALL_SECONDS = 35 * 60
 OPEN_GRACE_SECONDS = 10 * 60
 IDLE_SECONDS = 40 * 60
+IDLE_RETRIES = 3
 MERGE_RETRY_SECONDS = 30 * 60
 MERGE_RETRIES = 3
 
@@ -135,7 +136,12 @@ def stalled(issue, comments, pull, checks, now):
     if _signed(comments) and _signed(comments)[-1][1].get('phase') in HALTED - {'stuck'}:
         return ''
     latest = max(item.get('created_at', '') for item in comments)
-    return f'idle-{pull["head"]["sha"]}' if latest and _age(latest, now) > IDLE_SECONDS else ''
+    if not latest or _age(latest, now) <= IDLE_SECONDS:
+        return ''
+    # Each wake marker restarts the idle clock, so retries are spaced out; a silent reviewer failure needs more than one.
+    prefix = f'{WAKE_MARKER} idle-{pull["head"]["sha"]}'
+    earlier = sum(prefix in item.get('body', '') for item in comments)
+    return f'idle-{pull["head"]["sha"]}-{earlier + 1}' if earlier < IDLE_RETRIES else ''
 
 
 def _stalled(issue, comments, pull, checks, now):

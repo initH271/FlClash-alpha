@@ -63,6 +63,17 @@ def latest_attempts(issue, comments):
     return attempts
 
 
+HUNG_SECONDS = 60 * 60
+
+
+def hung(state, started, now):
+    import datetime
+    if state in ('success', 'error', 'failure', 'cancel', 'cancelled') or not started:
+        return False
+    begun = datetime.datetime.fromisoformat(started.replace('Z', '+00:00'))
+    return (now - begun).total_seconds() > HUNG_SECONDS
+
+
 def recovery_marker(key, phase):
     return '<!-- flclash-npc-recovery ' + json.dumps(sign({'key': key, 'phase': phase})) + ' -->'
 
@@ -81,7 +92,9 @@ def has_marker(comments, key, phase):
     return False
 
 
-def recover():
+def recover(now=None):
+    import datetime
+    now = now or datetime.datetime.now(datetime.timezone.utc)
     actions = 0
     for summary in pages(f'{CNB}/issues?state=open'):
         issue = api(f'{CNB}/issues/{summary["number"]}')
@@ -99,6 +112,13 @@ def recover():
                 if owner(item) and revision:
                     scope = spec[0] + ':' + revision[1]
         for role, (state, context, started) in latest_attempts(issue, comments).items():
+            sn = context.get('sn', '')
+            if role in roles and not work_mode and hung(state, started, now) and re.fullmatch(r'cnb-[a-z0-9-]+', sn):
+                # A hung run blocks recovery forever; stopping it turns it into an error the next pass retries.
+                if api(f'{CNB}/build/status/{sn}')['status'] not in ('success', 'error', 'failure', 'cancel'):
+                    api(f'{CNB}/build/stop/{sn}', 'POST')
+                    print(f'Stopped hung {role} run {sn} on #{issue["number"]}')
+                continue
             if role not in roles or state not in ('error', 'failure'):
                 continue
             if any(c.get('author', {}).get('username') == f'{POLICY["cnb"]}({role})'

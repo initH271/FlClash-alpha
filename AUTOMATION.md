@@ -202,7 +202,10 @@ and merges in the same run. Every five minutes a CNB job without the dispatch
 credential looks for requirement states no event will advance: a bridge that never
 fired, a dispatch with no receipt after 35 minutes, an NPC run that ended without a
 report, green checks that were never forwarded, a forwarded PR still open, or a
-requirement PR that has sat on the same head for 40 minutes without green checks. It
+requirement PR that has sat on the same head for 40 minutes without green checks
+(up to three times per head, since a silent reviewer failure may need several). A
+review or analysis NPC run still pending after an hour is stopped, so the one-time
+recovery can retry it. It
 writes one `<!-- flclash-requirement-wake <state> -->` comment per state, which the
 `issue.comment` pipeline turns into a dispatch; forwarded PRs get at most three
 retries. Stopped, quota and invalid requirements are left alone. The hourly GitHub
