@@ -61,6 +61,22 @@ class ReviewGateTests(unittest.TestCase):
                 self.assertEqual({'title': '[PR审核] GitHub #1：提高 GLM 审核轮次'}, api.call_args.args[2])
                 self.assertFalse(any(len(c.args) > 1 and c.args[1] == 'POST' for c in api.call_args_list))
 
+    def test_requirement_pull_carries_the_acceptance_criteria_to_reviewers(self):
+        body = '## 要改什么\n\n清掉提示\n\n## 验收标准\n\nflutter analyze 输出 No issues found!\n\n## 不做什么\n\n不发版\n\n## 影响范围\n\nFlutter UI\n'
+        owner = {'body': body, 'author': {'username': reviews.POLICY['approver'], 'is_npc': False}}
+        with patch.object(reviews, 'api', return_value=owner) as api:
+            brief = reviews.requirement_brief({'head': {'ref': 'refs/heads/automation/req-111'}})
+        self.assertTrue(api.call_args.args[0].endswith('/issues/111'))
+        self.assertIn('需求 #111', brief)
+        self.assertIn('No issues found!', brief)
+        self.assertIn('必须判 block', brief)
+        with patch.object(reviews, 'api', return_value=owner) as api:
+            self.assertEqual('', reviews.requirement_brief({'head': {'ref': 'fix/wake-on-green'}}))
+            api.assert_not_called()
+        visitor = dict(owner, author={'username': 'visitor', 'is_npc': False})
+        with patch.object(reviews, 'api', return_value=visitor):
+            self.assertEqual('', reviews.requirement_brief({'head': {'ref': 'automation/req-111'}}))
+
     def test_fake_author_stale_range_and_closed_issue_never_pass(self):
         reports = [self.report(r) for r in reviews.ROLES]
         reports[0]['author']['is_npc'] = False
