@@ -1,5 +1,6 @@
 # default-npc carries the cnb CLI, skills and commit signing the NPC agent relies on.
-FROM cnbcool/default-npc:latest
+# versionBy only hashes this file, so the base is pinned; bump the digest to pick up a newer default-npc.
+FROM cnbcool/default-npc:latest@sha256:e1fcb0839c32b5ed738976674575b696be34b339b8fdfd2bfe607062e25e20c6
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     xz-utils unzip zip build-essential clang cmake ninja-build pkg-config libgtk-3-dev libglu1-mesa \
