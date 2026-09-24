@@ -64,6 +64,10 @@ def safe_files(base, head, group=None):
 def passed_checks(number, request=None):
     checks = api(f'{CNB}/pulls/{number}/commit-statuses')
     statuses = gating_statuses(checks)
+    gate = [s for s in statuses if check_name(s) == 'Paired review gate' and s['state'] != 'success']
+    if gate and request is not None and state(request) == 'success':
+        # The gate only polls for 32 minutes; a review that finishes later must still count.
+        statuses = [s for s in statuses if s not in gate]
     names = {check_name(s) for s in statuses if s['state'] == 'success'}
     passed = CHECKS <= names and all(s['state'] == 'success' for s in statuses)
     if not passed or request is None:

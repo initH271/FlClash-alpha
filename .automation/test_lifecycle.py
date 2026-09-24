@@ -97,6 +97,12 @@ class LifecycleTests(unittest.TestCase):
         self.assertTrue(wake.stalled(issue, [signed('dev', 50), forwarded], pull, green, now).startswith('merge-'))
         retried = [{'body': f'{wake.WAKE_MARKER} merge-{n} -->'} for n in range(wake.MERGE_RETRIES)]
         self.assertEqual('', wake.stalled(issue, [signed('dev', 50), forwarded, *retried], pull, green, now))
+        red = [{'context': 'x(Paired review gate)', 'state': 'error'}]
+        quiet = [signed('dev', 90, 'success'), dict(report, created_at=stamp(45))]
+        self.assertEqual('idle-abc', wake.stalled(issue, quiet, pull, red, now))
+        busy = [signed('dev', 90, 'success'), dict(report, created_at=stamp(10))]
+        self.assertEqual('', wake.stalled(issue, busy, pull, red, now))
+        self.assertEqual('', wake.stalled(issue, [signed('stuck', 90)], pull, red, now))
 
         owner = {'number': '7', 'title': '[需求] x', 'created_at': stamp(60),
                  'author': {'username': 'Aharon', 'is_npc': False}}
