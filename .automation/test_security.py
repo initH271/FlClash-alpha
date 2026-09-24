@@ -175,6 +175,10 @@ class SecurityTests(unittest.TestCase):
             toolchain = scan.core_toolchain(scan.pathlib.Path('.'))
         self.assertEqual({'version': '1.26.8', 'pins': {'.cnb.yml': ['1.26.8']}}, toolchain)
 
+    def test_developer_image_pins_the_same_go_as_the_ci_image(self):
+        pins = scan.core_toolchain(scan.pathlib.Path(__file__).resolve().parents[1])['pins']
+        self.assertEqual(pins['.cnb/Dockerfile'], pins['.cnb/npc.Dockerfile'])
+
     def test_placeholder_go_version_pins_are_not_read_as_a_version(self):
         with patch.object(scan.pathlib.Path, 'is_file', return_value=True), \
                 patch.object(scan.pathlib.Path, 'read_text',
