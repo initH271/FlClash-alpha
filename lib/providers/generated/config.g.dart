@@ -41,7 +41,7 @@ final class NetworkFeaturesProvider
   }
 }
 
-String _$networkFeaturesHash() => r'f4d16bc3e83376d64be5cf7a4d846aebbd233aa3';
+String _$networkFeaturesHash() => r'820ea67d2d1648b468b1bde2ac73e31805d77cbd';
 
 abstract class _$NetworkFeatures extends $Notifier<NetworkFeatureSettings> {
   NetworkFeatureSettings build();
