@@ -5214,6 +5214,336 @@ class AppLocalizations {
   String get updateRetry {
     return Intl.message('Retry', name: 'updateRetry', desc: '', args: []);
   }
+
+  /// `Network tools`
+  String get networkFeatures {
+    return Intl.message(
+      'Network tools',
+      name: 'networkFeatures',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Service checks`
+  String get serviceChecks {
+    return Intl.message(
+      'Service checks',
+      name: 'serviceChecks',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Checks are probes and region estimates; they do not confirm account access. Select services and run a check.`
+  String get serviceCheckDesc {
+    return Intl.message(
+      'Checks are probes and region estimates; they do not confirm account access. Select services and run a check.',
+      name: 'serviceCheckDesc',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Automatic stop and resume`
+  String get smartAutoStop {
+    return Intl.message(
+      'Automatic stop and resume',
+      name: 'smartAutoStop',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Pause on matching local networks; resume only connections paused automatically. Manual stop takes priority.`
+  String get smartAutoStopDesc {
+    return Intl.message(
+      'Pause on matching local networks; resume only connections paused automatically. Manual stop takes priority.',
+      name: 'smartAutoStopDesc',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Local network rules`
+  String get networkRules {
+    return Intl.message(
+      'Local network rules',
+      name: 'networkRules',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `IP/CIDR or gateway:192.168.1.1, separated by commas or lines. Press Enter to save.`
+  String get networkRulesDesc {
+    return Intl.message(
+      'IP/CIDR or gateway:192.168.1.1, separated by commas or lines. Press Enter to save.',
+      name: 'networkRulesDesc',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Enter valid IPv4 addresses or CIDR ranges.`
+  String get networkRulesInvalid {
+    return Intl.message(
+      'Enter valid IPv4 addresses or CIDR ranges.',
+      name: 'networkRulesInvalid',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Block UDP/443`
+  String get disableQuic {
+    return Intl.message(
+      'Block UDP/443',
+      name: 'disableQuic',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Adds a rejection rule before subscription rules. QUIC on other ports is unaffected.`
+  String get disableQuicDesc {
+    return Intl.message(
+      'Adds a rejection rule before subscription rules. QUIC on other ports is unaffected.',
+      name: 'disableQuicDesc',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Sniffer`
+  String get sniffer {
+    return Intl.message('Sniffer', name: 'sniffer', desc: '', args: []);
+  }
+
+  /// `NTP server`
+  String get ntpServer {
+    return Intl.message('NTP server', name: 'ntpServer', desc: '', args: []);
+  }
+
+  /// `Enabled`
+  String get featureEnabled {
+    return Intl.message('Enabled', name: 'featureEnabled', desc: '', args: []);
+  }
+
+  /// `Disabled`
+  String get featureDisabled {
+    return Intl.message(
+      'Disabled',
+      name: 'featureDisabled',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Enable the loopback controller and download the dashboard from GitHub? The controller stays on 127.0.0.1.`
+  String get onlinePanelEnablePrompt {
+    return Intl.message(
+      'Enable the loopback controller and download the dashboard from GitHub? The controller stays on 127.0.0.1.',
+      name: 'onlinePanelEnablePrompt',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `FCM connection observed`
+  String get fcmConnected {
+    return Intl.message(
+      'FCM connection observed',
+      name: 'fcmConnected',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No active FCM connection`
+  String get fcmDisconnected {
+    return Intl.message(
+      'No active FCM connection',
+      name: 'fcmDisconnected',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Available`
+  String get serviceAvailable {
+    return Intl.message(
+      'Available',
+      name: 'serviceAvailable',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Limited`
+  String get serviceLimited {
+    return Intl.message('Limited', name: 'serviceLimited', desc: '', args: []);
+  }
+
+  /// `Flagged`
+  String get serviceFlagged {
+    return Intl.message('Flagged', name: 'serviceFlagged', desc: '', args: []);
+  }
+
+  /// `Blocked`
+  String get serviceBlocked {
+    return Intl.message('Blocked', name: 'serviceBlocked', desc: '', args: []);
+  }
+
+  /// `Check failed`
+  String get serviceFailed {
+    return Intl.message(
+      'Check failed',
+      name: 'serviceFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Checking`
+  String get serviceTesting {
+    return Intl.message('Checking', name: 'serviceTesting', desc: '', args: []);
+  }
+
+  /// `Not checked`
+  String get serviceUnknown {
+    return Intl.message(
+      'Not checked',
+      name: 'serviceUnknown',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Network speed (compact)`
+  String get networkSpeedSmall {
+    return Intl.message(
+      'Network speed (compact)',
+      name: 'networkSpeedSmall',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Active connections`
+  String get connectionsCount {
+    return Intl.message(
+      'Active connections',
+      name: 'connectionsCount',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `IPv6`
+  String get ipv6Switch {
+    return Intl.message('IPv6', name: 'ipv6Switch', desc: '', args: []);
+  }
+
+  /// `Keep awake`
+  String get wakelockSwitch {
+    return Intl.message(
+      'Keep awake',
+      name: 'wakelockSwitch',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Keep awake while running`
+  String get keepAwake {
+    return Intl.message(
+      'Keep awake while running',
+      name: 'keepAwake',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `DNS override`
+  String get dnsOverride {
+    return Intl.message(
+      'DNS override',
+      name: 'dnsOverride',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Sniffer override`
+  String get snifferOverride {
+    return Intl.message(
+      'Sniffer override',
+      name: 'snifferOverride',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `NTP override`
+  String get ntpOverride {
+    return Intl.message(
+      'NTP override',
+      name: 'ntpOverride',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Providers`
+  String get providersInfo {
+    return Intl.message('Providers', name: 'providersInfo', desc: '', args: []);
+  }
+
+  /// `FCM status`
+  String get fcmStatus {
+    return Intl.message('FCM status', name: 'fcmStatus', desc: '', args: []);
+  }
+
+  /// `Web dashboard`
+  String get onlinePanel {
+    return Intl.message(
+      'Web dashboard',
+      name: 'onlinePanel',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Service checks`
+  String get mediaUnlock {
+    return Intl.message(
+      'Service checks',
+      name: 'mediaUnlock',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Service checks (compact)`
+  String get mediaUnlockSmall {
+    return Intl.message(
+      'Service checks (compact)',
+      name: 'mediaUnlockSmall',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Start / stop`
+  String get startButton {
+    return Intl.message(
+      'Start / stop',
+      name: 'startButton',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<AppLocalizations> {

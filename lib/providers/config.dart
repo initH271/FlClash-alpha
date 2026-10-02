@@ -5,6 +5,23 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 part 'generated/config.g.dart';
 
 @riverpod
+class NetworkFeatures extends _$NetworkFeatures {
+  @override
+  NetworkFeatureSettings build() =>
+      ref.watch(networkSettingProvider).networkFeatures;
+
+  void update(NetworkFeatureSettings Function(NetworkFeatureSettings) change) {
+    ref
+        .read(networkSettingProvider.notifier)
+        .update(
+          (settings) => settings.copyWith(
+            networkFeatures: change(settings.networkFeatures),
+          ),
+        );
+  }
+}
+
+@riverpod
 class AppSetting extends _$AppSetting with AutoDisposeNotifierMixin {
   @override
   AppSettingProps build() {

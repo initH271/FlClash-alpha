@@ -304,6 +304,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "connecting": MessageLookupByLibrary.simpleMessage("Connecting..."),
     "connection": MessageLookupByLibrary.simpleMessage("Connection"),
     "connections": MessageLookupByLibrary.simpleMessage("Connections"),
+    "connectionsCount": MessageLookupByLibrary.simpleMessage(
+      "Active connections",
+    ),
     "connectionsDesc": MessageLookupByLibrary.simpleMessage(
       "View current connection data",
     ),
@@ -388,6 +391,10 @@ class MessageLookup extends MessageLookupByLibrary {
       "Developer mode is enabled.",
     ),
     "direct": MessageLookupByLibrary.simpleMessage("Direct"),
+    "disableQuic": MessageLookupByLibrary.simpleMessage("Block UDP/443"),
+    "disableQuicDesc": MessageLookupByLibrary.simpleMessage(
+      "Adds a rejection rule before subscription rules. QUIC on other ports is unaffected.",
+    ),
     "disableUDP": MessageLookupByLibrary.simpleMessage("Disable UDP"),
     "disclaimer": MessageLookupByLibrary.simpleMessage("Disclaimer"),
     "disclaimerDesc": MessageLookupByLibrary.simpleMessage(
@@ -402,6 +409,7 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "dnsHijacking": MessageLookupByLibrary.simpleMessage("DNS hijacking"),
     "dnsMode": MessageLookupByLibrary.simpleMessage("DNS mode"),
+    "dnsOverride": MessageLookupByLibrary.simpleMessage("DNS override"),
     "domain": MessageLookupByLibrary.simpleMessage("Domain"),
     "download": MessageLookupByLibrary.simpleMessage("Download"),
     "edit": MessageLookupByLibrary.simpleMessage("Edit"),
@@ -453,6 +461,15 @@ class MessageLookup extends MessageLookupByLibrary {
       "Usually an overseas DNS",
     ),
     "fallbackFilter": MessageLookupByLibrary.simpleMessage("Fallback filter"),
+    "fcmConnected": MessageLookupByLibrary.simpleMessage(
+      "FCM connection observed",
+    ),
+    "fcmDisconnected": MessageLookupByLibrary.simpleMessage(
+      "No active FCM connection",
+    ),
+    "fcmStatus": MessageLookupByLibrary.simpleMessage("FCM status"),
+    "featureDisabled": MessageLookupByLibrary.simpleMessage("Disabled"),
+    "featureEnabled": MessageLookupByLibrary.simpleMessage("Enabled"),
     "fidelityScheme": MessageLookupByLibrary.simpleMessage("Fidelity"),
     "file": MessageLookupByLibrary.simpleMessage("File"),
     "fileDesc": MessageLookupByLibrary.simpleMessage(
@@ -594,10 +611,14 @@ class MessageLookup extends MessageLookupByLibrary {
     "ipv6InboundDesc": MessageLookupByLibrary.simpleMessage(
       "Allow IPv6 inbound",
     ),
+    "ipv6Switch": MessageLookupByLibrary.simpleMessage("IPv6"),
     "ja": MessageLookupByLibrary.simpleMessage("Japanese"),
     "justNow": MessageLookupByLibrary.simpleMessage("Just now"),
     "keepAliveIntervalDesc": MessageLookupByLibrary.simpleMessage(
       "TCP keep-alive interval",
+    ),
+    "keepAwake": MessageLookupByLibrary.simpleMessage(
+      "Keep awake while running",
     ),
     "key": MessageLookupByLibrary.simpleMessage("Key"),
     "language": MessageLookupByLibrary.simpleMessage("Language"),
@@ -652,6 +673,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "maxFailedTimes": MessageLookupByLibrary.simpleMessage("Max failures"),
     "maxLengthTip": m19,
     "maximize": MessageLookupByLibrary.simpleMessage("Maximize"),
+    "mediaUnlock": MessageLookupByLibrary.simpleMessage("Service checks"),
+    "mediaUnlockSmall": MessageLookupByLibrary.simpleMessage(
+      "Service checks (compact)",
+    ),
     "memoryInfo": MessageLookupByLibrary.simpleMessage("Memory info"),
     "messageTest": MessageLookupByLibrary.simpleMessage("Message test"),
     "messageTestTip": MessageLookupByLibrary.simpleMessage(
@@ -693,7 +718,18 @@ class MessageLookup extends MessageLookupByLibrary {
     "networkException": MessageLookupByLibrary.simpleMessage(
       "Network error, please check your connection and try again",
     ),
+    "networkFeatures": MessageLookupByLibrary.simpleMessage("Network tools"),
+    "networkRules": MessageLookupByLibrary.simpleMessage("Local network rules"),
+    "networkRulesDesc": MessageLookupByLibrary.simpleMessage(
+      "IP/CIDR or gateway:192.168.1.1, separated by commas or lines. Press Enter to save.",
+    ),
+    "networkRulesInvalid": MessageLookupByLibrary.simpleMessage(
+      "Enter valid IPv4 addresses or CIDR ranges.",
+    ),
     "networkSpeed": MessageLookupByLibrary.simpleMessage("Network speed"),
+    "networkSpeedSmall": MessageLookupByLibrary.simpleMessage(
+      "Network speed (compact)",
+    ),
     "networkType": MessageLookupByLibrary.simpleMessage("Network type"),
     "neutralScheme": MessageLookupByLibrary.simpleMessage("Neutral"),
     "nextMatch": MessageLookupByLibrary.simpleMessage("Next match"),
@@ -714,6 +750,8 @@ class MessageLookup extends MessageLookupByLibrary {
     "notSelectedTip": MessageLookupByLibrary.simpleMessage(
       "The current proxy group cannot be selected",
     ),
+    "ntpOverride": MessageLookupByLibrary.simpleMessage("NTP override"),
+    "ntpServer": MessageLookupByLibrary.simpleMessage("NTP server"),
     "nullProfileDesc": MessageLookupByLibrary.simpleMessage(
       "No profiles yet, please add one first",
     ),
@@ -722,6 +760,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "onDemand": MessageLookupByLibrary.simpleMessage("On demand"),
     "onDemandDesc": MessageLookupByLibrary.simpleMessage(
       "Configure the app\'s running state for specific scenarios",
+    ),
+    "onlinePanel": MessageLookupByLibrary.simpleMessage("Web dashboard"),
+    "onlinePanelEnablePrompt": MessageLookupByLibrary.simpleMessage(
+      "Enable the loopback controller and download the dashboard from GitHub? The controller stays on 127.0.0.1.",
     ),
     "onlyIcon": MessageLookupByLibrary.simpleMessage("Icon only"),
     "onlyStatisticsProxy": MessageLookupByLibrary.simpleMessage(
@@ -801,6 +843,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "profilesSort": MessageLookupByLibrary.simpleMessage("Sort profiles"),
     "project": MessageLookupByLibrary.simpleMessage("Project"),
     "providers": MessageLookupByLibrary.simpleMessage("External resources"),
+    "providersInfo": MessageLookupByLibrary.simpleMessage("Providers"),
     "proxies": MessageLookupByLibrary.simpleMessage("Proxies"),
     "proxiesCount": m25,
     "proxiesEmpty": MessageLookupByLibrary.simpleMessage("Proxies are empty"),
@@ -1056,6 +1099,17 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "selected": MessageLookupByLibrary.simpleMessage("Selected"),
     "selectedCountTitle": m28,
+    "serviceAvailable": MessageLookupByLibrary.simpleMessage("Available"),
+    "serviceBlocked": MessageLookupByLibrary.simpleMessage("Blocked"),
+    "serviceCheckDesc": MessageLookupByLibrary.simpleMessage(
+      "Checks are probes and region estimates; they do not confirm account access. Select services and run a check.",
+    ),
+    "serviceChecks": MessageLookupByLibrary.simpleMessage("Service checks"),
+    "serviceFailed": MessageLookupByLibrary.simpleMessage("Check failed"),
+    "serviceFlagged": MessageLookupByLibrary.simpleMessage("Flagged"),
+    "serviceLimited": MessageLookupByLibrary.simpleMessage("Limited"),
+    "serviceTesting": MessageLookupByLibrary.simpleMessage("Checking"),
+    "serviceUnknown": MessageLookupByLibrary.simpleMessage("Not checked"),
     "settings": MessageLookupByLibrary.simpleMessage("Settings"),
     "show": MessageLookupByLibrary.simpleMessage("Show"),
     "showLess": MessageLookupByLibrary.simpleMessage("Collapse"),
@@ -1073,6 +1127,14 @@ class MessageLookup extends MessageLookupByLibrary {
       "Start in the background",
     ),
     "size": MessageLookupByLibrary.simpleMessage("Size"),
+    "smartAutoStop": MessageLookupByLibrary.simpleMessage(
+      "Automatic stop and resume",
+    ),
+    "smartAutoStopDesc": MessageLookupByLibrary.simpleMessage(
+      "Pause on matching local networks; resume only connections paused automatically. Manual stop takes priority.",
+    ),
+    "sniffer": MessageLookupByLibrary.simpleMessage("Sniffer"),
+    "snifferOverride": MessageLookupByLibrary.simpleMessage("Sniffer override"),
     "socksPort": MessageLookupByLibrary.simpleMessage("SOCKS port"),
     "sort": MessageLookupByLibrary.simpleMessage("Sort"),
     "source": MessageLookupByLibrary.simpleMessage("Source"),
@@ -1091,6 +1153,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Standard mode: overrides the basic configuration and offers simple rule additions",
     ),
     "start": MessageLookupByLibrary.simpleMessage("Start"),
+    "startButton": MessageLookupByLibrary.simpleMessage("Start / stop"),
     "startVpn": MessageLookupByLibrary.simpleMessage("Starting VPN..."),
     "status": MessageLookupByLibrary.simpleMessage("Status"),
     "statusDesc": MessageLookupByLibrary.simpleMessage(
@@ -1209,6 +1272,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "vpnTip": MessageLookupByLibrary.simpleMessage(
       "Changes take effect after restarting the VPN",
     ),
+    "wakelockSwitch": MessageLookupByLibrary.simpleMessage("Keep awake"),
     "webDAVConfiguration": MessageLookupByLibrary.simpleMessage(
       "WebDAV configuration",
     ),

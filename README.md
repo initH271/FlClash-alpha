@@ -23,6 +23,14 @@ Both channels publish identical APK bytes signed with the same personal key. Rel
 - **In-app updates:** download with progress, verify the checksum, package, build and signing certificate, then tap Install update to open Android's confirmation screen.
 - **Approved upstream tracking:** new stable upstream releases create decision Issues and NPC analysis. Owner approval gates integration, testing, builds and publication.
 
+## Network tools
+
+The dashboard editor also offers compact speed, connection count, IPv6, keep-awake, DNS/sniffer/NTP overrides, providers, FCM observations, a loopback web dashboard, service checks and a start/stop tile. Existing layouts are retained; add these tiles through the dashboard editor.
+
+Tools → Network tools configures local IPv4/CIDR and `gateway:` matching for automatic pause/resume and UDP/443 rejection. Manual stop takes priority; automation resumes only sessions it paused. Features are disabled by default. Configuration overlays affect the generated running profile rather than rewriting subscription files.
+
+Service checks run only when requested and can be cancelled. Their results are connectivity probes and regional estimates, not guarantees of account access. Profile/proxy changes invalidate previous results. The web dashboard requires explicit loopback-controller activation and downloads its UI from GitHub. Android background behavior still requires device acceptance.
+
 ## Installation and upgrades
 
 The application ID is `com.follow.clash.dev`. Builds use a fixed personal signing key, so subsequent releases can update the installed fork while preserving data. Its identity differs from the official upstream package.
@@ -48,6 +56,8 @@ Report issues through [CNB Issues](https://cnb.cool/507space/FlClash-alpha/-/iss
 ## Attribution and license
 
 Upstream: [chen08209/FlClash](https://github.com/chen08209/FlClash). Thanks to the original author, June2, Arue, and all upstream contributors. This fork's log, update and maintenance enhancements are maintained by Aharon (initH271).
+
+Service-probe and result-model code is adapted from [Bettbox v1.19.4](https://github.com/appshubcc/Bettbox/tree/45d6fd3781a20bc7639cb7788b542e0cba1ec3af), retaining GPL-3.0 licensing and attribution. Runtime and UI integration follow this fork’s own architecture.
 
 The project retains the **GNU General Public License v3 (GPL-3.0)**. See [LICENSE](LICENSE) for the complete terms. Use, modifications and redistribution must comply with the license and preserve required copyright and license notices. The software is provided without warranty as specified by the license.
 

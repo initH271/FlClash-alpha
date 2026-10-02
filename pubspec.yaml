@@ -13,6 +13,7 @@ hooks:
       build_assets: true
 
 dependencies:
+  wakelock_plus: ^1.4.0
   flutter:
     sdk: flutter
   material_ui: ^1.0.1

@@ -9,6 +9,59 @@ part of '../config.dart';
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // ignore_for_file: type=lint, type=warning
 
+@ProviderFor(NetworkFeatures)
+final networkFeaturesProvider = NetworkFeaturesProvider._();
+
+final class NetworkFeaturesProvider
+    extends $NotifierProvider<NetworkFeatures, NetworkFeatureSettings> {
+  NetworkFeaturesProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'networkFeaturesProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$networkFeaturesHash();
+
+  @$internal
+  @override
+  NetworkFeatures create() => NetworkFeatures();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(NetworkFeatureSettings value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<NetworkFeatureSettings>(value),
+    );
+  }
+}
+
+String _$networkFeaturesHash() => r'820ea67d2d1648b468b1bde2ac73e31805d77cbd';
+
+abstract class _$NetworkFeatures extends $Notifier<NetworkFeatureSettings> {
+  NetworkFeatureSettings build();
+  @$mustCallSuper
+  @override
+  WhenComplete runBuild() {
+    final ref =
+        this.ref as $Ref<NetworkFeatureSettings, NetworkFeatureSettings>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<NetworkFeatureSettings, NetworkFeatureSettings>,
+              NetworkFeatureSettings,
+              Object?,
+              Object?
+            >;
+    return element.handleCreate(ref, build);
+  }
+}
+
 @ProviderFor(AppSetting)
 final appSettingProvider = AppSettingProvider._();
 

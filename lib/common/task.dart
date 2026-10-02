@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:fl_clash/common/network_policy.dart';
+
 import 'package:archive/archive_io.dart';
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
@@ -156,6 +158,9 @@ Future<({String yaml, String md5})> _makeRealProfileTask(
 
   rawConfig['external-controller'] = realPatchConfig.externalController.value;
   rawConfig['external-ui'] = '';
+  if (realPatchConfig.externalController == ExternalControllerStatus.open) {
+    rawConfig['external-ui'] = join(dirname(profilesPath), 'dashboard');
+  }
   switch (realPatchConfig.interfaceNameMode) {
     case InterfaceNameMode.clear:
       rawConfig['interface-name'] = '';
@@ -165,6 +170,10 @@ Future<({String yaml, String md5})> _makeRealProfileTask(
       rawConfig['interface-name'] = realPatchConfig.interfaceName;
   }
   rawConfig['external-ui-url'] = '';
+  if (realPatchConfig.externalController == ExternalControllerStatus.open) {
+    rawConfig['external-ui-url'] =
+        'https://github.com/Zephyruso/zashboard/releases/download/v3.29.1/dist-no-fonts.zip';
+  }
   rawConfig['tcp-concurrent'] = realPatchConfig.tcpConcurrent;
   rawConfig['unified-delay'] = realPatchConfig.unifiedDelay;
   rawConfig['ipv6'] = realPatchConfig.ipv6;
@@ -297,7 +306,12 @@ Future<({String yaml, String md5})> _makeRealProfileTask(
     rawConfig['proxy-groups'] = data.proxyGroups;
   }
   rawConfig['rules'] = rules;
-  final yaml = await _encodeYaml(Map<String, dynamic>.from(rawConfig));
+  final yaml = await _encodeYaml(
+    applyNetworkFeatures(
+      Map<String, dynamic>.from(rawConfig),
+      data.networkFeatures,
+    ),
+  );
   return (yaml: yaml, md5: yaml.toMd5());
 }
 
