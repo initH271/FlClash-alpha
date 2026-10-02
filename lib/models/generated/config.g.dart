@@ -76,6 +76,19 @@ const _$RestoreStrategyEnumMap = {
 };
 
 const _$DashboardWidgetEnumMap = {
+  DashboardWidget.networkSpeedSmall: 'networkSpeedSmall',
+  DashboardWidget.connectionsCount: 'connectionsCount',
+  DashboardWidget.ipv6Switch: 'ipv6Switch',
+  DashboardWidget.wakelockSwitch: 'wakelockSwitch',
+  DashboardWidget.dnsOverride: 'dnsOverride',
+  DashboardWidget.snifferOverride: 'snifferOverride',
+  DashboardWidget.ntpOverride: 'ntpOverride',
+  DashboardWidget.providersInfo: 'providersInfo',
+  DashboardWidget.fcmStatus: 'fcmStatus',
+  DashboardWidget.onlinePanel: 'onlinePanel',
+  DashboardWidget.mediaUnlock: 'mediaUnlock',
+  DashboardWidget.mediaUnlockSmall: 'mediaUnlockSmall',
+  DashboardWidget.startButton: 'startButton',
   DashboardWidget.networkSpeed: 'networkSpeed',
   DashboardWidget.outboundModeV2: 'outboundModeV2',
   DashboardWidget.outboundMode: 'outboundMode',
@@ -187,6 +200,9 @@ Map<String, dynamic> _$AuthenticationPropsToJson(
 
 _NetworkProps _$NetworkPropsFromJson(Map<String, dynamic> json) =>
     _NetworkProps(
+      networkFeatures: json['networkFeatures'] == null
+          ? const NetworkFeatureSettings()
+          : NetworkFeatureSettings.safeFromJson(json['networkFeatures']),
       systemProxy: json['systemProxy'] as bool? ?? true,
       bypassDomain:
           (json['bypassDomain'] as List<dynamic>?)
@@ -207,6 +223,7 @@ _NetworkProps _$NetworkPropsFromJson(Map<String, dynamic> json) =>
 
 Map<String, dynamic> _$NetworkPropsToJson(_NetworkProps instance) =>
     <String, dynamic>{
+      'networkFeatures': instance.networkFeatures,
       'systemProxy': instance.systemProxy,
       'bypassDomain': instance.bypassDomain,
       'routeMode': _$RouteModeEnumMap[instance.routeMode]!,

@@ -109,9 +109,22 @@ class SetupAction extends _$SetupAction {
     }
   }
 
-  Future<bool> setRunning(bool running, {bool initialize = false}) {
+  Future<bool> setRunning(bool running, {bool initialize = false}) =>
+      _requestRunning(running, initialize: initialize);
+
+  Future<bool> setRunningAutomatically(bool running) =>
+      _requestRunning(running, automatic: true);
+
+  Future<bool> _requestRunning(
+    bool running, {
+    bool initialize = false,
+    bool automatic = false,
+  }) {
     if (running && !initialize && !ref.read(initProvider)) {
       return Future.value(true);
+    }
+    if (!automatic && !initialize) {
+      ref.read(networkUserIntentProvider.notifier).record();
     }
 
     final request = _RunRequest(
@@ -354,6 +367,7 @@ class SetupAction extends _$SetupAction {
     final directory = await appPath.profilesPath;
     final res = makeRealProfileTask(
       MakeRealProfileState(
+        networkFeatures: ref.read(networkFeaturesProvider),
         rules: rules,
         proxyGroups: proxyGroups,
         profilesPath: directory,

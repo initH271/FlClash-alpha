@@ -9,6 +9,7 @@ import 'common.dart';
 import 'config.dart';
 import 'core.dart';
 import 'profile.dart';
+import 'network_features.dart';
 
 part 'generated/state.freezed.dart';
 part 'generated/state.g.dart';
@@ -344,6 +345,7 @@ abstract class ComputeGroupsState with _$ComputeGroupsState {
 @freezed
 abstract class MakeRealProfileState with _$MakeRealProfileState {
   const factory MakeRealProfileState({
+    @Default(NetworkFeatureSettings()) NetworkFeatureSettings networkFeatures,
     required String profilesPath,
     required int profileId,
     required Map<String, dynamic> rawConfig,

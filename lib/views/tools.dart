@@ -1,3 +1,6 @@
+import 'package:fl_clash/views/network_features.dart';
+import 'package:fl_clash/views/service_checks.dart';
+
 import 'dart:io';
 
 import 'package:fl_clash/common/common.dart';
@@ -67,6 +70,16 @@ class _ToolViewState extends ConsumerState<ToolsView> {
     return generateSection(
       title: context.appLocalizations.settings,
       items: [
+        ListTile(
+          title: Text(context.appLocalizations.networkFeatures),
+          leading: const Icon(Icons.settings_ethernet),
+          onTap: () => NetworkFeaturesView.show(context),
+        ),
+        ListTile(
+          title: Text(context.appLocalizations.serviceChecks),
+          leading: const Icon(Icons.travel_explore),
+          onTap: () => showServiceChecks(context),
+        ),
         const _LocaleItem(),
         const _ThemeItem(),
         const _BackupItem(),

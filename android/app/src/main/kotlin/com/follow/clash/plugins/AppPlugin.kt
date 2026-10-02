@@ -10,6 +10,8 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.VpnService
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -121,6 +123,21 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
     override fun onMethodCall(call: MethodCall, rawResult: Result) {
         val result = MainThreadResult(rawResult)
         when (call.method) {
+            "getNetworkAddresses" -> {
+                val manager = GlobalState.application.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+                val addresses = mutableSetOf<String>()
+                val gateways = mutableSetOf<String>()
+                manager.allNetworks.forEach { network ->
+                    val capabilities = manager.getNetworkCapabilities(network)
+                    if (capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) == true) {
+                        manager.getLinkProperties(network)?.let { links ->
+                            links.linkAddresses.mapNotNullTo(addresses) { it.address.hostAddress }
+                            links.routes.filter { it.isDefaultRoute }.mapNotNullTo(gateways) { it.gateway?.hostAddress }
+                        }
+                    }
+                }
+                result.success(mapOf("addresses" to addresses.toList(), "gateways" to gateways.toList()))
+            }
             "moveTaskToBack" -> {
                 activity?.moveTaskToBack(true)
                 result.success(true)

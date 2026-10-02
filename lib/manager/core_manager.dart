@@ -1,3 +1,4 @@
+import 'package:fl_clash/manager/network_automation_manager.dart';
 import 'dart:async';
 
 import 'package:fl_clash/common/common.dart';
@@ -22,7 +23,10 @@ class CoreManager extends ConsumerStatefulWidget {
 }
 
 class _CoreContainerState extends ConsumerState<CoreManager>
-    with CoreEventListener {
+    with
+        CoreEventListener,
+        WidgetsBindingObserver,
+        NetworkAutomationMixin<CoreManager> {
   CoreController get _core => ref.read(coreHandlerProvider);
 
   @override
@@ -35,6 +39,14 @@ class _CoreContainerState extends ConsumerState<CoreManager>
     super.initState();
     coreEventManager.addListener(this);
     ref.read(updatingActionProvider.notifier);
+    ref.listenManual(
+      networkFeaturesProvider.select((settings) => settings.profileOptions),
+      (previous, next) {
+        if (previous != next) {
+          unawaited(ref.read(setupActionProvider.notifier).fullSetup());
+        }
+      },
+    );
     // A rejected profile stays selected on purpose: silently reverting to
     // the previous one hides the error and looks like the switch was lost.
     ref.listenManual(currentProfileIdProvider, (prev, next) {

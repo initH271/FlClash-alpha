@@ -276,6 +276,19 @@ enum FunctionTag {
 }
 
 enum DashboardWidget {
+  networkSpeedSmall,
+  connectionsCount,
+  ipv6Switch,
+  wakelockSwitch(platforms: desktopPlatforms),
+  dnsOverride,
+  snifferOverride,
+  ntpOverride,
+  providersInfo,
+  fcmStatus,
+  onlinePanel,
+  mediaUnlock,
+  mediaUnlockSmall,
+  startButton,
   networkSpeed,
   outboundModeV2,
   outboundMode,

@@ -190,6 +190,10 @@ extension AuthenticationPropsExt on AuthenticationProps {
 @freezed
 abstract class NetworkProps with _$NetworkProps {
   const factory NetworkProps({
+    @JsonKey(fromJson: NetworkFeatureSettings.safeFromJson)
+    @Default(NetworkFeatureSettings())
+    NetworkFeatureSettings networkFeatures,
+
     @Default(true) bool systemProxy,
     @Default(defaultBypassDomain) List<String> bypassDomain,
     @Default(RouteMode.config) RouteMode routeMode,

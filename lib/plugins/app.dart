@@ -11,6 +11,13 @@ import 'package:flutter/services.dart';
 const _platformProbeTimeout = Duration(seconds: 2);
 
 class App {
+  Future<Map<String, dynamic>?> getNetworkAddresses() async {
+    final value = await methodChannel.invokeMapMethod<String, dynamic>(
+      'getNetworkAddresses',
+    );
+    return value;
+  }
+
   static App? _instance;
   late MethodChannel methodChannel;
   Function()? onExit;
