@@ -75,6 +75,15 @@ class _AnimatedVisibilityState extends State<AnimatedVisibility>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final reduced = MediaQuery.disableAnimationsOf(context);
+    _controller.duration = reduced ? Duration.zero : _transitionDuration;
+    _controller.reverseDuration = reduced ? Duration.zero : _transitionDuration;
+    if (reduced) _controller.value = widget.visible ? 1 : 0;
+  }
+
+  @override
   void didUpdateWidget(covariant AnimatedVisibility oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.visible == oldWidget.visible) {
