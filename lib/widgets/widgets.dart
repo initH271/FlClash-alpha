@@ -16,6 +16,8 @@ export 'fade_box.dart';
 export 'float_layout.dart';
 export 'focus.dart';
 export 'grid.dart';
+export 'glass.dart';
+export 'glass_navigation.dart';
 export 'icon.dart';
 export 'inherited.dart';
 export 'input.dart';

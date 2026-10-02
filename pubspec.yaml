@@ -104,6 +104,8 @@ dev_dependencies:
   url_launcher_platform_interface: ^2.3.2
 
 flutter:
+  shaders:
+    - shaders/navigation_glass.frag
   uses-material-design: true
   assets:
     - assets/data/

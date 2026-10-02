@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'scaffold.dart';
+import 'glass.dart';
 import 'side_sheet.dart';
 
 @immutable
@@ -347,19 +348,9 @@ class _TransparentToolBarBody extends StatelessWidget {
           left: 0,
           right: 0,
           height: sheetAppBarHeight,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                stops: const [0, 0.5, 1],
-                colors: [
-                  backgroundColor.opacity60,
-                  backgroundColor.opacity60,
-                  backgroundColor.opacity0,
-                ],
-              ),
-            ),
+          child: GlassSurface(
+            borderRadius: AppRadius.top(AppCorner.xxl),
+            refractionEnabled: false,
             child: Align(alignment: Alignment.topCenter, child: toolBar),
           ),
         ),

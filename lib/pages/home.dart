@@ -63,12 +63,26 @@ class _HomeShell extends ConsumerWidget {
     final state = ref.watch(navigationStateProvider);
     final isMobile = state.viewMode == ViewMode.mobile;
     final navigationItems = state.navigationItems;
+    final keyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
+    final visible = isMobile && !keyboardVisible;
+    final effects = ref.watch(
+      appSettingProvider.select((value) => value.isAnimateToPage),
+    );
+    final textScale = MediaQuery.textScalerOf(context).scale(12) / 12;
+    final barHeight =
+        GlassNavigationBar.height + (textScale > 1 ? (textScale - 1) * 18 : 0);
+    final bottomInset = visible
+        ? barHeight +
+              GlassNavigationBar.margin * 2 +
+              MediaQuery.paddingOf(context).bottom
+        : 0.0;
     return Material(
       color: context.colorScheme.surface,
-      child: Column(
+      child: Stack(
+        fit: StackFit.expand,
         children: [
-          Flexible(
-            flex: 1,
+          BottomInsetScope(
+            inset: bottomInset,
             child: FocusTraversalGroup(
               policy: PageTraversalPolicy(),
               child: MediaQuery.removePadding(
@@ -81,28 +95,38 @@ class _HomeShell extends ConsumerWidget {
               ),
             ),
           ),
-          AnimatedVisibility.bottomNavigation(
-            visible: isMobile,
-            child: MediaQuery.removePadding(
-              removeTop: true,
-              removeBottom: false,
-              removeLeft: true,
-              removeRight: true,
-              context: context,
-              child: NavigationBarTheme(
-                data: _NavigationBarDefaultsM3(context),
-                child: NavigationBar(
-                  destinations: [
-                    for (final item in navigationItems)
-                      NavigationDestination(
-                        icon: item.icon,
-                        label: item.label.label,
-                      ),
-                  ],
-                  onDestinationSelected: (index) {
-                    _handleToPage(navigationItems[index].label, ref);
-                  },
-                  selectedIndex: state.currentIndex,
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: AnimatedVisibility.bottomNavigation(
+              visible: visible,
+              child: SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.all(GlassNavigationBar.margin),
+                  child: Align(
+                    heightFactor: 1,
+                    child: GlassNavigationBar(
+                      effectsEnabled: effects,
+                      destinations: [
+                        for (final item in navigationItems)
+                          NavigationDestination(
+                            tooltip: '',
+                            icon: Tooltip(
+                              message: item.label.label,
+                              triggerMode: TooltipTriggerMode.manual,
+                              child: item.icon,
+                            ),
+                            label: item.label.label,
+                          ),
+                      ],
+                      onSelected: (index) {
+                        _handleToPage(navigationItems[index].label, ref);
+                      },
+                      selectedIndex: state.currentIndex,
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -209,7 +233,10 @@ class _HomePageViewState extends ConsumerState<_HomePageView> {
     }
     final isAnimateToPage = ref.read(appSettingProvider).isAnimateToPage;
     final isMobile = ref.read(isMobileViewProvider);
-    if (isAnimateToPage && isMobile && !ignoreAnimateTo) {
+    if (isAnimateToPage &&
+        isMobile &&
+        !ignoreAnimateTo &&
+        !MediaQuery.disableAnimationsOf(context)) {
       await _pageController.animateToPage(
         index,
         duration: kTabScrollDuration,
@@ -253,63 +280,6 @@ class _HomePageViewState extends ConsumerState<_HomePageView> {
         return widget.pageBuilder(context, index);
       },
     );
-  }
-}
-
-class _NavigationBarDefaultsM3 extends NavigationBarThemeData {
-  _NavigationBarDefaultsM3(this.context)
-    : super(
-        height: 80.0,
-        elevation: 3.0,
-        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-      );
-
-  final BuildContext context;
-  late final ColorScheme _colors = Theme.of(context).colorScheme;
-  late final TextTheme _textTheme = Theme.of(context).textTheme;
-
-  @override
-  Color? get backgroundColor => _colors.surfaceContainer;
-
-  @override
-  Color? get shadowColor => Colors.transparent;
-
-  @override
-  Color? get surfaceTintColor => Colors.transparent;
-
-  @override
-  WidgetStateProperty<IconThemeData?>? get iconTheme {
-    return WidgetStateProperty.resolveWith((Set<WidgetState> states) {
-      return IconThemeData(
-        size: 24.0,
-        color: states.contains(WidgetState.disabled)
-            ? _colors.onSurfaceVariant.opacity38
-            : states.contains(WidgetState.selected)
-            ? _colors.onSecondaryContainer
-            : _colors.onSurfaceVariant,
-      );
-    });
-  }
-
-  @override
-  Color? get indicatorColor => _colors.secondaryContainer;
-
-  @override
-  ShapeBorder? get indicatorShape => AppShape.full;
-
-  @override
-  WidgetStateProperty<TextStyle?>? get labelTextStyle {
-    return WidgetStateProperty.resolveWith((Set<WidgetState> states) {
-      final TextStyle style = _textTheme.labelMedium!;
-      return style.apply(
-        overflow: TextOverflow.ellipsis,
-        color: states.contains(WidgetState.disabled)
-            ? _colors.onSurfaceVariant.opacity38
-            : states.contains(WidgetState.selected)
-            ? _colors.onSurface
-            : _colors.onSurfaceVariant,
-      );
-    });
   }
 }
 

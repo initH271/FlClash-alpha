@@ -9,6 +9,7 @@ import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/widgets/animated_visibility.dart';
+import 'package:fl_clash/widgets/glass.dart';
 import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -155,7 +156,14 @@ class _SidebarRail extends StatelessWidget {
             scrollable: true,
             minExtendedWidth: 200,
             backgroundColor: Colors.transparent,
-            selectedLabelTextStyle: labelStyle,
+            indicatorColor: context.colorScheme.primary.withValues(alpha: .09),
+            selectedIconTheme: IconThemeData(
+              color: context.colorScheme.primary,
+            ),
+            selectedLabelTextStyle: labelStyle.copyWith(
+              color: context.colorScheme.primary,
+              fontWeight: FontWeight.w700,
+            ),
             unselectedLabelTextStyle: labelStyle,
             destinations: [
               for (final item in items)
@@ -185,8 +193,17 @@ class AppSidebarContainer extends ConsumerWidget {
   Widget _buildBackground({
     required BuildContext context,
     required Widget child,
+    required bool effectsEnabled,
   }) {
-    return Material(color: context.colorScheme.surfaceContainer, child: child);
+    return Padding(
+      padding: const EdgeInsets.all(8),
+      child: GlassSurface(
+        borderRadius: AppRadius.xxl,
+        refractionEnabled: false,
+        effectsEnabled: effectsEnabled,
+        child: child,
+      ),
+    );
   }
 
   void _updateSideBarWidth(WidgetRef ref, double contentWidth) {
@@ -228,6 +245,9 @@ class AppSidebarContainer extends ConsumerWidget {
             visible: !isMobileView,
             child: _buildBackground(
               context: context,
+              effectsEnabled: ref.watch(
+                appSettingProvider.select((value) => value.isAnimateToPage),
+              ),
               child: SafeArea(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.center,
