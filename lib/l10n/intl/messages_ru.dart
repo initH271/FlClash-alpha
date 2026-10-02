@@ -486,6 +486,8 @@ class MessageLookup extends MessageLookupByLibrary {
     "fcmStatus": MessageLookupByLibrary.simpleMessage("Статус FCM"),
     "featureDisabled": MessageLookupByLibrary.simpleMessage("Выключено"),
     "featureEnabled": MessageLookupByLibrary.simpleMessage("Включено"),
+    "featureOffShort": MessageLookupByLibrary.simpleMessage("Выкл"),
+    "featureOnShort": MessageLookupByLibrary.simpleMessage("Вкл"),
     "fidelityScheme": MessageLookupByLibrary.simpleMessage("Точная передача"),
     "file": MessageLookupByLibrary.simpleMessage("Файл"),
     "fileDesc": MessageLookupByLibrary.simpleMessage(
@@ -747,7 +749,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Правила локальной сети",
     ),
     "networkRulesDesc": MessageLookupByLibrary.simpleMessage(
-      "IP/CIDR или gateway:192.168.1.1, разделённые запятыми или строками. Enter сохраняет.",
+      "Введите IP/CIDR или gateway:192.168.1.1, разделяя запятыми или новой строкой. Нажмите «Готово» или «Сохранить» для применения.",
     ),
     "networkRulesInvalid": MessageLookupByLibrary.simpleMessage(
       "Введите допустимые адреса IPv4 или диапазоны CIDR.",
@@ -825,6 +827,10 @@ class MessageLookup extends MessageLookupByLibrary {
       "Пользовательский режим: полная настройка групп прокси и правил",
     ),
     "palette": MessageLookupByLibrary.simpleMessage("Палитра"),
+    "panelOpenFailed": MessageLookupByLibrary.simpleMessage(
+      "Не удалось открыть панель. Повторите попытку.",
+    ),
+    "panelOpening": MessageLookupByLibrary.simpleMessage("Открытие…"),
     "password": MessageLookupByLibrary.simpleMessage("Пароль"),
     "paste": MessageLookupByLibrary.simpleMessage("Вставить"),
     "personalForkDescription": MessageLookupByLibrary.simpleMessage(
@@ -1156,6 +1162,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "serviceCheckDesc": MessageLookupByLibrary.simpleMessage(
       "Это проверка доступности и оценка региона, а не гарантия доступа аккаунта. Выберите сервисы и запустите проверку.",
     ),
+    "serviceCheckFailed": MessageLookupByLibrary.simpleMessage(
+      "Проверка не завершена. Повторите попытку.",
+    ),
     "serviceChecks": MessageLookupByLibrary.simpleMessage("Проверка сервисов"),
     "serviceFailed": MessageLookupByLibrary.simpleMessage("Ошибка проверки"),
     "serviceFlagged": MessageLookupByLibrary.simpleMessage(
@@ -1181,9 +1190,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Запускаться в фоновом режиме",
     ),
     "size": MessageLookupByLibrary.simpleMessage("Размер"),
-    "smartAutoStop": MessageLookupByLibrary.simpleMessage(
-      "Автоматическая остановка и запуск",
-    ),
+    "smartAutoStop": MessageLookupByLibrary.simpleMessage("Автопауза"),
     "smartAutoStopDesc": MessageLookupByLibrary.simpleMessage(
       "Приостанавливать в выбранных сетях и возобновлять только автоматически остановленные подключения. Ручная остановка имеет приоритет.",
     ),

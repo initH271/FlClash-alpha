@@ -12,6 +12,7 @@ class NetworkFeaturesView extends ConsumerWidget {
   static void show(BuildContext context) {
     showSheet(
       context: context,
+      props: const SheetProps(isScrollControlled: true),
       builder: (_) => AdaptiveSheetScaffold(
         title: context.appLocalizations.networkFeatures,
         body: const NetworkFeaturesView(),
@@ -38,24 +39,7 @@ class NetworkFeaturesView extends ConsumerWidget {
           value: settings.smartAutoStop,
           onChanged: (value) => update((s) => s.copyWith(smartAutoStop: value)),
         ),
-        TextFormField(
-          initialValue: settings.smartAutoStopNetworks,
-          maxLength: 2048,
-          maxLines: 3,
-          textInputAction: TextInputAction.done,
-          decoration: InputDecoration(
-            labelText: l.networkRules,
-            helperText: l.networkRulesDesc,
-          ),
-          autovalidateMode: AutovalidateMode.onUserInteraction,
-          validator: (value) =>
-              NetworkRules.isValid(value ?? '') ? null : l.networkRulesInvalid,
-          onFieldSubmitted: (value) {
-            if (NetworkRules.isValid(value)) {
-              update((s) => s.copyWith(smartAutoStopNetworks: value.trim()));
-            }
-          },
-        ),
+        _NetworkRulesEditor(initialValue: settings.smartAutoStopNetworks),
         SwitchListTile(
           title: Text(l.disableQuic),
           subtitle: Text(l.disableQuicDesc),
@@ -104,6 +88,86 @@ class NetworkFeaturesView extends ConsumerWidget {
             value: settings.keepAwake,
             onChanged: (value) => update((s) => s.copyWith(keepAwake: value)),
           ),
+      ],
+    );
+  }
+}
+
+class _NetworkRulesEditor extends ConsumerStatefulWidget {
+  const _NetworkRulesEditor({required this.initialValue});
+  final String initialValue;
+
+  @override
+  ConsumerState<_NetworkRulesEditor> createState() =>
+      _NetworkRulesEditorState();
+}
+
+class _NetworkRulesEditorState extends ConsumerState<_NetworkRulesEditor> {
+  final _fieldKey = GlobalKey<FormFieldState<String>>();
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialValue);
+  }
+
+  @override
+  void didUpdateWidget(covariant _NetworkRulesEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialValue != oldWidget.initialValue &&
+        _controller.text == oldWidget.initialValue) {
+      _controller.text = widget.initialValue;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    if (_fieldKey.currentState?.validate() != true) return;
+    ref
+        .read(networkFeaturesProvider.notifier)
+        .update(
+          (state) =>
+              state.copyWith(smartAutoStopNetworks: _controller.text.trim()),
+        );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = context.appLocalizations;
+    return Column(
+      children: [
+        TextFormField(
+          key: _fieldKey,
+          controller: _controller,
+          maxLength: 2048,
+          maxLines: 3,
+          textInputAction: TextInputAction.done,
+          decoration: InputDecoration(
+            labelText: l.networkRules,
+            helperText: l.networkRulesDesc,
+            helperMaxLines: 7,
+            errorMaxLines: 4,
+          ),
+          autovalidateMode: AutovalidateMode.onUserInteraction,
+          validator: (value) =>
+              NetworkRules.isValid(value ?? '') ? null : l.networkRulesInvalid,
+          onFieldSubmitted: (_) => _save(),
+        ),
+        Align(
+          alignment: Alignment.centerRight,
+          child: FilledButton.icon(
+            key: const ValueKey('save-network-rules'),
+            onPressed: _save,
+            icon: const Icon(Icons.save),
+            label: Text(l.save),
+          ),
+        ),
       ],
     );
   }

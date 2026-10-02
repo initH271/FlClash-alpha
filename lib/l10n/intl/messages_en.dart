@@ -470,6 +470,8 @@ class MessageLookup extends MessageLookupByLibrary {
     "fcmStatus": MessageLookupByLibrary.simpleMessage("FCM status"),
     "featureDisabled": MessageLookupByLibrary.simpleMessage("Disabled"),
     "featureEnabled": MessageLookupByLibrary.simpleMessage("Enabled"),
+    "featureOffShort": MessageLookupByLibrary.simpleMessage("Off"),
+    "featureOnShort": MessageLookupByLibrary.simpleMessage("On"),
     "fidelityScheme": MessageLookupByLibrary.simpleMessage("Fidelity"),
     "file": MessageLookupByLibrary.simpleMessage("File"),
     "fileDesc": MessageLookupByLibrary.simpleMessage(
@@ -721,7 +723,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "networkFeatures": MessageLookupByLibrary.simpleMessage("Network tools"),
     "networkRules": MessageLookupByLibrary.simpleMessage("Local network rules"),
     "networkRulesDesc": MessageLookupByLibrary.simpleMessage(
-      "IP/CIDR or gateway:192.168.1.1, separated by commas or lines. Press Enter to save.",
+      "Enter IP/CIDR or gateway:192.168.1.1, separated by commas or new lines. Use Done or Save to apply.",
     ),
     "networkRulesInvalid": MessageLookupByLibrary.simpleMessage(
       "Enter valid IPv4 addresses or CIDR ranges.",
@@ -791,6 +793,10 @@ class MessageLookup extends MessageLookupByLibrary {
       "Custom mode: fully customize proxy groups and rules",
     ),
     "palette": MessageLookupByLibrary.simpleMessage("Palette"),
+    "panelOpenFailed": MessageLookupByLibrary.simpleMessage(
+      "Could not open the panel. Retry.",
+    ),
+    "panelOpening": MessageLookupByLibrary.simpleMessage("Opening…"),
     "password": MessageLookupByLibrary.simpleMessage("Password"),
     "paste": MessageLookupByLibrary.simpleMessage("Paste"),
     "personalForkDescription": MessageLookupByLibrary.simpleMessage(
@@ -1103,6 +1109,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "serviceBlocked": MessageLookupByLibrary.simpleMessage("Blocked"),
     "serviceCheckDesc": MessageLookupByLibrary.simpleMessage(
       "Checks are probes and region estimates; they do not confirm account access. Select services and run a check.",
+    ),
+    "serviceCheckFailed": MessageLookupByLibrary.simpleMessage(
+      "Checks did not finish. Please retry.",
     ),
     "serviceChecks": MessageLookupByLibrary.simpleMessage("Service checks"),
     "serviceFailed": MessageLookupByLibrary.simpleMessage("Check failed"),

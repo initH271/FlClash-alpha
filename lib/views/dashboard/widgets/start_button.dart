@@ -63,7 +63,9 @@ class RunTimeText extends StatelessWidget {
 }
 
 class StartButton extends ConsumerStatefulWidget {
-  const StartButton({super.key});
+  const StartButton({super.key, this.maxWidth = 220});
+
+  final double maxWidth;
 
   @override
   ConsumerState<StartButton> createState() => _StartButtonState();
@@ -197,9 +199,9 @@ class _StartButtonState extends ConsumerState<StartButton>
       child: Theme(
         data: theme.copyWith(
           floatingActionButtonTheme: theme.floatingActionButtonTheme.copyWith(
-            sizeConstraints: const BoxConstraints(
+            sizeConstraints: BoxConstraints(
               minWidth: 56,
-              maxWidth: 220,
+              maxWidth: widget.maxWidth,
               minHeight: _buttonHeight,
               maxHeight: _buttonHeight,
             ),

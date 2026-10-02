@@ -634,7 +634,7 @@
   "smartAutoStop": "自动启停",
   "smartAutoStopDesc": "进入匹配网络时暂停，仅恢复自动暂停的连接；手动停机优先。",
   "networkRules": "本地网络匹配规则",
-  "networkRulesDesc": "填写 IP/CIDR 或 gateway:192.168.1.1，以逗号或换行分隔；回车保存。",
+  "networkRulesDesc": "填写 IP/CIDR 或 gateway:192.168.1.1，以逗号或换行分隔；点击键盘完成或保存确认。",
   "networkRulesInvalid": "请输入有效的 IPv4 地址或 CIDR 网段。",
   "disableQuic": "禁用 QUIC（UDP/443）",
   "disableQuicDesc": "在订阅规则前添加拒绝规则；不影响使用其他端口的 QUIC。",
@@ -665,5 +665,10 @@
   "onlinePanel": "网页面板",
   "mediaUnlock": "服务解锁检测",
   "mediaUnlockSmall": "服务检测（小组件）",
-  "startButton": "启动 / 停止"
+  "startButton": "启动 / 停止",
+  "featureOnShort": "开启",
+  "featureOffShort": "关闭",
+  "serviceCheckFailed": "检测未完成，请重试。",
+  "panelOpening": "正在打开…",
+  "panelOpenFailed": "面板打开失败，请重试。"
 }

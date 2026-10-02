@@ -340,6 +340,8 @@ class MessageLookup extends MessageLookupByLibrary {
     "fcmStatus": MessageLookupByLibrary.simpleMessage("FCM 状态"),
     "featureDisabled": MessageLookupByLibrary.simpleMessage("已关闭"),
     "featureEnabled": MessageLookupByLibrary.simpleMessage("已启用"),
+    "featureOffShort": MessageLookupByLibrary.simpleMessage("关闭"),
+    "featureOnShort": MessageLookupByLibrary.simpleMessage("开启"),
     "fidelityScheme": MessageLookupByLibrary.simpleMessage("高保真"),
     "file": MessageLookupByLibrary.simpleMessage("文件"),
     "fileDesc": MessageLookupByLibrary.simpleMessage("直接上传配置文件"),
@@ -509,7 +511,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "networkFeatures": MessageLookupByLibrary.simpleMessage("网络工具"),
     "networkRules": MessageLookupByLibrary.simpleMessage("本地网络匹配规则"),
     "networkRulesDesc": MessageLookupByLibrary.simpleMessage(
-      "填写 IP/CIDR 或 gateway:192.168.1.1，以逗号或换行分隔；回车保存。",
+      "填写 IP/CIDR 或 gateway:192.168.1.1，以逗号或换行分隔；点击键盘完成或保存确认。",
     ),
     "networkRulesInvalid": MessageLookupByLibrary.simpleMessage(
       "请输入有效的 IPv4 地址或 CIDR 网段。",
@@ -561,6 +563,8 @@ class MessageLookup extends MessageLookupByLibrary {
       "自定义模式，支持完全自定义修改代理组以及规则",
     ),
     "palette": MessageLookupByLibrary.simpleMessage("调色板"),
+    "panelOpenFailed": MessageLookupByLibrary.simpleMessage("面板打开失败，请重试。"),
+    "panelOpening": MessageLookupByLibrary.simpleMessage("正在打开…"),
     "password": MessageLookupByLibrary.simpleMessage("密码"),
     "paste": MessageLookupByLibrary.simpleMessage("粘贴"),
     "personalForkDescription": MessageLookupByLibrary.simpleMessage(
@@ -790,6 +794,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "serviceCheckDesc": MessageLookupByLibrary.simpleMessage(
       "检测为连通性探测与区域推断，不保证账号可用。选择服务后开始检测。",
     ),
+    "serviceCheckFailed": MessageLookupByLibrary.simpleMessage("检测未完成，请重试。"),
     "serviceChecks": MessageLookupByLibrary.simpleMessage("服务解锁检测"),
     "serviceFailed": MessageLookupByLibrary.simpleMessage("检测失败"),
     "serviceFlagged": MessageLookupByLibrary.simpleMessage("存在限制标记"),

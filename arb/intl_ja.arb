@@ -634,7 +634,7 @@
   "smartAutoStop": "自動停止・再開",
   "smartAutoStopDesc": "一致するネットワークで停止し、自動停止した接続だけ再開します。手動停止が優先されます。",
   "networkRules": "ローカルネットワーク規則",
-  "networkRulesDesc": "IP/CIDR または gateway:192.168.1.1 をコンマか改行で区切り、Enter で保存します。",
+  "networkRulesDesc": "IP/CIDR または gateway:192.168.1.1 をカンマや改行で区切ります。完了キーまたは保存で適用します。",
   "networkRulesInvalid": "有効な IPv4 アドレスまたは CIDR を入力してください。",
   "disableQuic": "UDP/443 を遮断",
   "disableQuicDesc": "購読規則より先に拒否規則を追加します。他のポートの QUIC は対象外です。",
@@ -665,5 +665,10 @@
   "onlinePanel": "Web パネル",
   "mediaUnlock": "サービス接続確認",
   "mediaUnlockSmall": "サービス確認（小）",
-  "startButton": "開始・停止"
+  "startButton": "開始・停止",
+  "featureOnShort": "オン",
+  "featureOffShort": "オフ",
+  "serviceCheckFailed": "検査を完了できませんでした。再試行してください。",
+  "panelOpening": "開いています…",
+  "panelOpenFailed": "パネルを開けませんでした。再試行してください。"
 }

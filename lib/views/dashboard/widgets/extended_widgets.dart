@@ -24,6 +24,7 @@ class FeatureCard extends StatelessWidget {
     required this.icon,
     this.onPressed,
     this.large = false,
+    this.contentPadding,
     required this.child,
   });
 
@@ -31,6 +32,7 @@ class FeatureCard extends StatelessWidget {
   final IconData icon;
   final VoidCallback? onPressed;
   final bool large;
+  final EdgeInsets? contentPadding;
   final Widget child;
 
   @override
@@ -38,9 +40,24 @@ class FeatureCard extends StatelessWidget {
     height: getWidgetHeight(large ? 2 : 1),
     child: CommonCard(
       radius: AppCorner.lg,
-      info: Info(label: label, iconData: icon),
       onPressed: onPressed,
-      child: Padding(padding: baseInfoEdgeInsets, child: child),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          InfoHeader(
+            padding: baseInfoEdgeInsets.copyWith(bottom: 0),
+            info: Info(label: label, iconData: icon),
+          ),
+          Expanded(
+            child: Padding(
+              padding:
+                  contentPadding ??
+                  baseInfoEdgeInsets.copyWith(top: 4, bottom: 8),
+              child: Align(alignment: Alignment.centerLeft, child: child),
+            ),
+          ),
+        ],
+      ),
     ),
   );
 }
@@ -50,11 +67,60 @@ class NetworkSpeedSmall extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final traffic = ref.watch(trafficsProvider).list.safeLast(const Traffic());
-    return FeatureCard(
-      label: context.appLocalizations.speedStatistics,
-      icon: Icons.speed,
-      child: Text(traffic.speedText, style: context.textTheme.titleLarge),
+    final traffics = ref.watch(trafficsProvider).list;
+    final traffic = traffics.safeLast(const Traffic());
+    final points = [
+      const Point(0, 0),
+      const Point(1, 0),
+      for (var i = 0; i < traffics.length; i++)
+        Point((i + 2).toDouble(), traffics[i].speed.toDouble()),
+    ];
+    return SizedBox(
+      height: getWidgetHeight(1),
+      child: CommonCard(
+        radius: AppCorner.lg,
+        child: Column(
+          children: [
+            LayoutBuilder(
+              builder: (context, constraints) => Padding(
+                padding: baseInfoEdgeInsets.copyWith(bottom: 0),
+                child: Row(
+                  children: [
+                    const Icon(Icons.speed, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Tooltip(
+                        message: traffic.speedText,
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            constraints.maxWidth < 200
+                                ? '${traffic.speed.traffic.show}/s'
+                                : '${traffic.up.traffic.show}↑ ${traffic.down.traffic.show}↓',
+                            style: context.textTheme.titleSmall,
+                            maxLines: 1,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: LineChart(
+                  gradient: true,
+                  color: context.colorScheme.primary,
+                  points: points,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -125,6 +191,7 @@ class FeatureSwitchCard extends ConsumerWidget {
     return FeatureCard(
       label: label,
       icon: icon,
+      contentPadding: baseInfoEdgeInsets.copyWith(top: 4, bottom: 8, right: 8),
       onPressed: () {
         if (kind == FeatureSwitchKind.dns) {
           showSheet(
@@ -139,8 +206,21 @@ class FeatureSwitchCard extends ConsumerWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Flexible(child: Text(enabled ? l.featureEnabled : l.featureDisabled)),
-          Switch(value: enabled, onChanged: change),
+          Flexible(
+            child: TooltipText(
+              text: Text(
+                enabled ? l.featureOnShort : l.featureOffShort,
+                style: context.textTheme.titleSmall,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ),
+          Switch(
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            value: enabled,
+            onChanged: change,
+          ),
         ],
       ),
     );
@@ -209,6 +289,8 @@ class _ConnectionStatusCardState extends ConsumerState<ConnectionStatusCard>
                   : l.fcmDisconnected)
             : connections?.length.toString() ?? '—',
         style: context.textTheme.titleMedium,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
       ),
     );
   }
@@ -223,51 +305,109 @@ class ProvidersInfo extends StatelessWidget {
     icon: Icons.storage,
     onPressed: () =>
         showSheet(context: context, builder: (_) => const ProvidersView()),
-    child: Text(context.appLocalizations.providers),
+    child: Text(
+      context.appLocalizations.providers,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    ),
   );
 }
 
-class OnlinePanel extends ConsumerWidget {
+class OnlinePanel extends ConsumerStatefulWidget {
   const OnlinePanel({super.key});
 
-  Future<void> _open(BuildContext context, WidgetRef ref) async {
-    if (ref.read(patchClashConfigProvider).externalController ==
-        ExternalControllerStatus.close) {
-      final accepted = await dialogs.showMessage(
-        title: context.appLocalizations.onlinePanel,
-        message: TextSpan(
-          text: context.appLocalizations.onlinePanelEnablePrompt,
-        ),
+  @override
+  ConsumerState<OnlinePanel> createState() => _OnlinePanelState();
+}
+
+class _OnlinePanelState extends ConsumerState<OnlinePanel> {
+  bool _opening = false;
+  bool _needsSetup = false;
+  bool _failed = false;
+
+  Future<void> _open() async {
+    if (_opening) return;
+    setState(() {
+      _opening = true;
+      _failed = false;
+    });
+    try {
+      if (ref.read(patchClashConfigProvider).externalController ==
+          ExternalControllerStatus.close) {
+        final accepted = await dialogs.showMessage(
+          context: context,
+          title: context.appLocalizations.onlinePanel,
+          message: TextSpan(
+            text: context.appLocalizations.onlinePanelEnablePrompt,
+          ),
+        );
+        if (accepted != true || !mounted) return;
+        _needsSetup = true;
+        ref
+            .read(patchClashConfigProvider.notifier)
+            .update(
+              (state) => state.copyWith(
+                externalController: ExternalControllerStatus.open,
+              ),
+            );
+      }
+      if (_needsSetup) {
+        final ready = await ref.read(setupActionProvider.notifier).fullSetup();
+        if (!mounted) return;
+        if (!ready) {
+          setState(() => _failed = true);
+          return;
+        }
+        _needsSetup = false;
+      }
+      if (!mounted ||
+          ref.read(patchClashConfigProvider).externalController ==
+              ExternalControllerStatus.close) {
+        return;
+      }
+      final opened = await launchUrl(
+        Uri.parse('http://127.0.0.1:9090/ui/'),
+        mode: LaunchMode.externalApplication,
       );
-      if (accepted != true || !context.mounted) return;
-      ref
-          .read(patchClashConfigProvider.notifier)
-          .update(
-            (state) => state.copyWith(
-              externalController: ExternalControllerStatus.open,
-            ),
-          );
-      final ready = await ref.read(setupActionProvider.notifier).fullSetup();
-      if (!ready || !context.mounted) return;
+      if (mounted && !opened) setState(() => _failed = true);
+    } catch (error) {
+      commonPrint.log(
+        'Online panel failed (${error.runtimeType})',
+        logLevel: LogLevel.warning,
+      );
+      if (mounted) setState(() => _failed = true);
+    } finally {
+      if (mounted) setState(() => _opening = false);
     }
-    await launchUrl(
-      Uri.parse('http://127.0.0.1:9090/ui/'),
-      mode: LaunchMode.externalApplication,
-    );
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) => FeatureCard(
-    label: context.appLocalizations.onlinePanel,
-    icon: Icons.dashboard,
-    onPressed: () => unawaited(_open(context, ref)),
-    child: Text(
-      ref.watch(patchClashConfigProvider).externalController ==
-              ExternalControllerStatus.open
-          ? context.appLocalizations.featureEnabled
-          : context.appLocalizations.featureDisabled,
-    ),
-  );
+  Widget build(BuildContext context) {
+    final controller = ref.watch(patchClashConfigProvider).externalController;
+    return FeatureCard(
+      label: context.appLocalizations.onlinePanel,
+      icon: Icons.dashboard,
+      onPressed: _opening ? null : () => unawaited(_open()),
+      child: TooltipText(
+        text: Text(
+          _opening
+              ? context.appLocalizations.panelOpening
+              : _failed
+              ? context.appLocalizations.panelOpenFailed
+              : controller == ExternalControllerStatus.open
+              ? context.appLocalizations.featureEnabled
+              : context.appLocalizations.featureDisabled,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: _failed
+              ? context.textTheme.bodySmall?.copyWith(
+                  color: context.colorScheme.error,
+                )
+              : null,
+        ),
+      ),
+    );
+  }
 }
 
 class MediaUnlockCard extends ConsumerWidget {
@@ -277,19 +417,88 @@ class MediaUnlockCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final results = ref.watch(serviceCheckResultsProvider);
-    final available = results.values
-        .where((r) => r.status == MediaUnlockStatus.unlocked)
-        .length;
+    final platforms = results.isEmpty
+        ? const [
+            MediaPlatform.openai,
+            MediaPlatform.claude,
+            MediaPlatform.gemini,
+            MediaPlatform.netflix,
+          ]
+        : results.keys.take(4).toList();
     return FeatureCard(
       label: context.appLocalizations.serviceChecks,
       icon: Icons.travel_explore,
-      large: !small,
+      large: true,
       onPressed: () => showServiceChecks(context),
-      child: Text(
-        results.isEmpty
-            ? context.appLocalizations.serviceUnknown
-            : '$available / ${results.length}',
-        style: context.textTheme.titleLarge,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          for (final platform in platforms)
+            _ServiceStatusRow(
+              platform: platform,
+              result: results[platform],
+              compact: small,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ServiceStatusRow extends StatelessWidget {
+  const _ServiceStatusRow({
+    required this.platform,
+    required this.result,
+    required this.compact,
+  });
+
+  final MediaPlatform platform;
+  final MediaUnlockResult? result;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final status = result?.status ?? MediaUnlockStatus.unknown;
+    final region = result?.region;
+    final label = [
+      serviceStatusText(context, status),
+      if (region != null && region.isNotEmpty) region,
+    ].join(' · ');
+    final icon = switch (status) {
+      MediaUnlockStatus.unlocked => Icons.check_circle_outline,
+      MediaUnlockStatus.limited ||
+      MediaUnlockStatus.flagged => Icons.warning_amber_rounded,
+      MediaUnlockStatus.blocked => Icons.block,
+      MediaUnlockStatus.failed => Icons.error_outline,
+      MediaUnlockStatus.testing => Icons.pending_outlined,
+      MediaUnlockStatus.unknown => Icons.help_outline,
+    };
+    return Tooltip(
+      message: '${platform.defaultName}: $label',
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              platform.defaultName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: context.textTheme.bodyMedium,
+            ),
+          ),
+          const SizedBox(width: 8),
+          if (!compact) ...[
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: context.textTheme.bodySmall,
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
+          Icon(icon, size: 18, color: status.statusColor(context.colorScheme)),
+        ],
       ),
     );
   }
@@ -301,6 +510,11 @@ class DashboardStartCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SizedBox(
     height: getWidgetHeight(1),
-    child: const Center(child: StartButton()),
+    child: const Center(
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: StartButton(maxWidth: double.infinity),
+      ),
+    ),
   );
 }
