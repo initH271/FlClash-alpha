@@ -1,5 +1,6 @@
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/media_unlock_checker.dart';
+import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/media_unlock.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/widgets/widgets.dart';
@@ -9,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 void showServiceChecks(BuildContext context) {
   showSheet(
     context: context,
+    props: const SheetProps(isScrollControlled: true),
     builder: (_) => AdaptiveSheetScaffold(
       title: context.appLocalizations.serviceChecks,
       body: const ServiceChecksView(),
@@ -49,6 +51,7 @@ class _ServiceChecksViewState extends ConsumerState<ServiceChecksView> {
     MediaPlatform.spotify,
   };
   bool _running = false;
+  bool _failed = false;
   int _revision = 0;
 
   @override
@@ -71,7 +74,12 @@ class _ServiceChecksViewState extends ConsumerState<ServiceChecksView> {
     _revision++;
     _checker.cancel();
     ref.read(serviceCheckResultsProvider.notifier).clear();
-    if (mounted && _running) setState(() => _running = false);
+    if (mounted) {
+      setState(() {
+        _running = false;
+        _failed = false;
+      });
+    }
   }
 
   Future<void> _check() async {
@@ -83,7 +91,10 @@ class _ServiceChecksViewState extends ConsumerState<ServiceChecksView> {
     }
     if (_selected.isEmpty) return;
     final revision = ++_revision;
-    setState(() => _running = true);
+    setState(() {
+      _running = true;
+      _failed = false;
+    });
     try {
       await _checker.checkAll(
         platforms: _selected.toList(),
@@ -93,6 +104,12 @@ class _ServiceChecksViewState extends ConsumerState<ServiceChecksView> {
           }
         },
       );
+    } catch (error) {
+      commonPrint.log(
+        'Service checks failed (${error.runtimeType})',
+        logLevel: LogLevel.warning,
+      );
+      if (mounted && revision == _revision) setState(() => _failed = true);
     } finally {
       if (mounted && revision == _revision) setState(() => _running = false);
     }
@@ -128,6 +145,17 @@ class _ServiceChecksViewState extends ConsumerState<ServiceChecksView> {
           ),
         ),
         if (_running) const LinearProgressIndicator(),
+        if (_failed)
+          Padding(
+            padding: baseInfoEdgeInsets.copyWith(top: 0),
+            child: Text(
+              l.serviceCheckFailed,
+              key: const ValueKey('service-check-error'),
+              style: context.textTheme.bodyMedium?.copyWith(
+                color: context.colorScheme.error,
+              ),
+            ),
+          ),
         Expanded(
           child: ListView.builder(
             itemCount: MediaPlatform.values.length,
@@ -144,13 +172,21 @@ class _ServiceChecksViewState extends ConsumerState<ServiceChecksView> {
                             ? _selected.add(platform)
                             : _selected.remove(platform);
                       }),
-                title: Text(platform.defaultName),
+                title: Text(
+                  platform.defaultName,
+                  style: context.textTheme.bodyLarge?.copyWith(
+                    color: context.colorScheme.onSurface,
+                  ),
+                ),
                 subtitle: Text(
                   [
                     serviceStatusText(context, status),
                     if (result?.region != null) result!.region!,
-                    if (result?.latency != null) '${result!.latency} ms',
+                    if (result?.latency != null) '${result!.latency}\u00a0ms',
                   ].join(' · '),
+                  style: context.textTheme.bodyMedium?.copyWith(
+                    color: context.colorScheme.onSurfaceVariant,
+                  ),
                 ),
                 secondary: Icon(
                   Icons.public,

@@ -5275,10 +5275,10 @@ class AppLocalizations {
     );
   }
 
-  /// `IP/CIDR or gateway:192.168.1.1, separated by commas or lines. Press Enter to save.`
+  /// `Enter IP/CIDR or gateway:192.168.1.1, separated by commas or new lines. Use Done or Save to apply.`
   String get networkRulesDesc {
     return Intl.message(
-      'IP/CIDR or gateway:192.168.1.1, separated by commas or lines. Press Enter to save.',
+      'Enter IP/CIDR or gateway:192.168.1.1, separated by commas or new lines. Use Done or Save to apply.',
       name: 'networkRulesDesc',
       desc: '',
       args: [],
@@ -5540,6 +5540,41 @@ class AppLocalizations {
     return Intl.message(
       'Start / stop',
       name: 'startButton',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `On`
+  String get featureOnShort {
+    return Intl.message('On', name: 'featureOnShort', desc: '', args: []);
+  }
+
+  /// `Off`
+  String get featureOffShort {
+    return Intl.message('Off', name: 'featureOffShort', desc: '', args: []);
+  }
+
+  /// `Checks did not finish. Please retry.`
+  String get serviceCheckFailed {
+    return Intl.message(
+      'Checks did not finish. Please retry.',
+      name: 'serviceCheckFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Opening…`
+  String get panelOpening {
+    return Intl.message('Opening…', name: 'panelOpening', desc: '', args: []);
+  }
+
+  /// `Could not open the panel. Retry.`
+  String get panelOpenFailed {
+    return Intl.message(
+      'Could not open the panel. Retry.',
+      name: 'panelOpenFailed',
       desc: '',
       args: [],
     );

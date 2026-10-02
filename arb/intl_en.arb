@@ -634,7 +634,7 @@
   "smartAutoStop": "Automatic stop and resume",
   "smartAutoStopDesc": "Pause on matching local networks; resume only connections paused automatically. Manual stop takes priority.",
   "networkRules": "Local network rules",
-  "networkRulesDesc": "IP/CIDR or gateway:192.168.1.1, separated by commas or lines. Press Enter to save.",
+  "networkRulesDesc": "Enter IP/CIDR or gateway:192.168.1.1, separated by commas or new lines. Use Done or Save to apply.",
   "networkRulesInvalid": "Enter valid IPv4 addresses or CIDR ranges.",
   "disableQuic": "Block UDP/443",
   "disableQuicDesc": "Adds a rejection rule before subscription rules. QUIC on other ports is unaffected.",
@@ -665,5 +665,10 @@
   "onlinePanel": "Web dashboard",
   "mediaUnlock": "Service checks",
   "mediaUnlockSmall": "Service checks (compact)",
-  "startButton": "Start / stop"
+  "startButton": "Start / stop",
+  "featureOnShort": "On",
+  "featureOffShort": "Off",
+  "serviceCheckFailed": "Checks did not finish. Please retry.",
+  "panelOpening": "Opening…",
+  "panelOpenFailed": "Could not open the panel. Retry."
 }

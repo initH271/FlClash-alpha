@@ -380,6 +380,8 @@ class MessageLookup extends MessageLookupByLibrary {
     "fcmStatus": MessageLookupByLibrary.simpleMessage("FCM 状態"),
     "featureDisabled": MessageLookupByLibrary.simpleMessage("無効"),
     "featureEnabled": MessageLookupByLibrary.simpleMessage("有効"),
+    "featureOffShort": MessageLookupByLibrary.simpleMessage("オフ"),
+    "featureOnShort": MessageLookupByLibrary.simpleMessage("オン"),
     "fidelityScheme": MessageLookupByLibrary.simpleMessage("フィデリティ"),
     "file": MessageLookupByLibrary.simpleMessage("ファイル"),
     "fileDesc": MessageLookupByLibrary.simpleMessage("プロファイルファイルを直接アップロードします"),
@@ -585,7 +587,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "networkFeatures": MessageLookupByLibrary.simpleMessage("ネットワークツール"),
     "networkRules": MessageLookupByLibrary.simpleMessage("ローカルネットワーク規則"),
     "networkRulesDesc": MessageLookupByLibrary.simpleMessage(
-      "IP/CIDR または gateway:192.168.1.1 をコンマか改行で区切り、Enter で保存します。",
+      "IP/CIDR または gateway:192.168.1.1 をカンマや改行で区切ります。完了キーまたは保存で適用します。",
     ),
     "networkRulesInvalid": MessageLookupByLibrary.simpleMessage(
       "有効な IPv4 アドレスまたは CIDR を入力してください。",
@@ -645,6 +647,10 @@ class MessageLookup extends MessageLookupByLibrary {
       "カスタムモード：プロキシグループとルールを完全にカスタマイズできます",
     ),
     "palette": MessageLookupByLibrary.simpleMessage("パレット"),
+    "panelOpenFailed": MessageLookupByLibrary.simpleMessage(
+      "パネルを開けませんでした。再試行してください。",
+    ),
+    "panelOpening": MessageLookupByLibrary.simpleMessage("開いています…"),
     "password": MessageLookupByLibrary.simpleMessage("パスワード"),
     "paste": MessageLookupByLibrary.simpleMessage("貼り付け"),
     "personalForkDescription": MessageLookupByLibrary.simpleMessage(
@@ -915,6 +921,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "serviceBlocked": MessageLookupByLibrary.simpleMessage("ブロック"),
     "serviceCheckDesc": MessageLookupByLibrary.simpleMessage(
       "接続と地域の推定であり、アカウントの利用を保証しません。サービスを選んで確認してください。",
+    ),
+    "serviceCheckFailed": MessageLookupByLibrary.simpleMessage(
+      "検査を完了できませんでした。再試行してください。",
     ),
     "serviceChecks": MessageLookupByLibrary.simpleMessage("サービス接続確認"),
     "serviceFailed": MessageLookupByLibrary.simpleMessage("確認失敗"),
