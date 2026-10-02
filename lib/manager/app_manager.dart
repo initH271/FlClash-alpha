@@ -198,7 +198,7 @@ class AppSidebarContainer extends ConsumerWidget {
     return Padding(
       padding: const EdgeInsets.all(8),
       child: GlassSurface(
-        borderRadius: AppRadius.xxl,
+        borderRadius: AppRadius.lg,
         refractionEnabled: false,
         effectsEnabled: effectsEnabled,
         child: child,
