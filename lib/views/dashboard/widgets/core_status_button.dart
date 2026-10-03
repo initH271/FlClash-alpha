@@ -117,7 +117,10 @@ class _CoreStatusButtonState extends ConsumerState<CoreStatusButton> {
                   backgroundColor: switch (coreStatus) {
                     CoreStatus.connecting => null,
                     CoreStatus.connected => Colors.greenAccent,
-                    CoreStatus.disconnected => context.colorScheme.error,
+                    CoreStatus.disconnected =>
+                      ContentStyleScope.of(context) == null
+                          ? context.colorScheme.error
+                          : context.colorScheme.errorContainer,
                   },
                   foregroundColor: switch (coreStatus) {
                     CoreStatus.connecting => null,
@@ -127,7 +130,10 @@ class _CoreStatusButtonState extends ConsumerState<CoreStatusButton> {
                       Brightness.light => context.colorScheme.onSurfaceVariant,
                       Brightness.dark => null,
                     },
-                    CoreStatus.disconnected => context.colorScheme.onError,
+                    CoreStatus.disconnected =>
+                      ContentStyleScope.of(context) == null
+                          ? context.colorScheme.onError
+                          : context.colorScheme.onErrorContainer,
                   },
                 ),
                 icon: SizedBox(
