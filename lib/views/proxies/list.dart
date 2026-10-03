@@ -304,7 +304,12 @@ class _ProxiesListViewState extends ConsumerState<ProxiesListView> {
                 columns: columns,
                 cardType: state.proxyCardType,
               );
-              containerHeight = max(constraints.maxHeight - 16, 0);
+              containerHeight = max(
+                constraints.maxHeight -
+                    16 -
+                    (ContentStyleScope.of(context)?.topInset ?? 0),
+                0,
+              );
               return CommonScrollBar(
                 controller: _controller,
                 thumbVisibility: true,
@@ -317,6 +322,12 @@ class _ProxiesListViewState extends ConsumerState<ProxiesListView> {
                       key: proxiesListStoreKey,
                       controller: _controller,
                       slivers: [
+                        if (ContentStyleScope.of(context) != null)
+                          SliverToBoxAdapter(
+                            child: SizedBox(
+                              height: ContentStyleScope.of(context)!.topInset,
+                            ),
+                          ),
                         for (final group in state.groups)
                           _buildGroup(
                             context,

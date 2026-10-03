@@ -195,99 +195,130 @@ class ProxiesTabViewState extends ConsumerState<ProxiesTabView>
     );
     final groups = state.groups;
     _keyMap = {};
+    final scope = ContentStyleScope.of(context);
+    final enhanced = scope != null;
+    final header = NotificationListener<ScrollMetricsNotification>(
+      onNotification: (scrollNotification) {
+        _hasMoreButtonNotifier.value =
+            scrollNotification.metrics.maxScrollExtent > 0;
+        return false;
+      },
+      child: ValueListenableBuilder(
+        valueListenable: _hasMoreButtonNotifier,
+        builder: (_, value, child) {
+          return Stack(
+            alignment: AlignmentDirectional.centerStart,
+            children: [
+              TabBar(
+                controller: _tabController,
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16 + (value ? 16 : 0),
+                ),
+                dividerColor: Colors.transparent,
+                indicator: ContentStyleScope.of(context) == null
+                    ? null
+                    : BoxDecoration(
+                        borderRadius: AppRadius.md,
+                        color: context.colorScheme.primary.withValues(
+                          alpha: .09,
+                        ),
+                      ),
+                indicatorSize: ContentStyleScope.of(context) == null
+                    ? TabBarIndicatorSize.label
+                    : TabBarIndicatorSize.tab,
+                indicatorPadding: ContentStyleScope.of(context) == null
+                    ? EdgeInsets.zero
+                    : const EdgeInsets.all(4),
+                isScrollable: true,
+                tabAlignment: TabAlignment.start,
+                tabs: [
+                  for (final group in groups)
+                    Tab(
+                      child: Builder(
+                        builder: (context) {
+                          return EmojiText(
+                            group.name,
+                            style: DefaultTextStyle.of(context).style,
+                          );
+                        },
+                      ),
+                    ),
+                ],
+              ),
+              if (value) Positioned(right: 0, child: child!),
+            ],
+          );
+        },
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+              colors: [
+                context.colorScheme.surface.opacity10,
+                context.colorScheme.surface,
+              ],
+              stops: const [0.0, 0.1],
+            ),
+          ),
+          child: _buildMoreButton(),
+        ),
+      ),
+    );
+    final views = LayoutBuilder(
+      builder: (_, constraints) {
+        final columns = getProxiesColumns(
+          max(constraints.maxWidth - 32, 0),
+          proxiesLayout,
+        );
+        return TabBarView(
+          controller: _tabController,
+          children: [
+            for (final group in groups)
+              ProxyGroupView(
+                key: _keyMap.updateCacheValue(
+                  group.name,
+                  () => GlobalObjectKey<_ProxyGroupViewState>(group.name),
+                ),
+                group: group,
+                columns: columns,
+                cardType: state.proxyCardType,
+                topInset: enhanced ? scope.topInset + 56 : 0,
+              ),
+          ],
+        );
+      },
+    );
     return NullStatusSwitcher(
       isEmpty: groups.isEmpty || _tabController == null,
       nullStatus: NullStatus(
         illustration: NullStatusIllustration.proxies,
         label: appLocalizations.nullTip(appLocalizations.proxies),
       ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          NotificationListener<ScrollMetricsNotification>(
-            onNotification: (scrollNotification) {
-              _hasMoreButtonNotifier.value =
-                  scrollNotification.metrics.maxScrollExtent > 0;
-              return false;
-            },
-            child: ValueListenableBuilder(
-              valueListenable: _hasMoreButtonNotifier,
-              builder: (_, value, child) {
-                return Stack(
-                  alignment: AlignmentDirectional.centerStart,
-                  children: [
-                    TabBar(
-                      controller: _tabController,
-                      padding: EdgeInsets.only(
-                        left: 16,
-                        right: 16 + (value ? 16 : 0),
-                      ),
-                      dividerColor: Colors.transparent,
-                      isScrollable: true,
-                      tabAlignment: TabAlignment.start,
-                      tabs: [
-                        for (final group in groups)
-                          Tab(
-                            child: Builder(
-                              builder: (context) {
-                                return EmojiText(
-                                  group.name,
-                                  style: DefaultTextStyle.of(context).style,
-                                );
-                              },
-                            ),
-                          ),
-                      ],
-                    ),
-                    if (value) Positioned(right: 0, child: child!),
-                  ],
-                );
-              },
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
-                    colors: [
-                      context.colorScheme.surface.opacity10,
-                      context.colorScheme.surface,
-                    ],
-                    stops: const [0.0, 0.1],
+      child: enhanced
+          ? Stack(
+              children: [
+                Positioned.fill(child: views),
+                Positioned(
+                  left: 16,
+                  right: 16,
+                  top: scope.topInset + 8,
+                  child: GlassSurface(
+                    borderRadius: AppRadius.md,
+                    effectsEnabled: scope.effectsEnabled,
+                    refractionEnabled: false,
+                    child: header,
                   ),
                 ),
-                child: _buildMoreButton(),
-              ),
+              ],
+            )
+          : Column(
+              children: [
+                header,
+                Expanded(child: views),
+              ],
             ),
-          ),
-          Expanded(
-            child: LayoutBuilder(
-              builder: (_, constraints) {
-                final columns = getProxiesColumns(
-                  max(constraints.maxWidth - 32, 0),
-                  proxiesLayout,
-                );
-                return TabBarView(
-                  controller: _tabController,
-                  children: [
-                    for (final group in groups)
-                      ProxyGroupView(
-                        key: _keyMap.updateCacheValue(
-                          group.name,
-                          () =>
-                              GlobalObjectKey<_ProxyGroupViewState>(group.name),
-                        ),
-                        group: group,
-                        columns: columns,
-                        cardType: state.proxyCardType,
-                      ),
-                  ],
-                );
-              },
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -296,12 +327,14 @@ class ProxyGroupView extends ConsumerStatefulWidget {
   final Group group;
   final int columns;
   final ProxyCardType cardType;
+  final double topInset;
 
   const ProxyGroupView({
     super.key,
     required this.group,
     required this.columns,
     required this.cardType,
+    this.topInset = 0,
   });
 
   @override
@@ -363,7 +396,7 @@ class _ProxyGroupViewState extends ConsumerState<ProxyGroupView> {
         key: _getPageStorageKey(),
         controller: _controller,
         padding: EdgeInsets.only(
-          top: 16,
+          top: 16 + widget.topInset,
           left: 16,
           right: 16,
           bottom: 16 + BottomInsetScope.of(context),

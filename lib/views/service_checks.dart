@@ -158,39 +158,46 @@ class _ServiceChecksViewState extends ConsumerState<ServiceChecksView> {
           ),
         Expanded(
           child: ListView.builder(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
             itemCount: MediaPlatform.values.length,
             itemBuilder: (_, index) {
               final platform = MediaPlatform.values[index];
               final result = results[platform];
               final status = result?.status ?? MediaUnlockStatus.unknown;
-              return CheckboxListTile(
-                value: _selected.contains(platform),
-                onChanged: _running
-                    ? null
-                    : (value) => setState(() {
-                        value == true
-                            ? _selected.add(platform)
-                            : _selected.remove(platform);
-                      }),
-                title: Text(
-                  platform.defaultName,
-                  style: context.textTheme.bodyLarge?.copyWith(
-                    color: context.colorScheme.onSurface,
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: ContentPanel(
+                  child: CheckboxListTile(
+                    value: _selected.contains(platform),
+                    onChanged: _running
+                        ? null
+                        : (value) => setState(() {
+                            value == true
+                                ? _selected.add(platform)
+                                : _selected.remove(platform);
+                          }),
+                    title: Text(
+                      platform.defaultName,
+                      style: context.textTheme.bodyLarge?.copyWith(
+                        color: context.colorScheme.onSurface,
+                      ),
+                    ),
+                    subtitle: Text(
+                      [
+                        serviceStatusText(context, status),
+                        if (result?.region != null) result!.region!,
+                        if (result?.latency != null)
+                          '${result!.latency}\u00a0ms',
+                      ].join(' · '),
+                      style: context.textTheme.bodyMedium?.copyWith(
+                        color: context.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    secondary: Icon(
+                      Icons.public,
+                      color: status.statusColor(context.colorScheme),
+                    ),
                   ),
-                ),
-                subtitle: Text(
-                  [
-                    serviceStatusText(context, status),
-                    if (result?.region != null) result!.region!,
-                    if (result?.latency != null) '${result!.latency}\u00a0ms',
-                  ].join(' · '),
-                  style: context.textTheme.bodyMedium?.copyWith(
-                    color: context.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                secondary: Icon(
-                  Icons.public,
-                  color: status.statusColor(context.colorScheme),
                 ),
               );
             },

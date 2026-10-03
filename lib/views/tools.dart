@@ -42,55 +42,48 @@ class _ToolViewState extends ConsumerState<ToolsView> {
     );
   }
 
-  Widget _buildNavigationMenu(List<NavigationItem> navigationItems) {
-    return Column(
-      children: [
-        for (final navigationItem in navigationItems) ...[
-          _buildNavigationMenuItem(navigationItem),
-          navigationItems.last != navigationItem
-              ? const Divider(height: 0)
-              : Container(),
-        ],
-      ],
-    );
-  }
-
   List<Widget> _getOtherList(bool enableDeveloperMode) {
-    return generateSection(
-      title: context.appLocalizations.other,
-      items: [
-        const _DisclaimerItem(),
-        if (enableDeveloperMode) const _DeveloperItem(),
-        const _InfoItem(),
-      ],
-    );
+    return [
+      ContentSection(
+        title: context.appLocalizations.other,
+        children: [
+          const _DisclaimerItem(),
+          if (enableDeveloperMode) const _DeveloperItem(),
+          const _InfoItem(),
+        ],
+      ),
+    ];
   }
 
   List<Widget> _getSettingList() {
-    return generateSection(
-      title: context.appLocalizations.settings,
-      items: [
-        ListTile(
-          title: Text(context.appLocalizations.networkFeatures),
-          leading: const Icon(Icons.settings_ethernet),
-          onTap: () => NetworkFeaturesView.show(context),
-        ),
-        ListTile(
-          title: Text(context.appLocalizations.serviceChecks),
-          leading: const Icon(Icons.travel_explore),
-          onTap: () => showServiceChecks(context),
-        ),
-        const _LocaleItem(),
-        const _ThemeItem(),
-        const _BackupItem(),
-        if (system.isDesktop) const _HotkeyItem(),
-        if (system.isWindows) const _LoopbackItem(),
-        if (system.isAndroid) const _AccessItem(),
-        const _ConfigItem(),
-        const _AdvancedConfigItem(),
-        const _SettingItem(),
-      ],
-    );
+    return [
+      ContentSection(
+        title: context.appLocalizations.settings,
+        children: [
+          ListTile(
+            title: Text(context.appLocalizations.networkFeatures),
+            leading: const Icon(Icons.settings_ethernet),
+            trailing: const Icon(Icons.chevron_right, size: 18),
+            onTap: () => NetworkFeaturesView.show(context),
+          ),
+          ListTile(
+            title: Text(context.appLocalizations.serviceChecks),
+            leading: const Icon(Icons.travel_explore),
+            trailing: const Icon(Icons.chevron_right, size: 18),
+            onTap: () => showServiceChecks(context),
+          ),
+          const _LocaleItem(),
+          const _ThemeItem(),
+          const _BackupItem(),
+          if (system.isDesktop) const _HotkeyItem(),
+          if (system.isWindows) const _LoopbackItem(),
+          if (system.isAndroid) const _AccessItem(),
+          const _ConfigItem(),
+          const _AdvancedConfigItem(),
+          const _SettingItem(),
+        ],
+      ),
+    ];
   }
 
   @override
@@ -107,11 +100,11 @@ class _ToolViewState extends ConsumerState<ToolsView> {
           if (state.navigationItems.isEmpty) {
             return Container();
           }
-          return Column(
-            children: [
-              ListHeader(title: context.appLocalizations.more),
-              _buildNavigationMenu(state.navigationItems),
-            ],
+          return ContentSection(
+            title: context.appLocalizations.more,
+            children: state.navigationItems
+                .map(_buildNavigationMenuItem)
+                .toList(),
           );
         },
       ),
@@ -119,12 +112,21 @@ class _ToolViewState extends ConsumerState<ToolsView> {
       ..._getOtherList(appSetting.developerMode),
     ];
     return CommonScaffold(
+      floatingChrome: true,
+      effectsEnabled: ref.watch(
+        appSettingProvider.select((state) => state.isAnimateToPage),
+      ),
       title: context.appLocalizations.tools,
-      body: ListView.builder(
-        key: toolsStoreKey,
-        itemCount: items.length,
-        itemBuilder: (_, index) => items[index],
-        padding: EdgeInsets.only(bottom: 20 + BottomInsetScope.of(context)),
+      body: Builder(
+        builder: (context) => ListView.builder(
+          key: toolsStoreKey,
+          itemCount: items.length,
+          itemBuilder: (_, index) => items[index],
+          padding: EdgeInsets.only(
+            top: ContentStyleScope.of(context)?.topInset ?? 0,
+            bottom: 20 + BottomInsetScope.of(context),
+          ),
+        ),
       ),
     );
   }
