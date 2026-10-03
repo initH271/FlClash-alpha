@@ -4,6 +4,8 @@ import 'package:fl_clash/common/shape.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart';
 
+import 'inherited.dart';
+
 /// Bounded navigation chrome, with an Impeller refraction filter and a
 /// frosted fallback. The shader program is shared; shader uniforms are not.
 class GlassSurface extends StatefulWidget {
@@ -61,7 +63,10 @@ class _GlassSurfaceState extends State<GlassSurface> {
     final colors = Theme.of(context).colorScheme;
     final media = MediaQuery.of(context);
     final dark = colors.brightness == Brightness.dark;
-    final effects = widget.effectsEnabled && !media.highContrast;
+    final effects =
+        widget.effectsEnabled &&
+        !media.highContrast &&
+        PageActivityScope.isActiveOf(context);
     final refract = effects && widget.refractionEnabled && _shader != null;
     final tint = colors.surfaceContainerLow.withValues(
       alpha: media.highContrast || !effects ? .97 : (refract ? .85 : .76),
@@ -87,6 +92,7 @@ class _GlassSurfaceState extends State<GlassSurface> {
           child: _GlassBounds(
             shader: refract ? _shader : null,
             pixelRatio: View.of(context).devicePixelRatio,
+            borderRadius: widget.borderRadius,
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: tint,
@@ -110,14 +116,16 @@ class _GlassSurfaceState extends State<GlassSurface> {
 class _GlassBounds extends SingleChildRenderObjectWidget {
   final ui.FragmentShader? shader;
   final double pixelRatio;
+  final BorderRadius borderRadius;
   const _GlassBounds({
     required this.shader,
     required this.pixelRatio,
+    required this.borderRadius,
     required super.child,
   });
   @override
   RenderObject createRenderObject(BuildContext context) =>
-      _RenderGlassBounds(shader, pixelRatio);
+      _RenderGlassBounds(shader, pixelRatio, borderRadius);
   @override
   void updateRenderObject(
     BuildContext context,
@@ -126,6 +134,7 @@ class _GlassBounds extends SingleChildRenderObjectWidget {
     renderObject
       ..shader = shader
       ..pixelRatio = pixelRatio
+      ..borderRadius = borderRadius
       ..markNeedsCompositingBitsUpdate()
       ..markNeedsPaint();
   }
@@ -134,23 +143,30 @@ class _GlassBounds extends SingleChildRenderObjectWidget {
 class _RenderGlassBounds extends RenderProxyBox {
   ui.FragmentShader? shader;
   double pixelRatio;
-  _RenderGlassBounds(this.shader, this.pixelRatio);
+  BorderRadius borderRadius;
+  _RenderGlassBounds(this.shader, this.pixelRatio, this.borderRadius);
   @override
   bool get alwaysNeedsCompositing => child != null && shader != null;
 
   @override
   void paint(PaintingContext context, Offset offset) {
     final effect = shader;
-    if (effect == null) {
+    if (effect == null || size.isEmpty) {
       layer = null;
       super.paint(context, offset);
       return;
     }
     final origin = localToGlobal(Offset.zero);
     final end = localToGlobal(size.bottomRight(Offset.zero));
+    final physicalScale = (end.dx - origin.dx) / size.width * pixelRatio;
+    final corners = borderRadius.toRRect(Offset.zero & size).scaleRadii();
     effect
       ..setFloat(2, (end.dx - origin.dx) * pixelRatio)
-      ..setFloat(3, (end.dy - origin.dy) * pixelRatio);
+      ..setFloat(3, (end.dy - origin.dy) * pixelRatio)
+      ..setFloat(4, corners.tlRadiusX * physicalScale)
+      ..setFloat(5, corners.trRadiusX * physicalScale)
+      ..setFloat(6, corners.brRadiusX * physicalScale)
+      ..setFloat(7, corners.blRadiusX * physicalScale);
     final backdrop = (layer as BackdropFilterLayer?) ?? BackdropFilterLayer();
     backdrop.filter = ui.ImageFilter.shader(effect);
     layer = backdrop;

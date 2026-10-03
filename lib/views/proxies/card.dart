@@ -138,12 +138,31 @@ class ProxyCard extends ConsumerWidget {
                 _changeProxy(ref);
               },
               isSelected: selectedProxyName == proxy.name,
-              child: child!,
+              selectWidget: ContentStyleScope.of(context) == null
+                  ? null
+                  : Align(
+                      alignment: AlignmentDirectional.topEnd,
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: Icon(
+                          Icons.check_circle,
+                          size: 16,
+                          color: context.colorScheme.primary,
+                        ),
+                      ),
+                    ),
+              child: Semantics(
+                selected: selectedProxyName == proxy.name,
+                child: child!,
+              ),
             );
           },
           child: Container(
             alignment: Alignment.centerLeft,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: EdgeInsets.only(
+              left: 12,
+              right: ContentStyleScope.of(context) == null ? 12 : 32,
+            ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
