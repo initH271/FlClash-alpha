@@ -288,7 +288,12 @@ class _ConnectionStatusCardState extends ConsumerState<ConnectionStatusCard>
                   ? l.fcmConnected
                   : l.fcmDisconnected)
             : connections?.length.toString() ?? '—',
-        style: context.textTheme.titleMedium,
+        style: widget.fcm
+            ? context.textTheme.bodyMedium
+            : context.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
@@ -473,32 +478,32 @@ class _ServiceStatusRow extends StatelessWidget {
       MediaUnlockStatus.testing => Icons.pending_outlined,
       MediaUnlockStatus.unknown => Icons.help_outline,
     };
-    return Tooltip(
-      message: '${platform.defaultName}: $label',
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              platform.defaultName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: context.textTheme.bodyMedium,
-            ),
-          ),
-          const SizedBox(width: 8),
-          if (!compact) ...[
-            Flexible(
+    return Semantics(
+      label: '${platform.defaultName}: $label',
+      excludeSemantics: true,
+      child: Tooltip(
+        message: '${platform.defaultName}: $label',
+        child: Row(
+          children: [
+            Expanded(
               child: Text(
-                label,
+                platform.defaultName,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: context.textTheme.bodySmall,
+                style: context.textTheme.bodyMedium,
               ),
             ),
             const SizedBox(width: 8),
+            Flexible(
+              child: TonalStatusLabel(
+                label: compact ? region ?? label : label,
+                compact: compact && region == null,
+                icon: icon,
+                color: status.statusColor(context.colorScheme),
+              ),
+            ),
           ],
-          Icon(icon, size: 18, color: status.statusColor(context.colorScheme)),
-        ],
+        ),
       ),
     );
   }
@@ -510,10 +515,12 @@ class DashboardStartCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SizedBox(
     height: getWidgetHeight(1),
-    child: const Center(
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        child: StartButton(maxWidth: double.infinity),
+    child: const ContentPanel(
+      child: Center(
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: StartButton(maxWidth: double.infinity),
+        ),
       ),
     ),
   );

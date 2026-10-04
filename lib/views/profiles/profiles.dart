@@ -115,6 +115,10 @@ class _ProfilesViewState extends ConsumerState<ProfilesView> {
         final state = ref.watch(profilesStateProvider);
         final spacing = 14.mAp;
         return CommonScaffold(
+          floatingChrome: true,
+          effectsEnabled: ref.watch(
+            appSettingProvider.select((state) => state.isAnimateToPage),
+          ),
           isLoading: isLoading,
           title: appLocalizations.profiles,
           floatingActionButton: _buildFAB(),
@@ -164,7 +168,7 @@ class _ProfilesGrid extends ConsumerWidget {
           padding: EdgeInsets.only(
             left: _horizontalPadding,
             right: _horizontalPadding,
-            top: 16,
+            top: 16 + (ContentStyleScope.of(context)?.topInset ?? 0),
             bottom: 16 + BottomInsetScope.of(context),
           ),
           crossAxisCount: columns,
@@ -451,12 +455,34 @@ class ProfileItem extends ConsumerWidget {
             },
           ),
         ),
-        title: _ProfileCardTitle(
-          profile: profile,
-          info: switch (profile.type) {
-            ProfileType.file => _buildFileProfileInfo(context),
-            ProfileType.url => _buildUrlProfileInfo(context),
-          },
+        title: Semantics(
+          selected: profile.id == groupValue,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (profile.id == groupValue &&
+                  ContentStyleScope.of(context) != null) ...[
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Icon(
+                    Icons.check_circle,
+                    size: 18,
+                    color: context.colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+              Expanded(
+                child: _ProfileCardTitle(
+                  profile: profile,
+                  info: switch (profile.type) {
+                    ProfileType.file => _buildFileProfileInfo(context),
+                    ProfileType.url => _buildUrlProfileInfo(context),
+                  },
+                ),
+              ),
+            ],
+          ),
         ),
         tileTitleAlignment: ListTileTitleAlignment.top,
       ),

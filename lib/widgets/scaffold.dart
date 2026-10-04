@@ -5,6 +5,8 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart';
 
 import 'chip.dart';
+import 'content_style.dart';
+import 'glass.dart';
 import 'inherited.dart';
 
 typedef OnKeywordsUpdateCallback = void Function(List<String> keywords);
@@ -26,6 +28,8 @@ class CommonScaffold extends StatefulWidget {
   final AppBarSearchState? searchState;
   final OnKeywordsUpdateCallback? onKeywordsUpdate;
   final bool? resizeToAvoidBottomInset;
+  final bool floatingChrome;
+  final bool effectsEnabled;
 
   const CommonScaffold({
     super.key,
@@ -42,6 +46,8 @@ class CommonScaffold extends StatefulWidget {
     this.isTV,
     this.onKeywordsUpdate,
     this.resizeToAvoidBottomInset,
+    this.floatingChrome = false,
+    this.effectsEnabled = true,
   });
 
   @override
@@ -271,44 +277,72 @@ class CommonScaffoldState extends State<CommonScaffold> {
   }
 
   PreferredSizeWidget _buildAppBar(VoidCallback? backAction) {
-    return PreferredSize(
-      preferredSize: const Size.fromHeight(kToolbarHeight),
-      child: Stack(
-        alignment: Alignment.bottomCenter,
-        children: [
-          widget.appBar ??
-              ValueListenableBuilder<AppBarState>(
-                valueListenable: _appBarState,
-                builder: (_, state, _) {
-                  return _buildAppBarWrap(
-                    AppBar(
-                      automaticallyImplyLeading: backAction != null
-                          ? false
-                          : true,
-                      animateColor: true,
-                      centerTitle: widget.centerTitle ?? false,
-                      leading: _buildLeading(backAction),
-                      title: _buildTitle(state.searchState),
-                      actions: _buildActions(
-                        state.searchState != null,
-                        state.actions.isNotEmpty
-                            ? state.actions
-                            : widget.actions ?? [],
-                      ),
+    final appBar = Stack(
+      alignment: Alignment.bottomCenter,
+      children: [
+        widget.appBar ??
+            ValueListenableBuilder<AppBarState>(
+              valueListenable: _appBarState,
+              builder: (_, state, _) {
+                return _buildAppBarWrap(
+                  AppBar(
+                    automaticallyImplyLeading: backAction != null
+                        ? false
+                        : true,
+                    primary: !widget.floatingChrome,
+                    backgroundColor: widget.floatingChrome
+                        ? Colors.transparent
+                        : null,
+                    surfaceTintColor: widget.floatingChrome
+                        ? Colors.transparent
+                        : null,
+                    elevation: widget.floatingChrome ? 0 : null,
+                    scrolledUnderElevation: widget.floatingChrome ? 0 : null,
+                    animateColor: true,
+                    centerTitle: widget.centerTitle ?? false,
+                    leading: _buildLeading(backAction),
+                    title: _buildTitle(state.searchState),
+                    actions: _buildActions(
+                      state.searchState != null,
+                      state.actions.isNotEmpty
+                          ? state.actions
+                          : widget.actions ?? [],
                     ),
-                  );
-                },
-              ),
-          ValueListenableBuilder(
-            valueListenable: _loadingNotifier,
-            builder: (_, value, _) {
-              return value == true
-                  ? const LinearProgressIndicator()
-                  : Container();
-            },
-          ),
-        ],
+                  ),
+                );
+              },
+            ),
+        ValueListenableBuilder(
+          valueListenable: _loadingNotifier,
+          builder: (_, value, _) {
+            return value == true
+                ? const LinearProgressIndicator()
+                : Container();
+          },
+        ),
+      ],
+    );
+    return PreferredSize(
+      preferredSize: Size.fromHeight(
+        kToolbarHeight + (widget.floatingChrome ? 16 : 0),
       ),
+      child: widget.floatingChrome
+          ? SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                child: GlassSurface(
+                  borderRadius: AppRadius.lg,
+                  effectsEnabled: widget.effectsEnabled,
+                  refractionEnabled: false,
+                  child: appBar,
+                ),
+              ),
+            )
+          : appBar,
     );
   }
 
@@ -320,6 +354,7 @@ class CommonScaffoldState extends State<CommonScaffold> {
     final bottomInset = BottomInsetScope.of(context);
     final hasFab = !isTV && widget.floatingActionButton != null;
     final body = SafeArea(
+      top: !widget.floatingChrome,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -375,9 +410,12 @@ class CommonScaffoldState extends State<CommonScaffold> {
           child: child!,
         );
       },
-      child: widget.floatingActionButton,
+      child: widget.floatingChrome && widget.floatingActionButton != null
+          ? _glassFab(widget.floatingActionButton!)
+          : widget.floatingActionButton,
     );
-    return Scaffold(
+    final scaffold = Scaffold(
+      extendBodyBehindAppBar: widget.floatingChrome,
       appBar: _buildAppBar(backActionProvider?.backAction),
       body: NotificationListener<UserScrollNotification>(
         child: hasFab
@@ -405,6 +443,36 @@ class CommonScaffoldState extends State<CommonScaffold> {
                   )
                 : fabChild
           : null,
+    );
+    return widget.floatingChrome
+        ? ContentStyleScope(
+            topInset: kToolbarHeight + 16 + MediaQuery.paddingOf(context).top,
+            effectsEnabled: widget.effectsEnabled,
+            child: scaffold,
+          )
+        : scaffold;
+  }
+
+  Widget _glassFab(Widget child) {
+    final theme = Theme.of(context);
+    return IntrinsicWidth(
+      child: GlassSurface(
+        borderRadius: AppRadius.md,
+        effectsEnabled: widget.effectsEnabled,
+        child: Theme(
+          data: theme.copyWith(
+            floatingActionButtonTheme: theme.floatingActionButtonTheme.copyWith(
+              backgroundColor: Colors.transparent,
+              foregroundColor: context.colorScheme.primary,
+              elevation: 0,
+              focusElevation: 0,
+              hoverElevation: 0,
+              highlightElevation: 0,
+            ),
+          ),
+          child: child,
+        ),
+      ),
     );
   }
 }

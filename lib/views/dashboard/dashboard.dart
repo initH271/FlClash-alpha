@@ -211,16 +211,27 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
     ];
     return _buildIsEdit(
       (isEdit) => CommonScaffold(
+        floatingChrome: true,
+        effectsEnabled: ref.watch(
+          appSettingProvider.select((state) => state.isAnimateToPage),
+        ),
         title: context.appLocalizations.dashboard,
         actions: _buildActions(isEdit),
-        floatingActionButton: const StartButton(),
+        floatingActionButton:
+            isEdit ||
+                dashboardState.dashboardWidgets.contains(
+                  DashboardWidget.startButton,
+                )
+            ? null
+            : const StartButton(),
         body: Align(
           alignment: Alignment.topCenter,
           child: Builder(
             builder: (context) => SingleChildScrollView(
-              padding: const EdgeInsets.all(
-                16,
-              ).copyWith(bottom: 16 + BottomInsetScope.of(context)),
+              padding: const EdgeInsets.all(16).copyWith(
+                top: 16 + (ContentStyleScope.of(context)?.topInset ?? 0),
+                bottom: 16 + BottomInsetScope.of(context),
+              ),
               child: Align(
                 alignment: Alignment.topCenter,
                 child: ConstrainedBox(

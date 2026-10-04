@@ -4,6 +4,7 @@ import 'package:fl_clash/state.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 
+import 'content_style.dart';
 import 'fade_box.dart';
 import 'text.dart';
 
@@ -28,6 +29,7 @@ class InfoHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final enhanced = ContentStyleScope.of(context) != null;
     EdgeInsetsGeometry nextPadding = (padding ?? baseInfoEdgeInsets);
     if (actions.isNotEmpty) {
       nextPadding = nextPadding.subtract(EdgeInsets.symmetric(vertical: 8.mAp));
@@ -46,7 +48,10 @@ class InfoHeader extends StatelessWidget {
                 if (info.iconData != null) ...[
                   Icon(
                     info.iconData,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    size: enhanced ? 18 : null,
+                    color: enhanced
+                        ? context.colorScheme.primary
+                        : context.colorScheme.onSurfaceVariant,
                   ),
                   const SizedBox(width: 8),
                 ],
@@ -57,9 +62,14 @@ class InfoHeader extends StatelessWidget {
                       info.label,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        color: context.colorScheme.onSurfaceVariant,
-                      ),
+                      style:
+                          (enhanced
+                                  ? context.textTheme.labelLarge
+                                  : context.textTheme.titleSmall)
+                              ?.copyWith(
+                                color: context.colorScheme.onSurfaceVariant,
+                                fontWeight: enhanced ? FontWeight.w600 : null,
+                              ),
                     ),
                   ),
                 ),
@@ -118,6 +128,14 @@ class CommonCard extends StatelessWidget {
 
   BorderSide _buildBorderSide(BuildContext context, Set<WidgetState> states) {
     final colorScheme = context.colorScheme;
+    if (ContentStyleScope.of(context) != null) {
+      return isError || states.contains(WidgetState.focused)
+          ? BorderSide(
+              color: isError ? colorScheme.error : colorScheme.primary,
+              width: 1.5,
+            )
+          : BorderSide.none;
+    }
     if (isError) {
       if (type == CommonCardType.filled) {
         return BorderSide(color: colorScheme.error);
@@ -156,6 +174,7 @@ class CommonCard extends StatelessWidget {
 
   Color? _buildBackgroundColor(BuildContext context) {
     final colorScheme = context.colorScheme;
+    if (ContentStyleScope.of(context) != null) return Colors.transparent;
     if (type == CommonCardType.filled) {
       if (isSelected) {
         return colorScheme.secondaryContainer.opacity80;
@@ -300,9 +319,17 @@ class CommonCard extends StatelessWidget {
             child: button,
           );
 
+    final surface = ContentStyleScope.of(context) == null
+        ? card
+        : ContentPanel(
+            borderRadius: AppRadius.all(radius ?? AppCorner.md),
+            selected: isSelected,
+            clipChild: false,
+            child: card,
+          );
     return switch (enterAnimated) {
-      true => FadeScaleEnterBox(child: card),
-      false => card,
+      true => FadeScaleEnterBox(child: surface),
+      false => surface,
     };
   }
 }
