@@ -77,7 +77,8 @@ def passed_checks(number, request=None):
     statuses = gating_statuses(checks)
     late_review_passed = review_gate_satisfied(statuses, request)
     if late_review_passed:
-        statuses = [s for s in statuses if check_name(s) != 'Paired review gate']
+        statuses = [s for s in statuses
+                    if not (check_name(s) == 'Paired review gate' and s['state'] in GATE_TIMED_OUT)]
     names = {check_name(s) for s in statuses if s['state'] == 'success'}
     if late_review_passed:
         names.add('Paired review gate')

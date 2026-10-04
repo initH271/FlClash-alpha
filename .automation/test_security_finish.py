@@ -56,10 +56,10 @@ class SecurityFinishTests(unittest.TestCase):
             self.assertFalse(finish.passed_checks('1'))
             review.assert_not_called()
 
-    def late_review(self, *, review, gate='error', green=(), sha='c' * 40, merge=0):
-        """`green` successes plus one review gate; state() answers `review`."""
+    def late_review(self, *, review, gates=('error',), green=(), sha='c' * 40, merge=0):
+        """`green` successes plus one review gate per entry in `gates`; state() answers `review`."""
         checks = {'sha': sha, 'statuses': [{'state': 'success', 'context': c} for c in green]
-                  + [{'state': gate, 'context': 'cnb/pipeline-9(Paired review gate)'}]}
+                  + [{'state': gate, 'context': 'cnb/pipeline-9(Paired review gate)'} for gate in gates]}
         tree = types.SimpleNamespace(returncode=merge, stdout='tree-new\n' if not merge else '\n')
         with (patch.object(finish, 'api', return_value=checks), patch.object(finish, 'state', return_value=review),
               patch.object(finish, 'git', side_effect=['', tree, 'tree-new'])):
@@ -74,13 +74,21 @@ class SecurityFinishTests(unittest.TestCase):
             self.assertFalse(self.late_review(review='success', green=green))
         for review in ('pending', 'failure'):
             self.assertFalse(self.late_review(review=review, green=finish.NATIVE_CHECKS))
-        self.assertFalse(self.late_review(review='success', green=finish.NATIVE_CHECKS, gate='pending'))
+        self.assertFalse(self.late_review(review='success', green=finish.NATIVE_CHECKS, gates=('pending',)))
         checks = {'sha': 'c' * 40, 'statuses': []}
         with (patch.object(finish, 'api', return_value=checks),
               patch.object(finish, 'state', return_value='success')):
             self.assertFalse(finish.passed_checks('1', {'base': 'a' * 40, 'head': 'b' * 40}))
         self.assertFalse(self.late_review(review='success', green=finish.NATIVE_CHECKS, sha='not-a-sha'))
         self.assertFalse(self.late_review(review='success', green=finish.NATIVE_CHECKS, merge=1))
+
+    def test_a_timed_out_gate_does_not_hide_a_second_gate_still_running(self):
+        for gates in (('error', 'pending'), ('error', 'failure', 'pending'), ('pending', 'error')):
+            self.assertFalse(self.late_review(review='success', green=finish.NATIVE_CHECKS, gates=gates))
+
+    def test_a_late_review_needs_the_gate_and_not_a_leftover_failure(self):
+        self.assertTrue(self.late_review(review='success', green=finish.NATIVE_CHECKS, gates=('success',)))
+        self.assertTrue(self.late_review(review='success', green=finish.NATIVE_CHECKS, gates=('success', 'error')))
 
     def test_other_gating_statuses_still_block_a_late_review(self):
         failed = 'cnb/pipeline-8(Dependency vulnerability gate)'
