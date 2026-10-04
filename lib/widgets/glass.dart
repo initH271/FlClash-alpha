@@ -13,12 +13,14 @@ class GlassSurface extends StatefulWidget {
   final BorderRadius borderRadius;
   final bool effectsEnabled;
   final bool refractionEnabled;
+  final bool useSuperellipse;
 
   const GlassSurface({
     super.key,
     this.borderRadius = AppRadius.full,
     this.effectsEnabled = true,
     this.refractionEnabled = true,
+    this.useSuperellipse = false,
     required this.child,
   });
 
@@ -67,48 +69,62 @@ class _GlassSurfaceState extends State<GlassSurface> {
         widget.effectsEnabled &&
         !media.highContrast &&
         PageActivityScope.isActiveOf(context);
-    final refract = effects && widget.refractionEnabled && _shader != null;
+    // The refraction distance field follows circular arcs, not superellipse corners.
+    final refract =
+        effects &&
+        widget.refractionEnabled &&
+        !widget.useSuperellipse &&
+        _shader != null;
     final tint = colors.surfaceContainerLow.withValues(
       alpha: media.highContrast || !effects ? .97 : (refract ? .85 : .76),
     );
     final sigma = refract ? 4.0 : 12.0;
     final filter = ui.ImageFilter.blur(sigmaX: sigma, sigmaY: sigma);
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: widget.borderRadius,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: dark ? .06 : .13),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
+    final shadow = [
+      BoxShadow(
+        color: Colors.black.withValues(alpha: dark ? .06 : .13),
+        blurRadius: 8,
+        offset: const Offset(0, 2),
       ),
-      child: ClipRRect(
+    ];
+    final side = BorderSide(
+      width: .5,
+      color: (dark ? Colors.white : Colors.black).withValues(
+        alpha: dark ? .10 : .07,
+      ),
+    );
+    final content = BackdropFilter(
+      enabled: effects,
+      filter: filter,
+      child: _GlassBounds(
+        shader: refract ? _shader : null,
+        pixelRatio: View.of(context).devicePixelRatio,
         borderRadius: widget.borderRadius,
-        child: BackdropFilter(
-          enabled: effects,
-          filter: filter,
-          child: _GlassBounds(
-            shader: refract ? _shader : null,
-            pixelRatio: View.of(context).devicePixelRatio,
-            borderRadius: widget.borderRadius,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: tint,
-                borderRadius: widget.borderRadius,
-                border: Border.all(
-                  width: .5,
-                  color: (dark ? Colors.white : Colors.black).withValues(
-                    alpha: dark ? .10 : .07,
-                  ),
+        child: DecoratedBox(
+          decoration: widget.useSuperellipse
+              ? ShapeDecoration(
+                  color: tint,
+                  shape: AppShape.of(widget.borderRadius).copyWith(side: side),
+                )
+              : BoxDecoration(
+                  color: tint,
+                  borderRadius: widget.borderRadius,
+                  border: Border.fromBorderSide(side),
                 ),
-              ),
-              child: widget.child,
-            ),
-          ),
+          child: widget.child,
         ),
       ),
+    );
+    return DecoratedBox(
+      decoration: widget.useSuperellipse
+          ? ShapeDecoration(
+              shape: AppShape.of(widget.borderRadius),
+              shadows: shadow,
+            )
+          : BoxDecoration(borderRadius: widget.borderRadius, boxShadow: shadow),
+      child: widget.useSuperellipse
+          ? ClipRSuperellipse(borderRadius: widget.borderRadius, child: content)
+          : ClipRRect(borderRadius: widget.borderRadius, child: content),
     );
   }
 }

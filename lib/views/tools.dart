@@ -32,13 +32,53 @@ class ToolsView extends ConsumerStatefulWidget {
 class _ToolViewState extends ConsumerState<ToolsView> {
   Widget _buildNavigationMenuItem(NavigationItem navigationItem) {
     final description = navigationItem.label.description;
-    return ListItem.open(
-      leading: navigationItem.icon,
-      title: Text(navigationItem.label.label),
-      subtitle: description != null ? Text(description) : null,
-      widget: navigationItem.builder(context),
-      maxWidth: 400,
-      forceFull: false,
+    return ContentPanel(
+      child: ListItem.open(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        minTileHeight: 80,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                IconTheme(
+                  data: IconThemeData(
+                    size: 20,
+                    color: context.colorScheme.primary,
+                  ),
+                  child: navigationItem.icon,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    navigationItem.label.label,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: context.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (description != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                description,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: context.textTheme.bodySmall?.copyWith(
+                  color: context.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ],
+        ),
+        widget: navigationItem.builder(context),
+        maxWidth: 400,
+        forceFull: false,
+      ),
     );
   }
 
@@ -100,11 +140,44 @@ class _ToolViewState extends ConsumerState<ToolsView> {
           if (state.navigationItems.isEmpty) {
             return Container();
           }
-          return ContentSection(
-            title: context.appLocalizations.more,
-            children: state.navigationItems
-                .map(_buildNavigationMenuItem)
-                .toList(),
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final columns = constraints.maxWidth < 280
+                    ? 1
+                    : constraints.maxWidth >= 700
+                    ? 4
+                    : 2;
+                final width =
+                    (constraints.maxWidth - (columns - 1) * 8) / columns;
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(left: 4, bottom: 12),
+                      child: Text(
+                        context.appLocalizations.more,
+                        style: context.textTheme.labelLarge?.copyWith(
+                          color: context.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final item in state.navigationItems)
+                          SizedBox(
+                            width: width,
+                            child: _buildNavigationMenuItem(item),
+                          ),
+                      ],
+                    ),
+                  ],
+                );
+              },
+            ),
           );
         },
       ),

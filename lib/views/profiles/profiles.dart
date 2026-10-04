@@ -163,28 +163,98 @@ class _ProfilesGrid extends ConsumerWidget {
           spacing: spacing,
           minItemWidth: profileItemMinWidth.ap,
         );
-        return MasonryGridView.count(
+        return CustomScrollView(
           key: profilesStoreKey,
-          padding: EdgeInsets.only(
-            left: _horizontalPadding,
-            right: _horizontalPadding,
-            top: 16 + (ContentStyleScope.of(context)?.topInset ?? 0),
-            bottom: 16 + BottomInsetScope.of(context),
-          ),
-          crossAxisCount: columns,
-          mainAxisSpacing: spacing,
-          crossAxisSpacing: spacing,
-          itemCount: profiles.length,
-          itemBuilder: (context, index) {
-            final profile = profiles[index];
-            return ProfileItem(
-              profile: profile,
-              groupValue: currentProfileId,
-              onChanged: (profileId) {
-                ref.read(currentProfileIdProvider.notifier).value = profileId;
-              },
-            );
-          },
+          slivers: [
+            SliverPadding(
+              padding: EdgeInsets.fromLTRB(
+                16,
+                16 + (ContentStyleScope.of(context)?.topInset ?? 0),
+                16,
+                16,
+              ),
+              sliver: SliverToBoxAdapter(
+                child: ContentPanel(
+                  borderRadius: AppRadius.xl,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        for (final type in [ProfileType.url, ProfileType.file])
+                          Expanded(
+                            child: Row(
+                              children: [
+                                Icon(
+                                  type == ProfileType.url
+                                      ? Icons.cloud_download_outlined
+                                      : Icons.insert_drive_file_outlined,
+                                  size: 20,
+                                  color: context.colorScheme.primary,
+                                ),
+                                const SizedBox(width: 12),
+                                Flexible(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        '${profiles.where((profile) => profile.type == type).length}',
+                                        style: context.textTheme.titleLarge
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                      ),
+                                      Text(
+                                        type == ProfileType.url
+                                            ? context.appLocalizations.url
+                                            : context.appLocalizations.file,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: context.textTheme.bodySmall
+                                            ?.copyWith(
+                                              color: context
+                                                  .colorScheme
+                                                  .onSurfaceVariant,
+                                            ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            SliverPadding(
+              padding: EdgeInsets.only(
+                left: _horizontalPadding,
+                right: _horizontalPadding,
+                bottom: 16 + BottomInsetScope.of(context),
+              ),
+              sliver: SliverMasonryGrid.count(
+                crossAxisCount: columns,
+                mainAxisSpacing: spacing,
+                crossAxisSpacing: spacing,
+                childCount: profiles.length,
+                itemBuilder: (context, index) {
+                  final profile = profiles[index];
+                  return ProfileItem(
+                    profile: profile,
+                    groupValue: currentProfileId,
+                    onChanged: (profileId) {
+                      ref.read(currentProfileIdProvider.notifier).value =
+                          profileId;
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
         );
       },
     );
@@ -417,6 +487,23 @@ class ProfileItem extends ConsumerWidget {
         horizontalTitleGap: 8,
         minVerticalPadding: 12,
         padding: const EdgeInsets.only(left: 16, right: 6),
+        leading: ContentStyleScope.of(context) == null
+            ? null
+            : Container(
+                width: 40,
+                height: 40,
+                decoration: ShapeDecoration(
+                  color: context.colorScheme.primary.withValues(alpha: .08),
+                  shape: AppShape.sm,
+                ),
+                child: Icon(
+                  profile.type == ProfileType.url
+                      ? Icons.cloud_download_outlined
+                      : Icons.insert_drive_file_outlined,
+                  size: 22,
+                  color: context.colorScheme.primary,
+                ),
+              ),
         trailing: SizedBox(
           height: 40,
           width: 40,
@@ -504,11 +591,40 @@ class _ProfileCardTitle extends StatelessWidget {
       children: [
         Text(
           profile.realLabel,
-          style: context.textTheme.titleMedium,
-          maxLines: 1,
+          style: context.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+          maxLines: 2,
           overflow: TextOverflow.ellipsis,
         ),
         const SizedBox(height: 6),
+        Row(
+          children: [
+            Icon(
+              profile.type == ProfileType.url
+                  ? Icons.link
+                  : Icons.folder_outlined,
+              size: 13,
+              color: context.colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Text(
+                profile.type == ProfileType.url
+                    ? (Uri.tryParse(profile.url)?.host.isNotEmpty == true
+                          ? Uri.parse(profile.url).host
+                          : context.appLocalizations.url)
+                    : context.appLocalizations.file,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: context.textTheme.bodySmall?.copyWith(
+                  color: context.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
         ...info,
       ],
     );

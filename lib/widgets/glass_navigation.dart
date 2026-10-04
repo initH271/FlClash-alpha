@@ -12,6 +12,13 @@ class GlassNavigationBar extends StatefulWidget {
   static const double height = 56;
   static const double margin = 8;
   static const double maxWidth = 344;
+  static const double _labelSize = 11.5;
+
+  static double heightFor(TextScaler scaler) {
+    final scale =
+        scaler.clamp(maxScaleFactor: 1.3).scale(_labelSize) / _labelSize;
+    return height + math.max(0, scale - 1) * 18;
+  }
 
   final List<NavigationDestination> destinations;
   final int selectedIndex;
@@ -32,6 +39,10 @@ class GlassNavigationBar extends StatefulWidget {
 
 class _GlassNavigationBarState extends State<GlassNavigationBar>
     with TickerProviderStateMixin {
+  static const double _indicatorInset = 6;
+  static const double _iconSize = 20;
+  static const double _iconTopInset = 6;
+  static const double _materialIconSlot = 32;
   late final AnimationController _position;
   late final AnimationController _selection;
   bool _pressed = false;
@@ -141,18 +152,21 @@ class _GlassNavigationBarState extends State<GlassNavigationBar>
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final scale = MediaQuery.textScalerOf(context).scale(12) / 12;
-    // Unlike a fixed 56dp bar, large text retains room for the full label.
-    final height = GlassNavigationBar.height + math.max(0, scale - 1) * 18;
+    final height = GlassNavigationBar.heightFor(
+      MediaQuery.textScalerOf(context),
+    );
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: GlassNavigationBar.maxWidth),
       child: LayoutBuilder(
         builder: (context, constraints) {
           final width = constraints.maxWidth;
           final slot = width / widget.destinations.length;
+          final indicatorWidth = slot - _indicatorInset * 2;
+          const indicatorRadius = AppCorner.xl - _indicatorInset;
           final labelStyle = Theme.of(context).textTheme.labelSmall!.copyWith(
-            fontSize: 12,
-            fontWeight: FontWeight.w800,
+            fontSize: GlassNavigationBar._labelSize,
+            fontWeight: FontWeight.w500,
+            letterSpacing: 0,
           );
           final textScaler = MediaQuery.textScalerOf(
             context,
@@ -210,6 +224,9 @@ class _GlassNavigationBarState extends State<GlassNavigationBar>
                 builder: (context, scale, _) => Transform.scale(
                   scale: scale,
                   child: GlassSurface(
+                    borderRadius: AppRadius.xl,
+                    useSuperellipse: true,
+                    refractionEnabled: false,
                     effectsEnabled: widget.effectsEnabled,
                     child: Stack(
                       children: [
@@ -231,29 +248,33 @@ class _GlassNavigationBarState extends State<GlassNavigationBar>
                                 return Stack(
                                   children: [
                                     Positioned(
-                                      left: position * slot + 3,
-                                      top: 3,
-                                      bottom: 3,
-                                      width: slot - 6,
-                                      child: Transform.scale(
-                                        scale: _motion
-                                            ? .6 +
-                                                  .4 *
-                                                      Curves.decelerate
-                                                          .transform(
-                                                            _selection.value,
-                                                          )
-                                            : 1,
-                                        child: DecoratedBox(
-                                          key: const ValueKey(
-                                            'glass-tab-indicator',
+                                      left: position * slot + _indicatorInset,
+                                      top: _indicatorInset,
+                                      bottom: _indicatorInset,
+                                      width: indicatorWidth,
+                                      child: DecoratedBox(
+                                        key: const ValueKey(
+                                          'glass-tab-indicator',
+                                        ),
+                                        decoration: ShapeDecoration(
+                                          color: colors.primary.withValues(
+                                            alpha:
+                                                (MediaQuery.highContrastOf(
+                                                      context,
+                                                    )
+                                                    ? .20
+                                                    : .08) *
+                                                (_motion
+                                                    ? .8 +
+                                                          .2 *
+                                                              Curves.decelerate
+                                                                  .transform(
+                                                                    _selection
+                                                                        .value,
+                                                                  )
+                                                    : 1),
                                           ),
-                                          decoration: BoxDecoration(
-                                            color: colors.primary.withValues(
-                                              alpha: .09,
-                                            ),
-                                            borderRadius: AppRadius.full,
-                                          ),
+                                          shape: AppShape.all(indicatorRadius),
                                         ),
                                       ),
                                     ),
@@ -279,7 +300,6 @@ class _GlassNavigationBarState extends State<GlassNavigationBar>
                               indicatorColor: Colors.transparent,
                               indicatorShape: AppShape.full,
                               labelPadding: const EdgeInsets.only(
-                                top: 2,
                                 left: 4,
                                 right: 4,
                               ),
@@ -287,7 +307,7 @@ class _GlassNavigationBarState extends State<GlassNavigationBar>
                                   NavigationDestinationLabelBehavior.alwaysShow,
                               iconTheme: WidgetStateProperty.resolveWith(
                                 (states) => IconThemeData(
-                                  size: 24,
+                                  size: _iconSize,
                                   color: states.contains(WidgetState.selected)
                                       ? colors.primary
                                       : colors.onSurfaceVariant,
@@ -298,12 +318,12 @@ class _GlassNavigationBarState extends State<GlassNavigationBar>
                                     .textTheme
                                     .labelSmall!
                                     .copyWith(
-                                      fontSize: compactLabels ? 10 : 12,
+                                      fontSize: compactLabels
+                                          ? 10.5
+                                          : GlassNavigationBar._labelSize,
                                       height: 1.1,
-                                      fontWeight:
-                                          states.contains(WidgetState.selected)
-                                          ? FontWeight.w800
-                                          : FontWeight.w600,
+                                      letterSpacing: 0,
+                                      fontWeight: FontWeight.w500,
                                       color:
                                           states.contains(WidgetState.selected)
                                           ? colors.primary
@@ -315,7 +335,41 @@ class _GlassNavigationBarState extends State<GlassNavigationBar>
                             child: NavigationBar(
                               selectedIndex: widget.selectedIndex,
                               onDestinationSelected: widget.onSelected,
-                              destinations: widget.destinations,
+                              destinations: [
+                                for (final destination in widget.destinations)
+                                  // Compensate Material's fixed icon slot while keeping its full hit target.
+                                  Transform.translate(
+                                    offset: const Offset(
+                                      0,
+                                      (_iconSize -
+                                              _materialIconSlot -
+                                              _iconTopInset) /
+                                          4,
+                                    ),
+                                    transformHitTests: false,
+                                    child: NavigationDestination(
+                                      key: destination.key,
+                                      icon: Padding(
+                                        padding: const EdgeInsets.only(
+                                          top: _iconTopInset,
+                                        ),
+                                        child: destination.icon,
+                                      ),
+                                      selectedIcon:
+                                          destination.selectedIcon == null
+                                          ? null
+                                          : Padding(
+                                              padding: const EdgeInsets.only(
+                                                top: _iconTopInset,
+                                              ),
+                                              child: destination.selectedIcon!,
+                                            ),
+                                      label: destination.label,
+                                      tooltip: destination.tooltip,
+                                      enabled: destination.enabled,
+                                    ),
+                                  ),
+                              ],
                               animationDuration: _motion
                                   ? const Duration(milliseconds: 320)
                                   : Duration.zero,

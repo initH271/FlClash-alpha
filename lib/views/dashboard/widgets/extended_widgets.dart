@@ -110,11 +110,23 @@ class NetworkSpeedSmall extends ConsumerWidget {
             ),
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.only(top: 8),
+                padding: const EdgeInsets.only(top: 4),
                 child: LineChart(
                   gradient: true,
                   color: context.colorScheme.primary,
                   points: points,
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 2, 12, 8),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  '↑ ${traffic.up.traffic.show}/s   ↓ ${traffic.down.traffic.show}/s',
+                  style: context.textTheme.labelSmall?.copyWith(
+                    color: context.colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ),
             ),
@@ -280,23 +292,62 @@ class _ConnectionStatusCardState extends ConsumerState<ConnectionStatusCard>
       icon: widget.fcm ? Icons.notifications_active : Icons.hub,
       onPressed: () =>
           showSheet(context: context, builder: (_) => const ConnectionsView()),
-      child: Text(
-        widget.fcm
-            ? (fcm == null
-                  ? l.serviceUnknown
-                  : fcm
-                  ? l.fcmConnected
-                  : l.fcmDisconnected)
-            : connections?.length.toString() ?? '—',
-        style: widget.fcm
-            ? context.textTheme.bodyMedium
-            : context.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w600,
-                fontFeatures: const [FontFeature.tabularFigures()],
-              ),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
+      child: !widget.fcm
+          ? Row(
+              children: [
+                Expanded(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      connections?.length.toString() ?? '—',
+                      style: context.textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ),
+                ),
+                Flexible(
+                  flex: 2,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        for (final protocol in ['TCP', 'UDP'])
+                          Padding(
+                            padding: const EdgeInsets.only(left: 12),
+                            child: Text(
+                              '$protocol  ${connections == null ? '—' : connections.where((connection) => connection.metadata.network.toUpperCase() == protocol).length}',
+                              style: context.textTheme.bodySmall?.copyWith(
+                                color: context.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            )
+          : Text(
+              widget.fcm
+                  ? (fcm == null
+                        ? l.serviceUnknown
+                        : fcm
+                        ? l.fcmConnected
+                        : l.fcmDisconnected)
+                  : connections?.length.toString() ?? '—',
+              style: widget.fcm
+                  ? context.textTheme.bodyMedium
+                  : context.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
     );
   }
 }
@@ -509,19 +560,65 @@ class _ServiceStatusRow extends StatelessWidget {
   }
 }
 
-class DashboardStartCard extends StatelessWidget {
+class DashboardStartCard extends ConsumerWidget {
   const DashboardStartCard({super.key});
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    height: getWidgetHeight(1),
-    child: const ContentPanel(
-      child: Center(
-        child: FittedBox(
-          fit: BoxFit.scaleDown,
-          child: StartButton(maxWidth: double.infinity),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final status = ref.watch(coreStatusProvider);
+    final runTime = ref.watch(runTimeProvider);
+    final l = context.appLocalizations;
+    final label = switch (status) {
+      CoreStatus.connected => l.connected,
+      CoreStatus.connecting => l.connecting,
+      CoreStatus.disconnected => l.disconnected,
+    };
+    return SizedBox(
+      height: getWidgetHeight(1),
+      child: ContentPanel(
+        selected: status == CoreStatus.connected,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              const SizedBox(
+                width: 44,
+                height: 48,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: StartButton(maxWidth: 56, compact: true),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.textTheme.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      runTime != null ? getTimeText(runTime) : l.start,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.textTheme.bodySmall?.copyWith(
+                        color: context.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }

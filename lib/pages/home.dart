@@ -54,6 +54,14 @@ class _HomeShell extends ConsumerWidget {
 
   final Widget child;
 
+  Widget _bottomIcon(NavigationItem item) {
+    return Tooltip(
+      message: item.label.label,
+      triggerMode: TooltipTriggerMode.manual,
+      child: item.icon,
+    );
+  }
+
   void _handleToPage(PageLabel pageLabel, WidgetRef ref) {
     ref.read(currentPageLabelProvider.notifier).toPage(pageLabel);
   }
@@ -68,9 +76,9 @@ class _HomeShell extends ConsumerWidget {
     final effects = ref.watch(
       appSettingProvider.select((value) => value.isAnimateToPage),
     );
-    final textScale = MediaQuery.textScalerOf(context).scale(12) / 12;
-    final barHeight =
-        GlassNavigationBar.height + (textScale > 1 ? (textScale - 1) * 18 : 0);
+    final barHeight = GlassNavigationBar.heightFor(
+      MediaQuery.textScalerOf(context),
+    );
     final bottomInset = visible
         ? barHeight +
               GlassNavigationBar.margin * 2 +
@@ -113,11 +121,7 @@ class _HomeShell extends ConsumerWidget {
                         for (final item in navigationItems)
                           NavigationDestination(
                             tooltip: '',
-                            icon: Tooltip(
-                              message: item.label.label,
-                              triggerMode: TooltipTriggerMode.manual,
-                              child: item.icon,
-                            ),
+                            icon: _bottomIcon(item),
                             label: item.label.label,
                           ),
                       ],

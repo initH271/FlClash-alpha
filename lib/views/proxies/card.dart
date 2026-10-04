@@ -40,10 +40,23 @@ class ProxyCard extends ConsumerWidget {
           final pending = ref.watch(
             delayTestPendingProvider(proxyName: proxy.name, testUrl: testUrl),
           );
+          if (ContentStyleScope.of(context) != null &&
+              delay == null &&
+              !pending) {
+            return GestureDetector(
+              onTap: () => _handleTestCurrentDelay(ref),
+              child: Tooltip(
+                message: context.appLocalizations.delayTest,
+                child: Icon(
+                  Icons.speed_outlined,
+                  size: 16,
+                  color: context.colorScheme.primary,
+                ),
+              ),
+            );
+          }
           return FadeBox(
-            alignment: type == ProxyCardType.expand
-                ? Alignment.centerLeft
-                : Alignment.centerRight,
+            alignment: AlignmentDirectional.centerEnd,
             child: pending || delay == null
                 ? SizedBox(
                     height: measure.labelSmallHeight,
@@ -76,6 +89,16 @@ class ProxyCard extends ConsumerWidget {
   }
 
   Widget _buildProxyNameText(BuildContext context) {
+    if (ContentStyleScope.of(context) != null) {
+      return EmojiText(
+        proxy.name,
+        maxLines: type == ProxyCardType.min ? 1 : 2,
+        overflow: TextOverflow.ellipsis,
+        style: context.textTheme.bodyMedium?.copyWith(
+          fontWeight: FontWeight.w600,
+        ),
+      );
+    }
     if (type == ProxyCardType.min) {
       return SizedBox(
         height: measure.bodyMediumHeight * 1,
@@ -122,6 +145,7 @@ class ProxyCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final measure = globalState.measure;
+    final enhanced = ContentStyleScope.of(context) != null;
     final delayText = _buildDelayText();
     final proxyNameText = _buildProxyNameText(context);
     return Stack(
@@ -159,51 +183,43 @@ class ProxyCard extends ConsumerWidget {
           },
           child: Container(
             alignment: Alignment.centerLeft,
-            padding: EdgeInsets.only(
-              left: 12,
-              right: ContentStyleScope.of(context) == null ? 12 : 32,
-            ),
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
             child: Column(
-              mainAxisSize: MainAxisSize.min,
+              mainAxisSize: MainAxisSize.max,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                proxyNameText,
-                const SizedBox(height: 8),
-                if (type == ProxyCardType.expand) ...[
-                  SizedBox(
-                    height: measure.bodySmallHeight,
-                    child: _ProxyDesc(proxy: proxy),
-                  ),
-                  const SizedBox(height: 6),
-                  delayText,
-                ] else
-                  SizedBox(
-                    height: measure.bodySmallHeight,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Flexible(
-                          flex: 1,
-                          child: TooltipText(
-                            text: Text(
-                              proxy.type,
-                              maxLines: 1,
-                              style: context.textTheme.bodySmall?.copyWith(
+                Padding(
+                  padding: EdgeInsets.only(right: enhanced ? 16 : 0),
+                  child: proxyNameText,
+                ),
+                SizedBox(
+                  height: measure.bodySmallHeight,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        flex: 2,
+                        child: type == ProxyCardType.expand
+                            ? _ProxyDesc(proxy: proxy)
+                            : Text(
+                                proxy.type,
+                                maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                color: context
-                                    .textTheme
-                                    .bodySmall
-                                    ?.color
-                                    ?.opacity80,
+                                style: context.textTheme.labelSmall?.copyWith(
+                                  color: context.colorScheme.onSurfaceVariant,
+                                ),
                               ),
-                            ),
-                          ),
+                      ),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Align(
+                          alignment: AlignmentDirectional.centerEnd,
+                          child: delayText,
                         ),
-                        delayText,
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
+                ),
               ],
             ),
           ),
@@ -229,6 +245,7 @@ class _ProxyDesc extends ConsumerWidget {
     final desc = ref.watch(proxyDescProvider(proxy));
     return EmojiText(
       desc,
+      maxLines: 1,
       overflow: TextOverflow.ellipsis,
       style: context.textTheme.bodySmall?.copyWith(
         color: context.textTheme.bodySmall?.color?.opacity80,
