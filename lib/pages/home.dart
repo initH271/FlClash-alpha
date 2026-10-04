@@ -54,6 +54,22 @@ class _HomeShell extends ConsumerWidget {
 
   final Widget child;
 
+  Widget _bottomIcon(NavigationItem item, {bool selected = false}) {
+    final icon = switch (item.label) {
+      PageLabel.dashboard =>
+        selected ? Icons.space_dashboard : Icons.space_dashboard_outlined,
+      PageLabel.proxies => Icons.swap_horiz_rounded,
+      PageLabel.profiles => selected ? Icons.folder : Icons.folder_outlined,
+      PageLabel.tools => Icons.tune_rounded,
+      _ => null,
+    };
+    return Tooltip(
+      message: item.label.label,
+      triggerMode: TooltipTriggerMode.manual,
+      child: icon == null ? item.icon : Icon(icon),
+    );
+  }
+
   void _handleToPage(PageLabel pageLabel, WidgetRef ref) {
     ref.read(currentPageLabelProvider.notifier).toPage(pageLabel);
   }
@@ -113,11 +129,8 @@ class _HomeShell extends ConsumerWidget {
                         for (final item in navigationItems)
                           NavigationDestination(
                             tooltip: '',
-                            icon: Tooltip(
-                              message: item.label.label,
-                              triggerMode: TooltipTriggerMode.manual,
-                              child: item.icon,
-                            ),
+                            icon: _bottomIcon(item),
+                            selectedIcon: _bottomIcon(item, selected: true),
                             label: item.label.label,
                           ),
                       ],
