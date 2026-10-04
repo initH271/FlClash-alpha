@@ -78,7 +78,7 @@ def passed_checks(number, request=None):
     late_review_passed = review_gate_satisfied(statuses, request)
     if late_review_passed:
         # The reviewed gate is credited in `names` only; the list keeps no gate row because
-        # the one it replaced already ended, and `review_gate_satisfied` saw it alone.
+        # `review_gate_satisfied` saw that row alone and settled.
         statuses = [s for s in statuses if check_name(s) != 'Paired review gate']
     names = {check_name(s) for s in statuses if s['state'] == 'success'}
     if late_review_passed:

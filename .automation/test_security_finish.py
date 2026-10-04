@@ -56,12 +56,10 @@ class SecurityFinishTests(unittest.TestCase):
             self.assertFalse(finish.passed_checks('1'))
             review.assert_not_called()
 
-    def late_review(self, *, review, gate='error', green=(), sha='c' * 40, merge=0, extra_gate=None, other=()):
-        """`green` successes plus one review gate, optionally a second gate row or other checks."""
+    def late_review(self, *, review, gates=('error',), green=(), sha='c' * 40, merge=0):
+        """`green` successes plus one review gate per entry in `gates`; state() answers `review`."""
         checks = {'sha': sha, 'statuses': [{'state': 'success', 'context': c} for c in green]
-                  + [{'state': gate, 'context': 'cnb/pipeline-9(Paired review gate)'}]
-                  + ([{'state': extra_gate, 'context': 'cnb/pipeline-10(Paired review gate)'}] if extra_gate else [])
-                  + [{'state': state, 'context': c} for c, state in other]}
+                  + [{'state': gate, 'context': 'cnb/pipeline-9(Paired review gate)'} for gate in gates]}
         tree = types.SimpleNamespace(returncode=merge, stdout='tree-new\n' if not merge else '\n')
         with (patch.object(finish, 'api', return_value=checks), patch.object(finish, 'state', return_value=review),
               patch.object(finish, 'git', side_effect=['', tree, 'tree-new'])):
@@ -76,7 +74,7 @@ class SecurityFinishTests(unittest.TestCase):
             self.assertFalse(self.late_review(review='success', green=green))
         for review in ('pending', 'failure'):
             self.assertFalse(self.late_review(review=review, green=finish.NATIVE_CHECKS))
-        self.assertFalse(self.late_review(review='success', green=finish.NATIVE_CHECKS, gate='pending'))
+        self.assertFalse(self.late_review(review='success', green=finish.NATIVE_CHECKS, gates=('pending',)))
         checks = {'sha': 'c' * 40, 'statuses': []}
         with (patch.object(finish, 'api', return_value=checks),
               patch.object(finish, 'state', return_value='success')):
@@ -84,19 +82,19 @@ class SecurityFinishTests(unittest.TestCase):
         self.assertFalse(self.late_review(review='success', green=finish.NATIVE_CHECKS, sha='not-a-sha'))
         self.assertFalse(self.late_review(review='success', green=finish.NATIVE_CHECKS, merge=1))
 
-    def test_a_gate_that_is_still_running_is_never_released_by_a_late_review(self):
-        kwargs = {'green': finish.NATIVE_CHECKS, 'review': 'success'}
-        # The pending row is the newest report, so the settled row cannot stand in for it.
-        self.assertFalse(self.late_review(gate='error', extra_gate='pending', **kwargs))
-        self.assertFalse(self.late_review(gate='pending', extra_gate='error', **kwargs))
+    def test_a_timed_out_gate_does_not_hide_a_second_gate_still_running(self):
+        for gates in (('error', 'pending'), ('error', 'failure', 'pending'), ('pending', 'error')):
+            self.assertFalse(self.late_review(review='success', green=finish.NATIVE_CHECKS, gates=gates))
         for review in ('pending', 'failure'):
-            self.assertFalse(self.late_review(review=review, gate='error', extra_gate='pending',
-                                              green=finish.NATIVE_CHECKS))
+            self.assertFalse(self.late_review(review=review, green=finish.NATIVE_CHECKS,
+                                              gates=('error', 'pending')))
 
-    def test_repeated_gate_rows_are_never_replaced_by_one_review(self):
-        for first, second in (('error', 'error'), ('cancel', 'failure')):
-            self.assertFalse(self.late_review(review='success', gate=first, extra_gate=second,
-                                              green=finish.NATIVE_CHECKS))
+    def test_repeated_gate_failures_are_never_replaced_by_one_review(self):
+        for gates in (('error', 'error'), ('cancel', 'failure')):
+            self.assertFalse(self.late_review(review='success', green=finish.NATIVE_CHECKS, gates=gates))
+
+    def test_a_gate_that_already_passed_needs_no_late_review(self):
+        self.assertTrue(self.late_review(review='success', green=finish.NATIVE_CHECKS, gates=('success',)))
 
     def test_other_gating_statuses_still_block_a_late_review(self):
         failed = 'cnb/pipeline-8(Dependency vulnerability gate)'
