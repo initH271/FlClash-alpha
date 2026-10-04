@@ -508,7 +508,15 @@ class _GroupSummary extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        EmojiText(groupName, style: context.textTheme.titleMedium),
+        Tooltip(
+          message: groupName,
+          child: EmojiText(
+            groupName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: context.textTheme.titleMedium,
+          ),
+        ),
         const SizedBox(height: 4),
         Flexible(flex: 1, child: _SelectedProxyName(groupName: groupName)),
       ],

@@ -61,9 +61,12 @@ class ContentPanel extends StatelessWidget {
                 end: Alignment.bottomRight,
                 colors: selected
                     ? [
-                        colors.secondaryContainer,
                         Color.alphaBlend(
-                          colors.primary.withValues(alpha: .06),
+                          colors.primary.withValues(alpha: .10),
+                          colors.surfaceContainerLow,
+                        ),
+                        Color.alphaBlend(
+                          colors.primary.withValues(alpha: .035),
                           colors.surfaceContainerLow,
                         ),
                       ]

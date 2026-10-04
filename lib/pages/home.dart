@@ -54,19 +54,11 @@ class _HomeShell extends ConsumerWidget {
 
   final Widget child;
 
-  Widget _bottomIcon(NavigationItem item, {bool selected = false}) {
-    final icon = switch (item.label) {
-      PageLabel.dashboard =>
-        selected ? Icons.space_dashboard : Icons.space_dashboard_outlined,
-      PageLabel.proxies => Icons.swap_horiz_rounded,
-      PageLabel.profiles => selected ? Icons.folder : Icons.folder_outlined,
-      PageLabel.tools => Icons.tune_rounded,
-      _ => null,
-    };
+  Widget _bottomIcon(NavigationItem item) {
     return Tooltip(
       message: item.label.label,
       triggerMode: TooltipTriggerMode.manual,
-      child: icon == null ? item.icon : Icon(icon),
+      child: item.icon,
     );
   }
 
@@ -84,9 +76,9 @@ class _HomeShell extends ConsumerWidget {
     final effects = ref.watch(
       appSettingProvider.select((value) => value.isAnimateToPage),
     );
-    final textScale = MediaQuery.textScalerOf(context).scale(12) / 12;
-    final barHeight =
-        GlassNavigationBar.height + (textScale > 1 ? (textScale - 1) * 18 : 0);
+    final barHeight = GlassNavigationBar.heightFor(
+      MediaQuery.textScalerOf(context),
+    );
     final bottomInset = visible
         ? barHeight +
               GlassNavigationBar.margin * 2 +
@@ -130,7 +122,6 @@ class _HomeShell extends ConsumerWidget {
                           NavigationDestination(
                             tooltip: '',
                             icon: _bottomIcon(item),
-                            selectedIcon: _bottomIcon(item, selected: true),
                             label: item.label.label,
                           ),
                       ],

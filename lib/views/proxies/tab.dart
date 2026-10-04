@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:math';
+import 'dart:ui' as ui;
 
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/common.dart';
+import 'package:fl_clash/state.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:material_ui/material_ui.dart';
@@ -197,6 +199,7 @@ class ProxiesTabViewState extends ConsumerState<ProxiesTabView>
     _keyMap = {};
     final scope = ContentStyleScope.of(context);
     final enhanced = scope != null;
+    final tabHeight = max(44.0, globalState.measure.titleSmallHeight + 16);
     final header = NotificationListener<ScrollMetricsNotification>(
       onNotification: (scrollNotification) {
         _hasMoreButtonNotifier.value =
@@ -212,34 +215,45 @@ class ProxiesTabViewState extends ConsumerState<ProxiesTabView>
               TabBar(
                 controller: _tabController,
                 padding: EdgeInsets.only(
-                  left: 16,
-                  right: 16 + (value ? 16 : 0),
+                  left: enhanced ? 0 : 16,
+                  right: 16 + (value ? 40 : 0),
                 ),
                 dividerColor: Colors.transparent,
-                indicator: ContentStyleScope.of(context) == null
-                    ? null
-                    : BoxDecoration(
-                        borderRadius: AppRadius.md,
-                        color: context.colorScheme.primary.withValues(
-                          alpha: .09,
-                        ),
-                      ),
-                indicatorSize: ContentStyleScope.of(context) == null
-                    ? TabBarIndicatorSize.label
-                    : TabBarIndicatorSize.tab,
-                indicatorPadding: ContentStyleScope.of(context) == null
-                    ? EdgeInsets.zero
-                    : const EdgeInsets.all(4),
+                labelColor: context.colorScheme.primary,
+                unselectedLabelColor: context.colorScheme.onSurfaceVariant,
+                labelStyle: context.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+                unselectedLabelStyle: context.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w500,
+                ),
+                indicatorSize: TabBarIndicatorSize.label,
+                indicatorWeight: 2,
+                indicatorPadding: const EdgeInsets.symmetric(horizontal: 4),
+                labelPadding: const EdgeInsets.symmetric(horizontal: 12),
                 isScrollable: true,
                 tabAlignment: TabAlignment.start,
                 tabs: [
                   for (final group in groups)
                     Tab(
+                      height: tabHeight,
                       child: Builder(
                         builder: (context) {
-                          return EmojiText(
-                            group.name,
-                            style: DefaultTextStyle.of(context).style,
+                          return Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              EmojiText(
+                                group.name,
+                                style: DefaultTextStyle.of(context).style,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                '${group.all.length}',
+                                style: context.textTheme.labelSmall?.copyWith(
+                                  color: context.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
                           );
                         },
                       ),
@@ -284,7 +298,7 @@ class ProxiesTabViewState extends ConsumerState<ProxiesTabView>
                 group: group,
                 columns: columns,
                 cardType: state.proxyCardType,
-                topInset: enhanced ? scope.topInset + 56 : 0,
+                topInset: enhanced ? scope.topInset + tabHeight + 12 : 0,
               ),
           ],
         );
@@ -304,11 +318,19 @@ class ProxiesTabViewState extends ConsumerState<ProxiesTabView>
                   left: 16,
                   right: 16,
                   top: scope.topInset + 8,
-                  child: GlassSurface(
-                    borderRadius: AppRadius.md,
-                    effectsEnabled: scope.effectsEnabled,
-                    refractionEnabled: false,
-                    child: header,
+                  child: ClipRect(
+                    child: BackdropFilter(
+                      enabled:
+                          scope.effectsEnabled &&
+                          !MediaQuery.highContrastOf(context),
+                      filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                      child: ColoredBox(
+                        color: context.colorScheme.surface.withValues(
+                          alpha: .94,
+                        ),
+                        child: header,
+                      ),
+                    ),
                   ),
                 ),
               ],

@@ -11,7 +11,7 @@ extension DashboardWidgetView on DashboardWidget {
       child: NetworkSpeedSmall(),
     ),
     DashboardWidget.connectionsCount => const GridItem(
-      crossAxisCellCount: 4,
+      crossAxisCellCount: 8,
       child: ConnectionStatusCard(),
     ),
     DashboardWidget.ipv6Switch => const GridItem(

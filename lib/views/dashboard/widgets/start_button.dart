@@ -63,9 +63,10 @@ class RunTimeText extends StatelessWidget {
 }
 
 class StartButton extends ConsumerStatefulWidget {
-  const StartButton({super.key, this.maxWidth = 220});
+  const StartButton({super.key, this.maxWidth = 220, this.compact = false});
 
   final double maxWidth;
+  final bool compact;
 
   @override
   ConsumerState<StartButton> createState() => _StartButtonState();
@@ -224,7 +225,7 @@ class _StartButtonState extends ConsumerState<StartButton>
                     height: _buttonHeight,
                     padding: EdgeInsets.only(
                       left: 16,
-                      right: 16 - 8 * _animation.value,
+                      right: widget.compact ? 16 : 16 - 8 * _animation.value,
                     ),
                     alignment: Alignment.centerLeft,
                     child: child,
@@ -235,27 +236,28 @@ class _StartButtonState extends ConsumerState<StartButton>
                   progress: _animation,
                 ),
               ),
-              SizeTransition(
-                axis: Axis.horizontal,
-                alignment: Alignment.centerLeft,
-                sizeFactor: _animation,
-                child: AnimatedContainer(
-                  width: textWidth,
-                  duration: _widthAnimationDuration,
-                  curve: Curves.easeOut,
-                  child: suspend
-                      ? Text(
-                          appLocalizations.suspended,
-                          maxLines: 1,
-                          overflow: TextOverflow.visible,
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(
-                                color: context.colorScheme.onPrimaryContainer,
-                              ),
-                        )
-                      : RunTimeText(timeStamp: _displayRunTime),
+              if (!widget.compact)
+                SizeTransition(
+                  axis: Axis.horizontal,
+                  alignment: Alignment.centerLeft,
+                  sizeFactor: _animation,
+                  child: AnimatedContainer(
+                    width: textWidth,
+                    duration: _widthAnimationDuration,
+                    curve: Curves.easeOut,
+                    child: suspend
+                        ? Text(
+                            appLocalizations.suspended,
+                            maxLines: 1,
+                            overflow: TextOverflow.visible,
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(
+                                  color: context.colorScheme.onPrimaryContainer,
+                                ),
+                          )
+                        : RunTimeText(timeStamp: _displayRunTime),
+                  ),
                 ),
-              ),
             ],
           ),
         ),

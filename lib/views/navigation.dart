@@ -15,13 +15,13 @@ class Navigation implements NavigationPort {
     return [
       NavigationItem(
         keep: false,
-        icon: const Icon(Icons.space_dashboard),
+        icon: const Icon(Icons.space_dashboard_outlined),
         label: PageLabel.dashboard,
         builder: (_) =>
             const DashboardView(key: GlobalObjectKey(PageLabel.dashboard)),
       ),
       NavigationItem(
-        icon: const Icon(Icons.article),
+        icon: const Icon(Icons.swap_horiz_rounded),
         label: PageLabel.proxies,
         builder: (_) =>
             const ProxiesView(key: GlobalObjectKey(PageLabel.proxies)),
@@ -30,7 +30,7 @@ class Navigation implements NavigationPort {
             : [],
       ),
       NavigationItem(
-        icon: const Icon(Icons.folder),
+        icon: const Icon(Icons.folder_outlined),
         label: PageLabel.profiles,
         builder: (_) =>
             const ProfilesView(key: GlobalObjectKey(PageLabel.profiles)),
@@ -65,7 +65,7 @@ class Navigation implements NavigationPort {
             : [],
       ),
       NavigationItem(
-        icon: const Icon(Icons.construction),
+        icon: const Icon(Icons.tune_rounded),
         label: PageLabel.tools,
         builder: (_) => const ToolsView(key: GlobalObjectKey(PageLabel.tools)),
         modes: [NavigationItemMode.desktop, NavigationItemMode.mobile],
