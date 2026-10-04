@@ -65,11 +65,11 @@ def safe_files(base, head, group=None):
 
 def review_gate_satisfied(statuses, request):
     # The gate only polls for 32 minutes; a review for the same base/head that finishes
-    # later must still count. Only the trusted signed state for this request can stand in
-    # for a gate that actually failed, and the gate has to be in the list to begin with,
-    # so a missing gate is still a missing check and a running gate still reads as pending.
-    gate = [s for s in statuses if check_name(s) == 'Paired review gate' and s['state'] in GATE_TIMED_OUT]
-    return bool(gate) and request is not None and state(request) == 'success'
+    # later must still count. A lone timed-out gate may be answered for by the trusted
+    # state of this request: a running gate, or a second entry, is not that settled failure.
+    gates = [s for s in statuses if check_name(s) == 'Paired review gate']
+    return (len(gates) == 1 and gates[0]['state'] in GATE_TIMED_OUT
+            and request is not None and state(request) == 'success')
 
 
 def passed_checks(number, request=None):
@@ -77,6 +77,8 @@ def passed_checks(number, request=None):
     statuses = gating_statuses(checks)
     late_review_passed = review_gate_satisfied(statuses, request)
     if late_review_passed:
+        # The reviewed gate is credited in `names` only; the list keeps no gate row because
+        # the one it replaced already ended, and `review_gate_satisfied` saw it alone.
         statuses = [s for s in statuses if check_name(s) != 'Paired review gate']
     names = {check_name(s) for s in statuses if s['state'] == 'success'}
     if late_review_passed:
