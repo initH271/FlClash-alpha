@@ -82,6 +82,7 @@ Future<ProviderContainer> _pumpCoreManager(
   WidgetTester tester,
   CoreHandlerInterface coreInterface, {
   List<Override> overrides = const [],
+  CoreStatus initialCoreStatus = CoreStatus.disconnected,
 }) async {
   final container = ProviderContainer(
     overrides: [
@@ -92,6 +93,7 @@ Future<ProviderContainer> _pumpCoreManager(
     ],
   );
   addTearDown(container.dispose);
+  container.read(coreStatusProvider.notifier).value = initialCoreStatus;
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
@@ -238,7 +240,11 @@ void main() {
 
   testWidgets('the log stream follows the openLogs setting', (tester) async {
     final coreInterface = _coreInterface();
-    final container = await _pumpCoreManager(tester, coreInterface);
+    final container = await _pumpCoreManager(
+      tester,
+      coreInterface,
+      initialCoreStatus: CoreStatus.connected,
+    );
 
     verify(() => coreInterface.stopLog()).called(1);
     verifyNever(() => coreInterface.startLog());
@@ -258,6 +264,104 @@ void main() {
     verify(() => coreInterface.stopLog()).called(1);
 
     await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('log commands wait until the core is connected', (tester) async {
+    final coreInterface = _coreInterface();
+    final container = await _pumpCoreManager(tester, coreInterface);
+
+    await tester.pump(const Duration(seconds: 11));
+    verifyNever(() => coreInterface.startLog());
+    verifyNever(() => coreInterface.stopLog());
+
+    container.read(coreStatusProvider.notifier).value = CoreStatus.connecting;
+    await tester.pump();
+    verifyNever(() => coreInterface.startLog());
+    verifyNever(() => coreInterface.stopLog());
+
+    container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
+    await tester.pump();
+    verify(() => coreInterface.stopLog()).called(1);
+    verifyNever(() => coreInterface.startLog());
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('connection applies only the latest pending log setting', (
+    tester,
+  ) async {
+    final coreInterface = _coreInterface();
+    final container = await _pumpCoreManager(tester, coreInterface);
+
+    for (final enabled in [true, false, true]) {
+      container
+          .read(appSettingProvider.notifier)
+          .update((state) => state.copyWith(openLogs: enabled));
+      await tester.pump();
+    }
+    verifyNever(() => coreInterface.startLog());
+    verifyNever(() => coreInterface.stopLog());
+
+    container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
+    await tester.pump();
+    verify(() => coreInterface.startLog()).called(1);
+    verifyNever(() => coreInterface.stopLog());
+
+    container.read(coreStatusProvider.notifier).value = CoreStatus.disconnected;
+    await tester.pump();
+    container
+        .read(appSettingProvider.notifier)
+        .update((state) => state.copyWith(openLogs: false));
+    await tester.pump();
+    verifyNever(() => coreInterface.startLog());
+    verifyNever(() => coreInterface.stopLog());
+
+    container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
+    await tester.pump();
+    verify(() => coreInterface.stopLog()).called(1);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('reconnection restores an unchanged enabled log setting', (
+    tester,
+  ) async {
+    final coreInterface = _coreInterface();
+    final container = await _pumpCoreManager(tester, coreInterface);
+    container
+        .read(appSettingProvider.notifier)
+        .update((state) => state.copyWith(openLogs: true));
+    await tester.pump();
+    container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
+    await tester.pump();
+    verify(() => coreInterface.startLog()).called(1);
+    verifyNever(() => coreInterface.stopLog());
+
+    container.read(coreStatusProvider.notifier).value = CoreStatus.connecting;
+    await tester.pump();
+    verifyNever(() => coreInterface.startLog());
+    container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
+    await tester.pump();
+    verify(() => coreInterface.startLog()).called(1);
+    verifyNever(() => coreInterface.stopLog());
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('disposed manager does not synchronize log settings', (
+    tester,
+  ) async {
+    final coreInterface = _coreInterface();
+    final container = await _pumpCoreManager(tester, coreInterface);
+    await tester.pumpWidget(const SizedBox.shrink());
+    container
+        .read(appSettingProvider.notifier)
+        .update((state) => state.copyWith(openLogs: true));
+    container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
+    await tester.pump();
+
+    verifyNever(() => coreInterface.startLog());
+    verifyNever(() => coreInterface.stopLog());
   });
 
   testWidgets('core logs are recorded for the logs view', (tester) async {
