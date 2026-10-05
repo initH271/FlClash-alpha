@@ -697,5 +697,9 @@
   "logRetentionDays": "{count} 日",
   "logRetentionCustom": "保存期間を指定",
   "logRetentionInvalid": "1〜36500 の整数で日数を入力してください",
-  "logRetentionUnit": "日"
+  "logRetentionUnit": "日",
+  "upstreamVersion": "上流バージョン",
+  "releaseDate": "公開日",
+  "buildNumber": "内部ビルド番号",
+  "versionDetails": "バージョン詳細"
 }

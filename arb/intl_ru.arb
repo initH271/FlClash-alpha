@@ -697,5 +697,9 @@
   "logRetentionDays": "{count, plural, one{{count} день} few{{count} дня} many{{count} дней} other{{count} дня}}",
   "logRetentionCustom": "Другой срок хранения",
   "logRetentionInvalid": "Введите целое число дней от 1 до 36500",
-  "logRetentionUnit": "дней"
+  "logRetentionUnit": "дней",
+  "upstreamVersion": "Версия исходного проекта",
+  "releaseDate": "Дата выпуска",
+  "buildNumber": "Внутренний номер сборки",
+  "versionDetails": "Сведения о версии"
 }

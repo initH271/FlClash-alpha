@@ -137,6 +137,10 @@ class AppUpdateChecker {
         'download_url': url,
         'latency': watch.elapsedMicroseconds,
         'sha256': metadata['sha256'],
+        'displayVersion': metadata['displayVersion'],
+        'upstreamVersion': metadata['upstreamVersion'] ?? metadata['version'],
+        'revision': metadata['revision'],
+        'publishedAt': metadata['publishedAt'] ?? release['published_at'],
       };
     } catch (_) {
       return null;

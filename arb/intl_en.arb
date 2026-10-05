@@ -697,5 +697,9 @@
   "logRetentionDays": "{count, plural, =1{1 day} other{{count} days}}",
   "logRetentionCustom": "Custom retention period",
   "logRetentionInvalid": "Enter a whole number of days between 1 and 36500",
-  "logRetentionUnit": "days"
+  "logRetentionUnit": "days",
+  "upstreamVersion": "Upstream version",
+  "releaseDate": "Release date",
+  "buildNumber": "Internal build number",
+  "versionDetails": "Version details"
 }

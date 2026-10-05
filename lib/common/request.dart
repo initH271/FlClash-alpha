@@ -6,12 +6,14 @@ import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/app_update.dart';
+import 'package:fl_clash/common/release_identity.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/state.dart';
 
 class Request {
   late final Dio dio;
+  late final ReleaseDateClient releaseDates = ReleaseDateClient(dio);
   late final Dio _clashDio;
   String? userAgent;
 

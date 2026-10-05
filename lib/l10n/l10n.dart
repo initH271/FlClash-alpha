@@ -5766,6 +5766,46 @@ class AppLocalizations {
   String get logRetentionUnit {
     return Intl.message('days', name: 'logRetentionUnit', desc: '', args: []);
   }
+
+  /// `Upstream version`
+  String get upstreamVersion {
+    return Intl.message(
+      'Upstream version',
+      name: 'upstreamVersion',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Release date`
+  String get releaseDate {
+    return Intl.message(
+      'Release date',
+      name: 'releaseDate',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Internal build number`
+  String get buildNumber {
+    return Intl.message(
+      'Internal build number',
+      name: 'buildNumber',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Version details`
+  String get versionDetails {
+    return Intl.message(
+      'Version details',
+      name: 'versionDetails',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<AppLocalizations> {
