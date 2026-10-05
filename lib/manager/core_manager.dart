@@ -61,16 +61,26 @@ class _CoreContainerState extends ConsumerState<CoreManager>
         ref.read(setupActionProvider.notifier).updateConfigDebounce();
       }
     });
-    ref.listenManual(appSettingProvider.select((state) => state.openLogs), (
-      prev,
-      next,
-    ) {
-      if (next) {
-        _core.startLog();
-      } else {
-        _core.stopLog();
+    ref.listenManual(
+      appSettingProvider.select((state) => state.openLogs),
+      (_, _) => _syncLogSubscription(),
+    );
+    ref.listenManual(coreStatusProvider, (_, next) {
+      if (next == CoreStatus.connected) {
+        _syncLogSubscription();
       }
     }, fireImmediately: true);
+  }
+
+  void _syncLogSubscription() {
+    if (ref.read(coreStatusProvider) != CoreStatus.connected) {
+      return;
+    }
+    if (ref.read(appSettingProvider).openLogs) {
+      _core.startLog();
+    } else {
+      _core.stopLog();
+    }
   }
 
   @override
