@@ -1,10 +1,15 @@
+import 'dart:convert';
 import 'dart:io';
+
+import 'package:fl_clash/common/changelog.dart' as app;
 
 import 'package:test/test.dart';
 
+import '../../tool/src/release_notes/range.dart';
+
 void main() {
   late Directory repo;
-  final script = File('.github/scripts/release_notes.py').absolute;
+  final script = File('tool/src/release_notes/range.dart').absolute;
 
   setUpAll(() {
     if (!script.existsSync()) {
@@ -55,33 +60,24 @@ void main() {
     String? base,
     int expectedExitCode = 0,
   }) {
-    final result = Process.runSync(
-      'python3',
-      [
-        script.path,
-        '--repo',
-        repo.path,
-        '--version',
-        version,
-        '--build',
-        '$build',
-        if (base != null) ...['--base', base],
-      ],
-      environment: const {
-        'GIT_CONFIG_GLOBAL': '/dev/null',
-        'GIT_CONFIG_SYSTEM': '/dev/null',
-      },
-    );
-    expect(
-      result.exitCode,
-      expectedExitCode,
-      reason: 'stdout=${result.stdout} stderr=${result.stderr}',
-    );
-    return (
-      stdout: '${result.stdout}',
-      stderr: '${result.stderr}',
-      exitCode: result.exitCode,
-    );
+    try {
+      final result = AlphaReleaseNotes.generate(
+        root: repo.path,
+        version: version,
+        build: build,
+        base: base,
+      );
+      expect(0, expectedExitCode);
+      return (
+        stdout: result.notes.replaceAll(RegExp(r'<!--[\s\S]*?-->'), '').trim(),
+        stderr:
+            'notes base ${result.baseTag} (${result.baseSha}) -> ${result.sourceSha}',
+        exitCode: 0,
+      );
+    } catch (error) {
+      expect(1, expectedExitCode, reason: '$error');
+      return (stdout: '', stderr: '$error', exitCode: 1);
+    }
   }
 
   setUp(() {
@@ -390,5 +386,64 @@ void main() {
     final notes = generate(version: '0.8.98', build: 2026094002).stdout;
     expect(notes, startsWith('FlClash-alpha 0.8.98（构建 2026094002）'));
     expect(notes, contains('本版没有用户可见的变化。'));
+  });
+
+  test(
+    'unknown Changelog-Type follows the existing parser and omits the entry',
+    () {
+      tag('alpha-0.8.98-2026094001');
+      commit('feat: must not appear\n\nChangelog-Type: invalid');
+      final result = AlphaReleaseNotes.generate(
+        root: repo.path,
+        version: '0.8.98',
+        build: 2026094002,
+      );
+      expect(result.notes, isNot(contains('must not appear')));
+      expect(result.warnings, anyElement(contains('unknown Changelog-Type')));
+    },
+  );
+
+  test(
+    'single-version JSON and visible notes carry the same latest entries',
+    () {
+      commit('feat: old\n\nChangelog: Old shipped feature');
+      tag('alpha-0.8.98-2026094001');
+      commit('fix: new\n\nChangelog: New --> change');
+      final result = AlphaReleaseNotes.generate(
+        root: repo.path,
+        version: '0.8.98',
+        build: 2026094002,
+      );
+      final payload = result.notes
+          .split('<!-- flclash:changelog:json')
+          .last
+          .split('-->')
+          .first;
+      final decoded = jsonDecode(payload) as Map<String, dynamic>;
+      expect(decoded['schemaVersion'], 2);
+      expect(decoded['versions'], hasLength(1));
+      final version = app.parseReleaseChangelog(result.notes)!;
+      expect(version.tag, 'alpha-0.8.98-2026094002');
+      expect(version.groups.single.entries.single.text, 'New --> change');
+      expect(result.notes, isNot(contains('Old shipped feature')));
+      expect(result.toJson()['notesSourceSha'], result.sourceSha);
+      expect(result.toJson()['notesBaseSha'], result.baseSha);
+    },
+  );
+
+  test('cross-group repeated text retains one breaking entry', () {
+    tag('alpha-0.8.98-2026094001');
+    commit(
+      'feat!: same\n\nBREAKING CHANGE: Same change\nChangelog: Same change',
+    );
+    final result = AlphaReleaseNotes.generate(
+      root: repo.path,
+      version: '0.8.98',
+      build: 2026094002,
+    );
+    final version = app.parseReleaseChangelog(result.notes)!;
+    expect(version.groups, hasLength(1));
+    expect(version.groups.single.type.name, 'breaking');
+    expect(version.groups.single.entries, hasLength(1));
   });
 }
