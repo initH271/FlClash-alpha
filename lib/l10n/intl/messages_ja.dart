@@ -81,9 +81,11 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m28(count) => "${count} 件選択中";
 
-  static String m29(label) => "${label}はURLである必要があります";
+  static String m29(minutes) => "${minutes} 分";
 
-  static String m30(count) => "${count} 年前";
+  static String m30(label) => "${label}はURLである必要があります";
+
+  static String m31(count) => "${count} 年前";
 
   final messages = _notInlinedMessages(_notInlinedMessages);
   static Map<String, Function> _notInlinedMessages(_) => <String, Function>{
@@ -155,7 +157,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "auto": MessageLookupByLibrary.simpleMessage("自動"),
     "autoCheckUpdate": MessageLookupByLibrary.simpleMessage("更新の自動チェック"),
     "autoCheckUpdateDesc": MessageLookupByLibrary.simpleMessage(
-      "アプリ起動時に更新を自動的にチェックします",
+      "起動時とフォアグラウンドで6時間ごとに確認します。復帰時も間隔を過ぎていれば確認します",
     ),
     "autoCloseConnections": MessageLookupByLibrary.simpleMessage("接続を自動的に閉じる"),
     "autoCloseConnectionsDesc": MessageLookupByLibrary.simpleMessage(
@@ -165,6 +167,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "autoLaunchDesc": MessageLookupByLibrary.simpleMessage("システム起動時に自動的に起動します"),
     "autoRun": MessageLookupByLibrary.simpleMessage("自動実行"),
     "autoRunDesc": MessageLookupByLibrary.simpleMessage("アプリを開いたときに自動的に実行します"),
+    "autoServiceChecks": MessageLookupByLibrary.simpleMessage("自動サービスチェック"),
+    "autoServiceChecksDesc": MessageLookupByLibrary.simpleMessage(
+      "選択したサービスを、プロキシが動作中かつアプリが前面にあるときに確認します。手動チェックも利用できます。",
+    ),
     "autoSetSystemDns": MessageLookupByLibrary.simpleMessage("システムDNSを自動設定"),
     "autoUpdate": MessageLookupByLibrary.simpleMessage("自動更新"),
     "autoUpdateInterval": MessageLookupByLibrary.simpleMessage("自動更新間隔（分）"),
@@ -919,11 +925,36 @@ class MessageLookup extends MessageLookupByLibrary {
     "selectedCountTitle": m28,
     "serviceAvailable": MessageLookupByLibrary.simpleMessage("利用可能"),
     "serviceBlocked": MessageLookupByLibrary.simpleMessage("ブロック"),
+    "serviceCheckCacheLifetime": MessageLookupByLibrary.simpleMessage(
+      "結果の有効期間",
+    ),
     "serviceCheckDesc": MessageLookupByLibrary.simpleMessage(
-      "接続と地域の推定であり、アカウントの利用を保証しません。サービスを選んで確認してください。",
+      "接続と地域の推定であり、アカウントの利用を保証しません。手動で開始するか、自動チェックの設定をご利用ください。",
     ),
     "serviceCheckFailed": MessageLookupByLibrary.simpleMessage(
       "検査を完了できませんでした。再試行してください。",
+    ),
+    "serviceCheckInterval": MessageLookupByLibrary.simpleMessage("チェック間隔"),
+    "serviceCheckMinutes": m29,
+    "serviceCheckOnConnect": MessageLookupByLibrary.simpleMessage("接続後にチェック"),
+    "serviceCheckOnConnectDesc": MessageLookupByLibrary.simpleMessage(
+      "プロキシが動作し、安定してから一度確認します。",
+    ),
+    "serviceCheckOnPanelOpen": MessageLookupByLibrary.simpleMessage(
+      "パネルを開いたときにチェック",
+    ),
+    "serviceCheckOnPanelOpenDesc": MessageLookupByLibrary.simpleMessage(
+      "結果がないか、有効期限を過ぎた場合のみ確認します。",
+    ),
+    "serviceCheckOnRouteChange": MessageLookupByLibrary.simpleMessage(
+      "切り替え後にチェック",
+    ),
+    "serviceCheckOnRouteChangeDesc": MessageLookupByLibrary.simpleMessage(
+      "ノードやプロファイルの切り替え完了後、古い結果を破棄して確認します。",
+    ),
+    "serviceCheckPeriodic": MessageLookupByLibrary.simpleMessage("定期チェック"),
+    "serviceCheckPeriodicDesc": MessageLookupByLibrary.simpleMessage(
+      "アプリが背面に移動するか、プロキシが停止すると自動チェックを中断します。",
     ),
     "serviceChecks": MessageLookupByLibrary.simpleMessage("サービス接続確認"),
     "serviceFailed": MessageLookupByLibrary.simpleMessage("確認失敗"),
@@ -1050,7 +1081,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "upstreamProject": MessageLookupByLibrary.simpleMessage("元のプロジェクト"),
     "url": MessageLookupByLibrary.simpleMessage("URL"),
     "urlDesc": MessageLookupByLibrary.simpleMessage("URLからプロファイルを取得します"),
-    "urlTip": m29,
+    "urlTip": m30,
     "useHosts": MessageLookupByLibrary.simpleMessage("Hostsを使用"),
     "useSystemHosts": MessageLookupByLibrary.simpleMessage("システムのHostsを使用"),
     "usedTraffic": MessageLookupByLibrary.simpleMessage("使用済みトラフィック"),
@@ -1068,7 +1099,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "wakelockSwitch": MessageLookupByLibrary.simpleMessage("スリープ防止"),
     "webDAVConfiguration": MessageLookupByLibrary.simpleMessage("WebDAV設定"),
     "whitelistMode": MessageLookupByLibrary.simpleMessage("ホワイトリストモード"),
-    "yearsAgo": m30,
+    "yearsAgo": m31,
     "zhCN": MessageLookupByLibrary.simpleMessage("簡体字中国語"),
   };
 }

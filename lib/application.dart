@@ -56,7 +56,8 @@ class Application extends ConsumerStatefulWidget {
   ConsumerState<Application> createState() => ApplicationState();
 }
 
-class ApplicationState extends ConsumerState<Application> {
+class ApplicationState extends ConsumerState<Application>
+    with WidgetsBindingObserver {
   Timer? _autoUpdateProfilesTaskTimer;
   bool _preHasVpn = false;
 
@@ -76,6 +77,13 @@ class ApplicationState extends ConsumerState<Application> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    ref
+        .read(commonActionProvider.notifier)
+        .setUpdateCheckForeground(
+          lifecycle == null || lifecycle == AppLifecycleState.resumed,
+        );
     SystemNavigator.setFrameworkHandlesBack(true);
     WidgetsBinding.instance.addPostFrameCallback((timeStamp) async {
       if (globalState.navigatorKey.currentContext != null) {
@@ -87,6 +95,13 @@ class ApplicationState extends ConsumerState<Application> {
       _initLink();
       unawaited(app?.initShortcuts());
     });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    ref
+        .read(commonActionProvider.notifier)
+        .setUpdateCheckForeground(state == AppLifecycleState.resumed);
   }
 
   void _initLink() {
@@ -198,6 +213,8 @@ class ApplicationState extends ConsumerState<Application> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    ref.read(commonActionProvider.notifier).setUpdateCheckForeground(false);
     linkManager.destroy();
     _autoUpdateProfilesTaskTimer?.cancel();
     super.dispose();

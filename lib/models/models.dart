@@ -8,3 +8,4 @@ export 'profile.dart';
 export 'state.dart';
 export 'network_features.dart';
 export 'media_unlock.dart';
+export 'service_check.dart';

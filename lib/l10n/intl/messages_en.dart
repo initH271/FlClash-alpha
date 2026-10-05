@@ -92,9 +92,11 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m28(count) => "${count} selected";
 
-  static String m29(label) => "${label} must be a URL";
+  static String m29(minutes) => "${minutes} minutes";
 
-  static String m30(count) =>
+  static String m30(label) => "${label} must be a URL";
+
+  static String m31(count) =>
       "${Intl.plural(count, one: '1 year ago', other: '${count} years ago')}";
 
   final messages = _notInlinedMessages(_notInlinedMessages);
@@ -189,7 +191,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Auto check for updates",
     ),
     "autoCheckUpdateDesc": MessageLookupByLibrary.simpleMessage(
-      "Check for updates automatically when the app starts",
+      "Check on startup and every 6 hours while the app is in the foreground. Check again on return if due",
     ),
     "autoCloseConnections": MessageLookupByLibrary.simpleMessage(
       "Auto close connections",
@@ -204,6 +206,12 @@ class MessageLookup extends MessageLookupByLibrary {
     "autoRun": MessageLookupByLibrary.simpleMessage("Auto run"),
     "autoRunDesc": MessageLookupByLibrary.simpleMessage(
       "Run automatically when the app opens",
+    ),
+    "autoServiceChecks": MessageLookupByLibrary.simpleMessage(
+      "Automatic service checks",
+    ),
+    "autoServiceChecksDesc": MessageLookupByLibrary.simpleMessage(
+      "Automatic checks use your selected services while the proxy is running and the app is in the foreground. Manual checks remain available.",
     ),
     "autoSetSystemDns": MessageLookupByLibrary.simpleMessage(
       "Auto-set system DNS",
@@ -571,10 +579,9 @@ class MessageLookup extends MessageLookupByLibrary {
       "Enter the rule content",
     ),
     "installUpdate": MessageLookupByLibrary.simpleMessage("Install update"),
-    "installedAppsPermissionDeniedMessage":
-        MessageLookupByLibrary.simpleMessage(
-          "The app list permission was denied, so installed apps cannot be listed. Please grant it manually in system settings.",
-        ),
+    "installedAppsPermissionDeniedMessage": MessageLookupByLibrary.simpleMessage(
+      "The app list permission was denied, so installed apps cannot be listed. Please grant it manually in system settings.",
+    ),
     "installedAppsPermissionDesc": MessageLookupByLibrary.simpleMessage(
       "This system hides the installed app list until the permission is granted. Authorize it to configure the per-app proxy.",
     ),
@@ -1107,11 +1114,42 @@ class MessageLookup extends MessageLookupByLibrary {
     "selectedCountTitle": m28,
     "serviceAvailable": MessageLookupByLibrary.simpleMessage("Available"),
     "serviceBlocked": MessageLookupByLibrary.simpleMessage("Blocked"),
+    "serviceCheckCacheLifetime": MessageLookupByLibrary.simpleMessage(
+      "Result validity",
+    ),
     "serviceCheckDesc": MessageLookupByLibrary.simpleMessage(
-      "Checks are probes and region estimates; they do not confirm account access. Select services and run a check.",
+      "Checks probe connectivity and estimate regions; they do not confirm account access. Run manually or use your automatic-check settings.",
     ),
     "serviceCheckFailed": MessageLookupByLibrary.simpleMessage(
       "Checks did not finish. Please retry.",
+    ),
+    "serviceCheckInterval": MessageLookupByLibrary.simpleMessage(
+      "Check interval",
+    ),
+    "serviceCheckMinutes": m29,
+    "serviceCheckOnConnect": MessageLookupByLibrary.simpleMessage(
+      "After connecting",
+    ),
+    "serviceCheckOnConnectDesc": MessageLookupByLibrary.simpleMessage(
+      "Check once after the proxy is running and stable.",
+    ),
+    "serviceCheckOnPanelOpen": MessageLookupByLibrary.simpleMessage(
+      "When opening the panel",
+    ),
+    "serviceCheckOnPanelOpenDesc": MessageLookupByLibrary.simpleMessage(
+      "Check only when results are missing or expired.",
+    ),
+    "serviceCheckOnRouteChange": MessageLookupByLibrary.simpleMessage(
+      "After switching routes",
+    ),
+    "serviceCheckOnRouteChangeDesc": MessageLookupByLibrary.simpleMessage(
+      "Discard previous results and check after the node or profile has finished switching.",
+    ),
+    "serviceCheckPeriodic": MessageLookupByLibrary.simpleMessage(
+      "Periodic checks",
+    ),
+    "serviceCheckPeriodicDesc": MessageLookupByLibrary.simpleMessage(
+      "Pause automatic checks in the background or when the proxy stops.",
     ),
     "serviceChecks": MessageLookupByLibrary.simpleMessage("Service checks"),
     "serviceFailed": MessageLookupByLibrary.simpleMessage("Check failed"),
@@ -1264,7 +1302,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "urlDesc": MessageLookupByLibrary.simpleMessage(
       "Obtain a profile from a URL",
     ),
-    "urlTip": m29,
+    "urlTip": m30,
     "useHosts": MessageLookupByLibrary.simpleMessage("Use hosts"),
     "useSystemHosts": MessageLookupByLibrary.simpleMessage("Use system hosts"),
     "usedTraffic": MessageLookupByLibrary.simpleMessage("Used traffic"),
@@ -1286,7 +1324,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "WebDAV configuration",
     ),
     "whitelistMode": MessageLookupByLibrary.simpleMessage("Whitelist mode"),
-    "yearsAgo": m30,
+    "yearsAgo": m31,
     "zhCN": MessageLookupByLibrary.simpleMessage("Simplified Chinese"),
   };
 }
