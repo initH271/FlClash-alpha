@@ -82,9 +82,12 @@ Future<ProviderContainer> _service(
     TestApp(
       locale: const Locale('zh', 'CN'),
       wrapInProviderScope: true,
-      overrides: [selectedMapProvider.overrideWith((_) => const {})],
+      overrides: [
+        selectedMapProvider.overrideWith((_) => const {}),
+        serviceCheckClientProvider.overrideWithValue(checker),
+      ],
       homeBuilder: (child) => Scaffold(body: child),
-      child: ServiceChecksView(checker: checker),
+      child: const ServiceChecksView(),
     ),
   );
   await tester.pumpAndSettle();
@@ -178,22 +181,16 @@ void main() {
   testWidgets('no selected services disables the start button', (tester) async {
     final checker = _Checker();
     await _service(tester, checker);
-    for (final platform in [
-      MediaPlatform.openai,
-      MediaPlatform.claude,
-      MediaPlatform.gemini,
-      MediaPlatform.netflix,
-      MediaPlatform.disney,
-      MediaPlatform.youtube,
-      MediaPlatform.spotify,
-    ]) {
+    for (final platform in MediaPlatform.values) {
       final finder = find.widgetWithText(
         CheckboxListTile,
         platform.defaultName,
       );
       await tester.scrollUntilVisible(finder, 150);
-      await tester.tap(finder);
-      await tester.pump();
+      if (tester.widget<CheckboxListTile>(finder).value == true) {
+        await tester.tap(finder);
+        await tester.pump();
+      }
     }
     expect(
       tester

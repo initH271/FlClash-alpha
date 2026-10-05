@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/update_download.dart';
+import 'package:fl_clash/models/changelog.dart';
 import 'package:fl_clash/widgets/dialog.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -191,10 +192,74 @@ class _AppUpdateDialogState extends State<AppUpdateDialog>
                 Text('${(_progress! * 100).toStringAsFixed(0)}%'),
             ],
             const SizedBox(height: 16),
-            Text(widget.release['body'] as String? ?? ''),
+            _UpdateReleaseNotes(body: widget.release['body'] as String?),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _UpdateReleaseNotes extends StatefulWidget {
+  final String? body;
+
+  const _UpdateReleaseNotes({this.body});
+
+  @override
+  State<_UpdateReleaseNotes> createState() => _UpdateReleaseNotesState();
+}
+
+class _UpdateReleaseNotesState extends State<_UpdateReleaseNotes> {
+  static const _previewLines = 6;
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.appLocalizations;
+    final version = parseReleaseChangelog(widget.body);
+    final notes = version != null && !version.isEmpty
+        ? [
+            for (final group in version.visibleGroups)
+              [
+                changelogGroupTitle(l10n, group.type),
+                for (final entry in group.entries) '• ${entry.text}',
+              ].join('\n'),
+          ].join('\n\n')
+        : scopeReleaseNotes(
+            widget.body ?? '',
+          ).replaceAll(RegExp(r'<!--[\s\S]*?(?:-->|$)'), '').trim();
+    if (notes.isEmpty) return const SizedBox.shrink();
+    final style = context.textTheme.bodyMedium;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final painter = TextPainter(
+          text: TextSpan(text: notes, style: style),
+          textDirection: Directionality.of(context),
+          textScaler: MediaQuery.textScalerOf(context),
+          maxLines: _previewLines,
+        )..layout(maxWidth: constraints.maxWidth);
+        final needsExpansion = painter.didExceedMaxLines;
+        painter.dispose();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              notes,
+              key: const ValueKey('update-release-notes'),
+              style: style,
+              maxLines: _expanded ? null : _previewLines,
+              overflow: _expanded ? TextOverflow.clip : TextOverflow.ellipsis,
+            ),
+            if (needsExpansion)
+              TextButton.icon(
+                onPressed: () => setState(() => _expanded = !_expanded),
+                icon: Icon(_expanded ? Icons.expand_less : Icons.expand_more),
+                label: Text(_expanded ? l10n.showLess : l10n.showMore),
+              ),
+          ],
+        );
+      },
     );
   }
 }

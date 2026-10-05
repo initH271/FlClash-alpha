@@ -146,7 +146,7 @@ class SetupAction extends _$SetupAction {
       try {
         applied = await applyProfile(
           force: true,
-          preloadInvoke: () => _setCoreRunning(request),
+          preloadInvoke: () => _setCoreRunning(request, duringProfile: true),
         );
       } catch (_) {
         applied = false;
@@ -186,7 +186,10 @@ class SetupAction extends _$SetupAction {
     return true;
   }
 
-  Future<void> _setCoreRunning(_RunRequest request) {
+  Future<void> _setCoreRunning(
+    _RunRequest request, {
+    bool duringProfile = false,
+  }) {
     return _listenerScheduler.run(() async {
       if (!_isCurrent(request)) {
         return;
@@ -194,7 +197,14 @@ class SetupAction extends _$SetupAction {
       if (request.running && ref.read(suspendProvider)) {
         return;
       }
-      await setCoreRunning(request.running);
+      final routing = ref.read(serviceCheckRoutingProvider.notifier);
+      final token = routing.begin(primary: !duringProfile);
+      var applied = false;
+      try {
+        applied = await setCoreRunning(request.running);
+      } finally {
+        if (ref.mounted) routing.end(token, applied: applied);
+      }
     });
   }
 
@@ -283,12 +293,20 @@ class SetupAction extends _$SetupAction {
     bool force = false,
     Future<void> Function()? preloadInvoke,
   }) async {
-    final result = await _runSetup(
-      force: force,
-      silence: silence,
-      preloadInvoke: preloadInvoke,
-    );
-    return result != _SetupTaskResult.failed;
+    final routing = ref.read(serviceCheckRoutingProvider.notifier);
+    final token = routing.begin();
+    var applied = false;
+    try {
+      final result = await _runSetup(
+        force: force,
+        silence: silence,
+        preloadInvoke: preloadInvoke,
+      );
+      applied = result != _SetupTaskResult.failed;
+      return applied;
+    } finally {
+      if (ref.mounted) routing.end(token, applied: applied);
+    }
   }
 
   Future<_SetupTaskResult> _runSetup({

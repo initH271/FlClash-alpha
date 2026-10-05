@@ -4,9 +4,25 @@ part of '../action.dart';
 class CommonAction extends _$CommonAction {
   CoreController get _core => ref.read(coreHandlerProvider);
   bool _isUpdatingTraffic = false;
+  late UpdateCheckScheduler _updates;
+  bool _updatesStarted = false;
+  bool _updateForeground = true;
 
   @override
-  void build() {}
+  void build() {
+    _updates = UpdateCheckScheduler(
+      load: request.checkForUpdate,
+      notify: (data) => checkUpdateResultHandle(data: data),
+      onError: (error) => commonPrint.log('Update check failed: $error'),
+    )..setForeground(_updateForeground);
+    ref.onDispose(_updates.dispose);
+    ref.listen(appSettingProvider.select((state) => state.autoCheckUpdate), (
+      _,
+      enabled,
+    ) {
+      if (_updatesStarted) _updates.setEnabled(enabled);
+    }, fireImmediately: true);
+  }
 
   void toggleRunning() {
     final running = !ref.read(isStartProvider);
@@ -74,10 +90,15 @@ class CommonAction extends _$CommonAction {
   }
 
   Future<bool> autoCheckUpdate() async {
-    if (!ref.read(appSettingProvider).autoCheckUpdate) return false;
-    final res = await request.checkForUpdate();
-    await checkUpdateResultHandle(data: res);
-    return res != null;
+    if (!system.isAndroid) return false;
+    _updatesStarted = true;
+    _updates.setEnabled(ref.read(appSettingProvider).autoCheckUpdate);
+    return _updates.check();
+  }
+
+  void setUpdateCheckForeground(bool foreground) {
+    _updateForeground = foreground;
+    _updates.setForeground(foreground);
   }
 
   TextSpan _releaseSpan(BuildContext context, String tagName, String? body) {

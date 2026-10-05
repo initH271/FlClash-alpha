@@ -157,6 +157,16 @@ void main() {
   });
 
   group('CommonAction.autoCheckUpdate', () {
+    test('can rebuild the notifier and release its scheduler', () {
+      final container = buildContainer();
+      container.read(commonActionProvider.notifier);
+      container.invalidate(commonActionProvider);
+      expect(
+        () => container.read(commonActionProvider.notifier),
+        returnsNormally,
+      );
+    });
+
     test('returns without a network call when the setting is off', () async {
       final container = buildContainer();
       container

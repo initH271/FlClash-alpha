@@ -50,7 +50,7 @@
   "logcat": "ログキャプチャ",
   "logcatDesc": "無効にするとログの入り口が非表示になります",
   "autoCheckUpdate": "更新の自動チェック",
-  "autoCheckUpdateDesc": "アプリ起動時に更新を自動的にチェックします",
+  "autoCheckUpdateDesc": "起動時とフォアグラウンドで6時間ごとに確認します。復帰時も間隔を過ぎていれば確認します",
   "checkCertificate": "TLS証明書を検証",
   "checkCertificateDesc": "信頼できない証明書を拒否します。無効にすると、サブスクリプションやバックアップが中間者攻撃にさらされます",
   "accessControl": "アクセス制御",
@@ -630,7 +630,7 @@
   "updateRetry": "再試行",
   "networkFeatures": "ネットワークツール",
   "serviceChecks": "サービス接続確認",
-  "serviceCheckDesc": "接続と地域の推定であり、アカウントの利用を保証しません。サービスを選んで確認してください。",
+  "serviceCheckDesc": "接続と地域の推定であり、アカウントの利用を保証しません。手動で開始するか、自動チェックの設定をご利用ください。",
   "smartAutoStop": "自動停止・再開",
   "smartAutoStopDesc": "一致するネットワークで停止し、自動停止した接続だけ再開します。手動停止が優先されます。",
   "networkRules": "ローカルネットワーク規則",
@@ -670,5 +670,26 @@
   "featureOffShort": "オフ",
   "serviceCheckFailed": "検査を完了できませんでした。再試行してください。",
   "panelOpening": "開いています…",
-  "panelOpenFailed": "パネルを開けませんでした。再試行してください。"
+  "panelOpenFailed": "パネルを開けませんでした。再試行してください。",
+  "autoServiceChecks": "自動サービスチェック",
+  "autoServiceChecksDesc": "選択したサービスを、プロキシが動作中かつアプリが前面にあるときに確認します。手動チェックも利用できます。",
+  "serviceCheckOnConnect": "接続後にチェック",
+  "serviceCheckOnConnectDesc": "プロキシが動作し、安定してから一度確認します。",
+  "serviceCheckOnRouteChange": "切り替え後にチェック",
+  "serviceCheckOnRouteChangeDesc": "ノードやプロファイルの切り替え完了後、古い結果を破棄して確認します。",
+  "serviceCheckOnPanelOpen": "パネルを開いたときにチェック",
+  "serviceCheckOnPanelOpenDesc": "結果がないか、有効期限を過ぎた場合のみ確認します。",
+  "serviceCheckPeriodic": "定期チェック",
+  "serviceCheckPeriodicDesc": "アプリが背面に移動するか、プロキシが停止すると自動チェックを中断します。",
+  "serviceCheckInterval": "チェック間隔",
+  "serviceCheckCacheLifetime": "結果の有効期間",
+  "serviceCheckMinutes": "{minutes} 分",
+  "@serviceCheckMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int",
+        "example": "15"
+      }
+    }
+  }
 }

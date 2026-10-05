@@ -415,10 +415,10 @@ class AppLocalizations {
     );
   }
 
-  /// `Check for updates automatically when the app starts`
+  /// `Check on startup and every 6 hours while the app is in the foreground. Check again on return if due`
   String get autoCheckUpdateDesc {
     return Intl.message(
-      'Check for updates automatically when the app starts',
+      'Check on startup and every 6 hours while the app is in the foreground. Check again on return if due',
       name: 'autoCheckUpdateDesc',
       desc: '',
       args: [],
@@ -5235,10 +5235,10 @@ class AppLocalizations {
     );
   }
 
-  /// `Checks are probes and region estimates; they do not confirm account access. Select services and run a check.`
+  /// `Checks probe connectivity and estimate regions; they do not confirm account access. Run manually or use your automatic-check settings.`
   String get serviceCheckDesc {
     return Intl.message(
-      'Checks are probes and region estimates; they do not confirm account access. Select services and run a check.',
+      'Checks probe connectivity and estimate regions; they do not confirm account access. Run manually or use your automatic-check settings.',
       name: 'serviceCheckDesc',
       desc: '',
       args: [],
@@ -5577,6 +5577,136 @@ class AppLocalizations {
       name: 'panelOpenFailed',
       desc: '',
       args: [],
+    );
+  }
+
+  /// `Automatic service checks`
+  String get autoServiceChecks {
+    return Intl.message(
+      'Automatic service checks',
+      name: 'autoServiceChecks',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Automatic checks use your selected services while the proxy is running and the app is in the foreground. Manual checks remain available.`
+  String get autoServiceChecksDesc {
+    return Intl.message(
+      'Automatic checks use your selected services while the proxy is running and the app is in the foreground. Manual checks remain available.',
+      name: 'autoServiceChecksDesc',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `After connecting`
+  String get serviceCheckOnConnect {
+    return Intl.message(
+      'After connecting',
+      name: 'serviceCheckOnConnect',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Check once after the proxy is running and stable.`
+  String get serviceCheckOnConnectDesc {
+    return Intl.message(
+      'Check once after the proxy is running and stable.',
+      name: 'serviceCheckOnConnectDesc',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `After switching routes`
+  String get serviceCheckOnRouteChange {
+    return Intl.message(
+      'After switching routes',
+      name: 'serviceCheckOnRouteChange',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Discard previous results and check after the node or profile has finished switching.`
+  String get serviceCheckOnRouteChangeDesc {
+    return Intl.message(
+      'Discard previous results and check after the node or profile has finished switching.',
+      name: 'serviceCheckOnRouteChangeDesc',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `When opening the panel`
+  String get serviceCheckOnPanelOpen {
+    return Intl.message(
+      'When opening the panel',
+      name: 'serviceCheckOnPanelOpen',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Check only when results are missing or expired.`
+  String get serviceCheckOnPanelOpenDesc {
+    return Intl.message(
+      'Check only when results are missing or expired.',
+      name: 'serviceCheckOnPanelOpenDesc',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Periodic checks`
+  String get serviceCheckPeriodic {
+    return Intl.message(
+      'Periodic checks',
+      name: 'serviceCheckPeriodic',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Pause automatic checks in the background or when the proxy stops.`
+  String get serviceCheckPeriodicDesc {
+    return Intl.message(
+      'Pause automatic checks in the background or when the proxy stops.',
+      name: 'serviceCheckPeriodicDesc',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Check interval`
+  String get serviceCheckInterval {
+    return Intl.message(
+      'Check interval',
+      name: 'serviceCheckInterval',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Result validity`
+  String get serviceCheckCacheLifetime {
+    return Intl.message(
+      'Result validity',
+      name: 'serviceCheckCacheLifetime',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{minutes} minutes`
+  String serviceCheckMinutes(int minutes) {
+    return Intl.message(
+      '$minutes minutes',
+      name: 'serviceCheckMinutes',
+      desc: '',
+      args: [minutes],
     );
   }
 }
