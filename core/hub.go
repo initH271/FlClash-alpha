@@ -44,7 +44,7 @@ func handleInitClash(params *InitParams) bool {
 	sdkVersion.Store(int32(params.Version))
 	constant.SetHomeDir(params.HomeDir)
 	initOwnership(params.HomeDir)
-	startLogHistory(params.HomeDir)
+	startLogHistoryWithRetention(params.HomeDir, params.LogRetentionDays)
 	isInit.Store(true)
 	return true
 }

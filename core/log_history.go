@@ -14,7 +14,7 @@ import (
 )
 
 const historySegmentBytes = 5 * 1024 * 1024
-const historySegmentCount = 20
+const defaultHistoryRetentionDays = 14
 
 var historyState struct {
 	sync.RWMutex
@@ -24,8 +24,14 @@ var historyState struct {
 }
 
 type historyItem struct {
-	record logstore.Record
-	export chan historyResult
+	record    logstore.Record
+	export    chan historyResult
+	retention *historyRetentionChange
+}
+
+type historyRetentionChange struct {
+	days   int
+	result chan error
 }
 
 type historyResult struct {
@@ -71,8 +77,15 @@ func (historyHook) Fire(entry *logrus.Entry) error {
 }
 
 func startLogHistory(home string) {
+	startLogHistoryWithRetention(home, defaultHistoryRetentionDays)
+}
+
+func startLogHistoryWithRetention(home string, days int) {
 	stopLogHistory()
-	store, err := logstore.Open(filepath.Join(home, "log-history"), historySegmentBytes, historySegmentCount)
+	if days == 0 {
+		days = defaultHistoryRetentionDays
+	}
+	store, err := logstore.OpenRetained(filepath.Join(home, "log-history"), historySegmentBytes, days)
 	historyState.Lock()
 	historyState.initError = err
 	if err != nil {
@@ -92,6 +105,8 @@ func (r *historyRecorder) run() {
 	defer r.store.Close()
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
+	cleanup := time.NewTicker(time.Minute)
+	defer cleanup.Stop()
 	var writeError error
 	report := func(err error) {
 		if err != nil && writeError == nil {
@@ -112,7 +127,9 @@ func (r *historyRecorder) run() {
 				report(r.store.Flush())
 				return
 			}
-			if item.export != nil {
+			if item.retention != nil {
+				item.retention.result <- r.store.SetRetention(item.retention.days)
+			} else if item.export != nil {
 				path := filepath.Join(r.home, "log-history-export.zip")
 				err := errors.Join(writeError, r.store.Export(path))
 				item.export <- historyResult{path: path, err: err}
@@ -122,7 +139,44 @@ func (r *historyRecorder) run() {
 		case <-ticker.C:
 			reportDrops()
 			report(r.store.Flush())
+		case <-cleanup.C:
+			report(r.store.Prune())
 		}
+	}
+}
+
+func handleSetLogHistoryRetention(days int) error {
+	if days < 1 || days > 36500 {
+		return errors.New("log retention must be between 1 and 36500 days")
+	}
+	historyState.RLock()
+	r := historyState.recorder
+	historyState.RUnlock()
+	if r == nil {
+		return errors.New("log history is not initialized")
+	}
+	result := make(chan error, 1)
+	timer := time.NewTimer(time.Minute)
+	defer timer.Stop()
+	r.mu.RLock()
+	if r.closed {
+		r.mu.RUnlock()
+		return errors.New("log history is closing")
+	}
+	select {
+	case r.queue <- historyItem{retention: &historyRetentionChange{days: days, result: result}}:
+		r.mu.RUnlock()
+	case <-timer.C:
+		r.mu.RUnlock()
+		return errors.New("log retention update queue timed out")
+	}
+	select {
+	case err := <-result:
+		return err
+	case <-r.done:
+		return errors.New("log history stopped during retention update")
+	case <-timer.C:
+		return errors.New("log retention update timed out")
 	}
 }
 

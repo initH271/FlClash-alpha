@@ -74,6 +74,9 @@ abstract class AppSettingProps with _$AppSettingProps {
     @Default(false) bool silentLaunch,
     @Default(false) bool autoRun,
     @Default(false) bool openLogs,
+    @Default(defaultLogRetentionDays)
+    @JsonKey(fromJson: logRetentionDaysFromJson)
+    int logRetentionDays,
     @Default(true) bool closeConnections,
     @Default(defaultTestUrl) String testUrl,
     @Default(true) bool isAnimateToPage,
@@ -105,6 +108,11 @@ abstract class AppSettingProps with _$AppSettingProps {
     );
   }
 }
+
+int logRetentionDaysFromJson(Object? value) =>
+    value is int && value >= 1 && value <= maxLogRetentionDays
+    ? value
+    : defaultLogRetentionDays;
 
 @freezed
 abstract class AccessControlProps with _$AccessControlProps {

@@ -101,6 +101,7 @@ class InputDialog extends StatefulWidget {
   final AutovalidateMode? autovalidateMode;
   final bool? obscureText;
   final int? maxLength;
+  final int? errorMaxLines;
   final List<TextInputFormatter>? inputFormatters;
   final TextInputType? keyboardType;
 
@@ -115,6 +116,7 @@ class InputDialog extends StatefulWidget {
     this.obscureText,
     this.labelText,
     this.maxLength,
+    this.errorMaxLines,
     this.inputFormatters,
     this.keyboardType,
     this.autovalidateMode = AutovalidateMode.onUserInteraction,
@@ -205,6 +207,7 @@ class _InputDialogState extends State<InputDialog> {
                 suffixText: suffixText,
                 hintText: widget.hintText,
                 labelText: widget.labelText,
+                errorMaxLines: widget.errorMaxLines,
               ),
               validator: widget.validator,
             ),

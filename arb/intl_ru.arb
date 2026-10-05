@@ -691,5 +691,11 @@
         "example": "15"
       }
     }
-  }
+  },
+  "logRetentionTitle": "Срок хранения журналов ядра",
+  "logRetentionDesc": "История ядра удаляется по истечении выбранного срока. При сокращении срока старые записи удаляются.",
+  "logRetentionDays": "{count, plural, one{{count} день} few{{count} дня} many{{count} дней} other{{count} дня}}",
+  "logRetentionCustom": "Другой срок хранения",
+  "logRetentionInvalid": "Введите целое число дней от 1 до 36500",
+  "logRetentionUnit": "дней"
 }
