@@ -19,6 +19,9 @@ _AppSettingProps _$AppSettingPropsFromJson(Map<String, dynamic> json) =>
       silentLaunch: json['silentLaunch'] as bool? ?? false,
       autoRun: json['autoRun'] as bool? ?? false,
       openLogs: json['openLogs'] as bool? ?? false,
+      logRetentionDays: json['logRetentionDays'] == null
+          ? defaultLogRetentionDays
+          : logRetentionDaysFromJson(json['logRetentionDays']),
       closeConnections: json['closeConnections'] as bool? ?? true,
       testUrl: json['testUrl'] as String? ?? defaultTestUrl,
       isAnimateToPage: json['isAnimateToPage'] as bool? ?? true,
@@ -53,6 +56,7 @@ Map<String, dynamic> _$AppSettingPropsToJson(_AppSettingProps instance) =>
       'silentLaunch': instance.silentLaunch,
       'autoRun': instance.autoRun,
       'openLogs': instance.openLogs,
+      'logRetentionDays': instance.logRetentionDays,
       'closeConnections': instance.closeConnections,
       'testUrl': instance.testUrl,
       'isAnimateToPage': instance.isAnimateToPage,

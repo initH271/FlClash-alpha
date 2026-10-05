@@ -691,5 +691,15 @@
         "example": "15"
       }
     }
-  }
+  },
+  "logRetentionTitle": "Core log retention",
+  "logRetentionDesc": "Core history is deleted after the selected period. Shortening the period removes expired records.",
+  "logRetentionDays": "{count, plural, =1{1 day} other{{count} days}}",
+  "logRetentionCustom": "Custom retention period",
+  "logRetentionInvalid": "Enter a whole number of days between 1 and 36500",
+  "logRetentionUnit": "days",
+  "upstreamVersion": "Upstream version",
+  "releaseDate": "Release date",
+  "buildNumber": "Internal build number",
+  "versionDetails": "Version details"
 }

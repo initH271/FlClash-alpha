@@ -124,12 +124,14 @@ Map<String, dynamic> _$VpnOptionsToJson(_VpnOptions instance) =>
 _InitParams _$InitParamsFromJson(Map<String, dynamic> json) => _InitParams(
   homeDir: json['home-dir'] as String,
   version: (json['version'] as num).toInt(),
+  logRetentionDays: (json['log-retention-days'] as num?)?.toInt() ?? 14,
 );
 
 Map<String, dynamic> _$InitParamsToJson(_InitParams instance) =>
     <String, dynamic>{
       'home-dir': instance.homeDir,
       'version': instance.version,
+      'log-retention-days': instance.logRetentionDays,
     };
 
 _ChangeProxyParams _$ChangeProxyParamsFromJson(Map<String, dynamic> json) =>

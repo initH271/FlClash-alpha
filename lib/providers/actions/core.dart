@@ -15,9 +15,17 @@ class CoreAction extends _$CoreAction {
 
     final version = ref.read(versionProvider);
     if (!isInit) {
-      final res = await _core.init(version);
+      final res = await _core.init(
+        version,
+        logRetentionDays: ref.read(appSettingProvider).logRetentionDays,
+      );
       commonPrint.log('init result: $res');
     } else {
+      await Future<void>.sync(
+        () => _core.setLogHistoryRetention(
+          ref.read(appSettingProvider).logRetentionDays,
+        ),
+      );
       await ref.read(proxiesActionProvider.notifier).updateGroups();
     }
   }

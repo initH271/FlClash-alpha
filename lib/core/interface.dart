@@ -64,6 +64,8 @@ mixin CoreInterface {
 
   Future<String> exportLogHistory();
 
+  FutureOr<void> setLogHistoryRetention(int days);
+
   FutureOr<void> stopLog();
 
   Future<bool> crash();
@@ -338,6 +340,14 @@ abstract class CoreHandlerInterface with CoreInterface {
     return _invokeMessage(
       method: CoreMethod.exportLogHistory,
       timeout: const Duration(seconds: 75),
+    );
+  }
+
+  @override
+  Future<void> setLogHistoryRetention(int days) async {
+    await _invokeMethod<bool>(
+      method: CoreMethod.setLogHistoryRetention,
+      arguments: days,
     );
   }
 

@@ -691,5 +691,15 @@
         "example": "15"
       }
     }
-  }
+  },
+  "logRetentionTitle": "内核历史日志保存周期",
+  "logRetentionDesc": "自动清理超过保存周期的内核日志。缩短周期会清理已到期的记录。",
+  "logRetentionDays": "{count} 天",
+  "logRetentionCustom": "自定义保存周期",
+  "logRetentionInvalid": "请输入 1 到 36500 之间的整数天数",
+  "logRetentionUnit": "天",
+  "upstreamVersion": "上游版本",
+  "releaseDate": "发布日期",
+  "buildNumber": "内部构建号",
+  "versionDetails": "版本详情"
 }

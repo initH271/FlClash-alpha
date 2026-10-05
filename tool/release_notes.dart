@@ -10,6 +10,7 @@ void main(List<String> arguments) {
     ..addOption('repo', defaultsTo: '.')
     ..addOption('version', mandatory: true)
     ..addOption('build', mandatory: true)
+    ..addOption('display-version')
     ..addOption('source', defaultsTo: 'HEAD')
     ..addOption('base');
   try {
@@ -18,6 +19,7 @@ void main(List<String> arguments) {
       root: args.option('repo')!,
       version: args.option('version')!,
       build: int.parse(args.option('build')!),
+      displayVersion: args.option('display-version'),
       source: args.option('source')!,
       base: args.option('base'),
     );

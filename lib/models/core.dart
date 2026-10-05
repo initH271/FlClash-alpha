@@ -64,6 +64,7 @@ abstract class InitParams with _$InitParams {
   const factory InitParams({
     @JsonKey(name: 'home-dir') required String homeDir,
     required int version,
+    @Default(14) @JsonKey(name: 'log-retention-days') int logRetentionDays,
   }) = _InitParams;
 
   factory InitParams.fromJson(Map<String, Object?> json) =>

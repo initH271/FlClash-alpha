@@ -29,6 +29,8 @@ class _CoreContainerState extends ConsumerState<CoreManager>
         WidgetsBindingObserver,
         NetworkAutomationMixin<CoreManager> {
   CoreController get _core => ref.read(coreHandlerProvider);
+  int _logRetentionRevision = 0;
+  bool _syncingLogRetention = false;
 
   @override
   Widget build(BuildContext context) {
@@ -68,8 +70,15 @@ class _CoreContainerState extends ConsumerState<CoreManager>
     ref.listenManual(coreStatusProvider, (_, next) {
       if (next == CoreStatus.connected) {
         _syncLogSubscription();
+        unawaited(_syncLogRetention());
       }
     }, fireImmediately: true);
+    ref.listenManual(
+      appSettingProvider.select((value) => value.logRetentionDays),
+      (_, _) {
+        unawaited(_syncLogRetention());
+      },
+    );
   }
 
   void _syncLogSubscription() {
@@ -80,6 +89,35 @@ class _CoreContainerState extends ConsumerState<CoreManager>
       _core.startLog();
     } else {
       _core.stopLog();
+    }
+  }
+
+  Future<void> _syncLogRetention() async {
+    if (ref.read(coreStatusProvider) != CoreStatus.connected) return;
+    _logRetentionRevision++;
+    if (_syncingLogRetention) return;
+    _syncingLogRetention = true;
+    try {
+      int applied;
+      do {
+        applied = _logRetentionRevision;
+        try {
+          await Future<void>.sync(
+            () => _core.setLogHistoryRetention(
+              ref.read(appSettingProvider).logRetentionDays,
+            ),
+          );
+        } catch (error) {
+          commonPrint.log(
+            'Failed to update log retention: $error',
+            logLevel: LogLevel.warning,
+          );
+        }
+      } while (mounted &&
+          applied != _logRetentionRevision &&
+          ref.read(coreStatusProvider) == CoreStatus.connected);
+    } finally {
+      _syncingLogRetention = false;
     }
   }
 

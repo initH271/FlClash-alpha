@@ -11,8 +11,9 @@ import (
 )
 
 type InitParams struct {
-	HomeDir string `json:"home-dir"`
-	Version int    `json:"version"`
+	HomeDir          string `json:"home-dir"`
+	Version          int    `json:"version"`
+	LogRetentionDays int    `json:"log-retention-days"`
 }
 
 type SetupParams struct {
@@ -107,6 +108,7 @@ const (
 	sideLoadExternalProviderMethod CoreMethod = "sideLoadExternalProvider"
 	startLogMethod                 CoreMethod = "startLog"
 	exportLogHistoryMethod         CoreMethod = "exportLogHistory"
+	setLogHistoryRetentionMethod   CoreMethod = "setLogHistoryRetention"
 	stopLogMethod                  CoreMethod = "stopLog"
 	startListenerMethod            CoreMethod = "startListener"
 	stopListenerMethod             CoreMethod = "stopListener"

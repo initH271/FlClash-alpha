@@ -691,5 +691,15 @@
         "example": "15"
       }
     }
-  }
+  },
+  "logRetentionTitle": "コアログの保存期間",
+  "logRetentionDesc": "指定期間を過ぎたコア履歴を自動削除します。期間を短くすると期限切れの記録が削除されます。",
+  "logRetentionDays": "{count} 日",
+  "logRetentionCustom": "保存期間を指定",
+  "logRetentionInvalid": "1〜36500 の整数で日数を入力してください",
+  "logRetentionUnit": "日",
+  "upstreamVersion": "上流バージョン",
+  "releaseDate": "公開日",
+  "buildNumber": "内部ビルド番号",
+  "versionDetails": "バージョン詳細"
 }

@@ -5709,6 +5709,103 @@ class AppLocalizations {
       args: [minutes],
     );
   }
+
+  /// `Core log retention`
+  String get logRetentionTitle {
+    return Intl.message(
+      'Core log retention',
+      name: 'logRetentionTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Core history is deleted after the selected period. Shortening the period removes expired records.`
+  String get logRetentionDesc {
+    return Intl.message(
+      'Core history is deleted after the selected period. Shortening the period removes expired records.',
+      name: 'logRetentionDesc',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{count, plural, =1{1 day} other{{count} days}}`
+  String logRetentionDays(num count) {
+    return Intl.plural(
+      count,
+      one: '1 day',
+      other: '$count days',
+      name: 'logRetentionDays',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `Custom retention period`
+  String get logRetentionCustom {
+    return Intl.message(
+      'Custom retention period',
+      name: 'logRetentionCustom',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Enter a whole number of days between 1 and 36500`
+  String get logRetentionInvalid {
+    return Intl.message(
+      'Enter a whole number of days between 1 and 36500',
+      name: 'logRetentionInvalid',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `days`
+  String get logRetentionUnit {
+    return Intl.message('days', name: 'logRetentionUnit', desc: '', args: []);
+  }
+
+  /// `Upstream version`
+  String get upstreamVersion {
+    return Intl.message(
+      'Upstream version',
+      name: 'upstreamVersion',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Release date`
+  String get releaseDate {
+    return Intl.message(
+      'Release date',
+      name: 'releaseDate',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Internal build number`
+  String get buildNumber {
+    return Intl.message(
+      'Internal build number',
+      name: 'buildNumber',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Version details`
+  String get versionDetails {
+    return Intl.message(
+      'Version details',
+      name: 'versionDetails',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<AppLocalizations> {

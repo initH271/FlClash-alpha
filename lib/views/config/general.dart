@@ -2,6 +2,7 @@ import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/models/models.dart';
+import 'log_retention.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:material_ui/material_ui.dart';
@@ -337,9 +338,12 @@ class GeneralListView extends ConsumerWidget {
           ],
         ),
       ...generateSection(
+        title: appLocalizations.logs,
+        items: const [LogLevelItem(), LogRetentionItem()],
+      ),
+      ...generateSection(
         title: appLocalizations.other,
         items: [
-          const LogLevelItem(),
           const UaItem(),
           const TestUrlItem(),
           if (system.isDesktop) const KeepAliveIntervalItem(),

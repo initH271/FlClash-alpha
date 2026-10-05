@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:fl_clash/common/common.dart';
@@ -362,6 +363,85 @@ void main() {
 
     verifyNever(() => coreInterface.startLog());
     verifyNever(() => coreInterface.stopLog());
+  });
+
+  testWidgets(
+    'log retention waits for connection and applies latest saved period',
+    (tester) async {
+      final coreInterface = _coreInterface();
+      final container = await _pumpCoreManager(tester, coreInterface);
+      container
+          .read(appSettingProvider.notifier)
+          .update((value) => value.copyWith(logRetentionDays: 30));
+      await tester.pump();
+      verifyNever(() => coreInterface.setLogHistoryRetention(any()));
+      container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
+      await tester.pump();
+      verify(() => coreInterface.setLogHistoryRetention(30)).called(1);
+      container
+          .read(appSettingProvider.notifier)
+          .update((value) => value.copyWith(logRetentionDays: 7));
+      await tester.pump();
+      verify(() => coreInterface.setLogHistoryRetention(7)).called(1);
+      container.read(coreStatusProvider.notifier).value = CoreStatus.connecting;
+      container
+          .read(appSettingProvider.notifier)
+          .update((value) => value.copyWith(logRetentionDays: 21));
+      await tester.pump();
+      verifyNever(() => coreInterface.setLogHistoryRetention(21));
+      container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
+      await tester.pump();
+      verify(() => coreInterface.setLogHistoryRetention(21)).called(1);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets('slow retention updates coalesce to the newest period', (
+    tester,
+  ) async {
+    final coreInterface = _coreInterface();
+    final pending = Completer<void>();
+    when(
+      () => coreInterface.setLogHistoryRetention(14),
+    ).thenAnswer((_) => pending.future);
+    final container = await _pumpCoreManager(tester, coreInterface);
+    container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
+    await tester.pump();
+    verify(() => coreInterface.setLogHistoryRetention(14)).called(1);
+    container
+        .read(appSettingProvider.notifier)
+        .update((value) => value.copyWith(logRetentionDays: 1));
+    await tester.pump();
+    container
+        .read(appSettingProvider.notifier)
+        .update((value) => value.copyWith(logRetentionDays: 30));
+    await tester.pump();
+    verifyNever(() => coreInterface.setLogHistoryRetention(1));
+    pending.complete();
+    await tester.pump();
+    verify(() => coreInterface.setLogHistoryRetention(30)).called(1);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('failed older retention update still applies the newest period', (
+    tester,
+  ) async {
+    final coreInterface = _coreInterface();
+    final pending = Completer<void>();
+    when(
+      () => coreInterface.setLogHistoryRetention(14),
+    ).thenAnswer((_) => pending.future);
+    final container = await _pumpCoreManager(tester, coreInterface);
+    container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
+    await tester.pump();
+    container
+        .read(appSettingProvider.notifier)
+        .update((value) => value.copyWith(logRetentionDays: 30));
+    await tester.pump();
+    pending.completeError(StateError('old request failed'));
+    await tester.pump();
+    verify(() => coreInterface.setLogHistoryRetention(30)).called(1);
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 
   testWidgets('core logs are recorded for the logs view', (tester) async {

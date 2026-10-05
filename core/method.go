@@ -262,6 +262,15 @@ var methodHandlers = map[CoreMethod]methodHandler{
 			response.success(path)
 		})
 	}),
+	setLogHistoryRetentionMethod: withArguments(func(days *int, response MethodResponse) {
+		safeGo(response, func() {
+			if err := handleSetLogHistoryRetention(*days); err != nil {
+				response.failure("log_retention_update_failed", err.Error(), nil)
+				return
+			}
+			response.success(true)
+		})
+	}),
 	stopLogMethod: withoutArguments(func(response MethodResponse) {
 		handleStopLog()
 		response.success(true)
