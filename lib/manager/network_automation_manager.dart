@@ -21,7 +21,6 @@ mixin NetworkAutomationMixin<T extends ConsumerStatefulWidget>
   bool _wakelockEnabled = false;
   bool _wakeTouched = false;
   Future<void> _wakePending = Future.value();
-  ProviderSubscription<Map<String, String>>? _routeSubscription;
 
   @override
   void initState() {
@@ -31,27 +30,22 @@ mixin NetworkAutomationMixin<T extends ConsumerStatefulWidget>
       _revision++;
       _policy.userIntent();
     });
-    ref.listenManual(networkFeaturesProvider, (_, _) {
-      _syncSubscription();
-      _schedule();
-      unawaited(_syncWakelock());
-    });
+    ref.listenManual(
+      networkFeaturesProvider.select(
+        (settings) => (
+          settings.smartAutoStop,
+          settings.smartAutoStopNetworks,
+          settings.keepAwake,
+        ),
+      ),
+      (_, _) {
+        _syncSubscription();
+        _schedule();
+        unawaited(_syncWakelock());
+      },
+    );
     ref.listenManual(runTimeProvider.select((value) => value != null), (_, _) {
-      ref.read(serviceCheckResultsProvider.notifier).clear();
       unawaited(_syncWakelock());
-    });
-    ref.listenManual(serviceCheckResultsProvider, (_, results) {
-      if (results.isNotEmpty) {
-        _routeSubscription ??= ref.listenManual(selectedMapProvider, (_, _) {
-          ref.read(serviceCheckResultsProvider.notifier).clear();
-        });
-      } else {
-        _routeSubscription?.close();
-        _routeSubscription = null;
-      }
-    });
-    ref.listenManual(currentProfileIdProvider, (_, _) {
-      ref.read(serviceCheckResultsProvider.notifier).clear();
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -150,7 +144,6 @@ mixin NetworkAutomationMixin<T extends ConsumerStatefulWidget>
     _revision++;
     _debounce?.cancel();
     unawaited(_subscription?.cancel());
-    _routeSubscription?.close();
     if (_wakeTouched) {
       unawaited(
         _wakePending

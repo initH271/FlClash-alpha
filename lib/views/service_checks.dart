@@ -1,7 +1,6 @@
 import 'package:fl_clash/common/common.dart';
-import 'package:fl_clash/common/media_unlock_checker.dart';
-import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/media_unlock.dart';
+import 'service_check_settings.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:material_ui/material_ui.dart';
@@ -32,93 +31,27 @@ String serviceStatusText(BuildContext context, MediaUnlockStatus status) {
 }
 
 class ServiceChecksView extends ConsumerStatefulWidget {
-  const ServiceChecksView({super.key, this.checker});
-  final MediaUnlockChecker? checker;
+  const ServiceChecksView({super.key});
 
   @override
   ConsumerState<ServiceChecksView> createState() => _ServiceChecksViewState();
 }
 
 class _ServiceChecksViewState extends ConsumerState<ServiceChecksView> {
-  late final MediaUnlockChecker _checker;
-  final _selected = <MediaPlatform>{
-    MediaPlatform.openai,
-    MediaPlatform.claude,
-    MediaPlatform.gemini,
-    MediaPlatform.netflix,
-    MediaPlatform.disney,
-    MediaPlatform.youtube,
-    MediaPlatform.spotify,
-  };
-  bool _running = false;
-  bool _failed = false;
-  int _revision = 0;
+  late final ServiceCheckController _controller;
 
   @override
   void initState() {
     super.initState();
-    _checker =
-        widget.checker ??
-        MediaUnlockChecker(
-          unifiedDelay: ref.read(patchClashConfigProvider).unifiedDelay,
-        );
-    ref.listenManual(selectedMapProvider, (_, _) => _routeChanged());
-    ref.listenManual(currentProfileIdProvider, (_, _) => _routeChanged());
-    ref.listenManual(
-      runTimeProvider.select((value) => value != null),
-      (_, _) => _routeChanged(),
-    );
-  }
-
-  void _routeChanged() {
-    _revision++;
-    _checker.cancel();
-    ref.read(serviceCheckResultsProvider.notifier).clear();
-    if (mounted) {
-      setState(() {
-        _running = false;
-        _failed = false;
-      });
-    }
-  }
-
-  Future<void> _check() async {
-    if (_running) {
-      _revision++;
-      _checker.cancel();
-      setState(() => _running = false);
-      return;
-    }
-    if (_selected.isEmpty) return;
-    final revision = ++_revision;
-    setState(() {
-      _running = true;
-      _failed = false;
+    _controller = ref.read(serviceCheckControllerProvider.notifier);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _controller.panelOpened();
     });
-    try {
-      await _checker.checkAll(
-        platforms: _selected.toList(),
-        onProgress: (result) {
-          if (mounted && revision == _revision) {
-            ref.read(serviceCheckResultsProvider.notifier).add(result);
-          }
-        },
-      );
-    } catch (error) {
-      commonPrint.log(
-        'Service checks failed (${error.runtimeType})',
-        logLevel: LogLevel.warning,
-      );
-      if (mounted && revision == _revision) setState(() => _failed = true);
-    } finally {
-      if (mounted && revision == _revision) setState(() => _running = false);
-    }
   }
 
   @override
   void dispose() {
-    _revision++;
-    _checker.cancel();
+    _controller.panelClosed();
     super.dispose();
   }
 
@@ -126,6 +59,10 @@ class _ServiceChecksViewState extends ConsumerState<ServiceChecksView> {
   Widget build(BuildContext context) {
     final l = context.appLocalizations;
     final results = ref.watch(serviceCheckResultsProvider);
+    final activity = ref.watch(serviceCheckControllerProvider);
+    final selected = ref.watch(
+      networkFeaturesProvider.select((value) => value.serviceChecks.platforms),
+    );
     return Column(
       children: [
         Padding(padding: baseInfoEdgeInsets, child: Text(l.serviceCheckDesc)),
@@ -136,16 +73,25 @@ class _ServiceChecksViewState extends ConsumerState<ServiceChecksView> {
               Expanded(
                 child: FilledButton.icon(
                   key: const ValueKey('run-service-checks'),
-                  onPressed: _selected.isEmpty && !_running ? null : _check,
-                  icon: Icon(_running ? Icons.stop : Icons.refresh),
-                  label: Text(_running ? l.cancel : l.serviceChecks),
+                  onPressed: selected.isEmpty && !activity.running
+                      ? null
+                      : _controller.toggleManual,
+                  icon: Icon(activity.running ? Icons.stop : Icons.refresh),
+                  label: Text(activity.running ? l.cancel : l.serviceChecks),
                 ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                key: const ValueKey('service-check-options'),
+                tooltip: l.autoServiceChecks,
+                icon: const Icon(Icons.tune),
+                onPressed: () => ServiceCheckSettingsView.show(context),
               ),
             ],
           ),
         ),
-        if (_running) const LinearProgressIndicator(),
-        if (_failed)
+        if (activity.running) const LinearProgressIndicator(),
+        if (activity.failed)
           Padding(
             padding: baseInfoEdgeInsets.copyWith(top: 0),
             child: Text(
@@ -168,14 +114,23 @@ class _ServiceChecksViewState extends ConsumerState<ServiceChecksView> {
                 padding: const EdgeInsets.only(bottom: 8),
                 child: ContentPanel(
                   child: CheckboxListTile(
-                    value: _selected.contains(platform),
-                    onChanged: _running
+                    value: selected.contains(platform),
+                    onChanged: activity.running
                         ? null
-                        : (value) => setState(() {
+                        : (value) {
+                            final next = selected.toSet();
                             value == true
-                                ? _selected.add(platform)
-                                : _selected.remove(platform);
-                          }),
+                                ? next.add(platform)
+                                : next.remove(platform);
+                            ref
+                                .read(networkFeaturesProvider.notifier)
+                                .update(
+                                  (settings) => settings.copyWith(
+                                    serviceChecks: settings.serviceChecks
+                                        .copyWith(platforms: next.toList()),
+                                  ),
+                                );
+                          },
                     title: Text(
                       platform.defaultName,
                       style: context.textTheme.bodyLarge?.copyWith(

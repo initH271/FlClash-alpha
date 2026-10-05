@@ -143,10 +143,14 @@ class ProxiesAction extends _$ProxiesAction {
         _pendingSelectedRollback.remove(groupName) ??
         _currentSelectedName(groupName);
     profilesAction.updateCurrentSelectedMap(groupName, proxyName);
+    final routing = ref.read(serviceCheckRoutingProvider.notifier);
+    final token = routing.begin();
+    var applied = false;
     try {
       await _core.changeProxy(
         ChangeProxyParams(groupName: groupName, proxyName: proxyName),
       );
+      applied = true;
     } catch (error) {
       commonPrint.log(
         'changeProxy($groupName -> $proxyName) failed: $error',
@@ -158,6 +162,8 @@ class ProxiesAction extends _$ProxiesAction {
         level: MessageLevel.error,
       );
       return;
+    } finally {
+      if (ref.mounted) routing.end(token, applied: applied);
     }
     try {
       if (ref.read(appSettingProvider).closeConnections) {

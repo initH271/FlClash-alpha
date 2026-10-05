@@ -50,7 +50,7 @@
   "logcat": "Logcat",
   "logcatDesc": "Disabling hides the log entry point",
   "autoCheckUpdate": "Auto check for updates",
-  "autoCheckUpdateDesc": "Check for updates automatically when the app starts",
+  "autoCheckUpdateDesc": "Check on startup and every 6 hours while the app is in the foreground. Check again on return if due",
   "checkCertificate": "Verify TLS certificates",
   "checkCertificateDesc": "Reject untrusted certificates. Turning this off exposes subscriptions and backups to man-in-the-middle attacks",
   "accessControl": "Access control",
@@ -630,7 +630,7 @@
   "updateRetry": "Retry",
   "networkFeatures": "Network tools",
   "serviceChecks": "Service checks",
-  "serviceCheckDesc": "Checks are probes and region estimates; they do not confirm account access. Select services and run a check.",
+  "serviceCheckDesc": "Checks probe connectivity and estimate regions; they do not confirm account access. Run manually or use your automatic-check settings.",
   "smartAutoStop": "Automatic stop and resume",
   "smartAutoStopDesc": "Pause on matching local networks; resume only connections paused automatically. Manual stop takes priority.",
   "networkRules": "Local network rules",
@@ -670,5 +670,26 @@
   "featureOffShort": "Off",
   "serviceCheckFailed": "Checks did not finish. Please retry.",
   "panelOpening": "Opening…",
-  "panelOpenFailed": "Could not open the panel. Retry."
+  "panelOpenFailed": "Could not open the panel. Retry.",
+  "autoServiceChecks": "Automatic service checks",
+  "autoServiceChecksDesc": "Automatic checks use your selected services while the proxy is running and the app is in the foreground. Manual checks remain available.",
+  "serviceCheckOnConnect": "After connecting",
+  "serviceCheckOnConnectDesc": "Check once after the proxy is running and stable.",
+  "serviceCheckOnRouteChange": "After switching routes",
+  "serviceCheckOnRouteChangeDesc": "Discard previous results and check after the node or profile has finished switching.",
+  "serviceCheckOnPanelOpen": "When opening the panel",
+  "serviceCheckOnPanelOpenDesc": "Check only when results are missing or expired.",
+  "serviceCheckPeriodic": "Periodic checks",
+  "serviceCheckPeriodicDesc": "Pause automatic checks in the background or when the proxy stops.",
+  "serviceCheckInterval": "Check interval",
+  "serviceCheckCacheLifetime": "Result validity",
+  "serviceCheckMinutes": "{minutes} minutes",
+  "@serviceCheckMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int",
+        "example": "15"
+      }
+    }
+  }
 }

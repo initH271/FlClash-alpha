@@ -81,9 +81,11 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m28(count) => "已选择 ${count} 项";
 
-  static String m29(label) => "${label}必须为URL";
+  static String m29(minutes) => "${minutes} 分钟";
 
-  static String m30(count) => "${count} 年前";
+  static String m30(label) => "${label}必须为URL";
+
+  static String m31(count) => "${count} 年前";
 
   final messages = _notInlinedMessages(_notInlinedMessages);
   static Map<String, Function> _notInlinedMessages(_) => <String, Function>{
@@ -144,7 +146,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "authorized": MessageLookupByLibrary.simpleMessage("已授权"),
     "auto": MessageLookupByLibrary.simpleMessage("自动"),
     "autoCheckUpdate": MessageLookupByLibrary.simpleMessage("自动检查更新"),
-    "autoCheckUpdateDesc": MessageLookupByLibrary.simpleMessage("应用启动时自动检查更新"),
+    "autoCheckUpdateDesc": MessageLookupByLibrary.simpleMessage(
+      "启动时自动检查，前台每 6 小时检查一次；返回前台时补查到期更新",
+    ),
     "autoCloseConnections": MessageLookupByLibrary.simpleMessage("自动关闭连接"),
     "autoCloseConnectionsDesc": MessageLookupByLibrary.simpleMessage(
       "切换节点后自动关闭连接",
@@ -153,6 +157,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "autoLaunchDesc": MessageLookupByLibrary.simpleMessage("跟随系统自启动"),
     "autoRun": MessageLookupByLibrary.simpleMessage("自动运行"),
     "autoRunDesc": MessageLookupByLibrary.simpleMessage("应用打开时自动运行"),
+    "autoServiceChecks": MessageLookupByLibrary.simpleMessage("自动服务检测"),
+    "autoServiceChecksDesc": MessageLookupByLibrary.simpleMessage(
+      "自动检测使用当前勾选的服务，仅在代理运行且应用位于前台时执行。仍可随时手动检测。",
+    ),
     "autoSetSystemDns": MessageLookupByLibrary.simpleMessage("自动设置系统DNS"),
     "autoUpdate": MessageLookupByLibrary.simpleMessage("自动更新"),
     "autoUpdateInterval": MessageLookupByLibrary.simpleMessage("自动更新间隔（分钟）"),
@@ -791,10 +799,31 @@ class MessageLookup extends MessageLookupByLibrary {
     "selectedCountTitle": m28,
     "serviceAvailable": MessageLookupByLibrary.simpleMessage("检测通过"),
     "serviceBlocked": MessageLookupByLibrary.simpleMessage("不可用"),
+    "serviceCheckCacheLifetime": MessageLookupByLibrary.simpleMessage("结果有效期"),
     "serviceCheckDesc": MessageLookupByLibrary.simpleMessage(
-      "检测为连通性探测与区域推断，不保证账号可用。选择服务后开始检测。",
+      "检测为连通性探测与区域推断，不保证账号可用。可手动开始，自动检测遵循当前设置。",
     ),
     "serviceCheckFailed": MessageLookupByLibrary.simpleMessage("检测未完成，请重试。"),
+    "serviceCheckInterval": MessageLookupByLibrary.simpleMessage("检测间隔"),
+    "serviceCheckMinutes": m29,
+    "serviceCheckOnConnect": MessageLookupByLibrary.simpleMessage("连接后检测"),
+    "serviceCheckOnConnectDesc": MessageLookupByLibrary.simpleMessage(
+      "代理运行并稳定后检测一次。",
+    ),
+    "serviceCheckOnPanelOpen": MessageLookupByLibrary.simpleMessage(
+      "打开面板时按需检测",
+    ),
+    "serviceCheckOnPanelOpenDesc": MessageLookupByLibrary.simpleMessage(
+      "仅在结果缺失或过期时检测。",
+    ),
+    "serviceCheckOnRouteChange": MessageLookupByLibrary.simpleMessage("切换后检测"),
+    "serviceCheckOnRouteChangeDesc": MessageLookupByLibrary.simpleMessage(
+      "节点或配置切换完成后清除旧结果，重新检测。",
+    ),
+    "serviceCheckPeriodic": MessageLookupByLibrary.simpleMessage("定时检测"),
+    "serviceCheckPeriodicDesc": MessageLookupByLibrary.simpleMessage(
+      "应用退到后台或代理停止时暂停自动检测。",
+    ),
     "serviceChecks": MessageLookupByLibrary.simpleMessage("服务解锁检测"),
     "serviceFailed": MessageLookupByLibrary.simpleMessage("检测失败"),
     "serviceFlagged": MessageLookupByLibrary.simpleMessage("存在限制标记"),
@@ -912,7 +941,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "upstreamProject": MessageLookupByLibrary.simpleMessage("上游项目"),
     "url": MessageLookupByLibrary.simpleMessage("URL"),
     "urlDesc": MessageLookupByLibrary.simpleMessage("通过URL获取配置文件"),
-    "urlTip": m29,
+    "urlTip": m30,
     "useHosts": MessageLookupByLibrary.simpleMessage("使用Hosts"),
     "useSystemHosts": MessageLookupByLibrary.simpleMessage("使用系统Hosts"),
     "usedTraffic": MessageLookupByLibrary.simpleMessage("已用流量"),
@@ -930,7 +959,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "wakelockSwitch": MessageLookupByLibrary.simpleMessage("保持唤醒"),
     "webDAVConfiguration": MessageLookupByLibrary.simpleMessage("WebDAV配置"),
     "whitelistMode": MessageLookupByLibrary.simpleMessage("白名单模式"),
-    "yearsAgo": m30,
+    "yearsAgo": m31,
     "zhCN": MessageLookupByLibrary.simpleMessage("中文简体"),
   };
 }

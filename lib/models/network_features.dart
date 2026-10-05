@@ -1,3 +1,5 @@
+import 'service_check.dart';
+
 class NetworkFeatureSettings {
   const NetworkFeatureSettings({
     this.disableQuic = false,
@@ -9,6 +11,7 @@ class NetworkFeatureSettings {
     this.ntpEnabled = true,
     this.ntpServer = 'time.apple.com',
     this.keepAwake = false,
+    this.serviceChecks = const ServiceCheckSettings(),
   });
 
   final bool disableQuic;
@@ -20,6 +23,7 @@ class NetworkFeatureSettings {
   final bool ntpEnabled;
   final String ntpServer;
   final bool keepAwake;
+  final ServiceCheckSettings serviceChecks;
 
   static NetworkFeatureSettings safeFromJson(Object? value) {
     if (value is! Map<String, dynamic>) return const NetworkFeatureSettings();
@@ -42,7 +46,8 @@ class NetworkFeatureSettings {
           overrideNtp == other.overrideNtp &&
           ntpEnabled == other.ntpEnabled &&
           ntpServer == other.ntpServer &&
-          keepAwake == other.keepAwake;
+          keepAwake == other.keepAwake &&
+          serviceChecks == other.serviceChecks;
 
   @override
   int get hashCode => Object.hash(
@@ -55,6 +60,7 @@ class NetworkFeatureSettings {
     ntpEnabled,
     ntpServer,
     keepAwake,
+    serviceChecks,
   );
 
   factory NetworkFeatureSettings.fromJson(Map<String, dynamic> json) =>
@@ -68,6 +74,7 @@ class NetworkFeatureSettings {
         ntpEnabled: json['ntpEnabled'] as bool? ?? true,
         ntpServer: json['ntpServer'] as String? ?? 'time.apple.com',
         keepAwake: json['keepAwake'] == true,
+        serviceChecks: ServiceCheckSettings.fromJson(json['serviceChecks']),
       );
 
   Map<String, dynamic> toJson() => {
@@ -80,6 +87,7 @@ class NetworkFeatureSettings {
     'ntpEnabled': ntpEnabled,
     'ntpServer': ntpServer,
     'keepAwake': keepAwake,
+    'serviceChecks': serviceChecks.toJson(),
   };
 
   NetworkFeatureSettings copyWith({
@@ -92,6 +100,7 @@ class NetworkFeatureSettings {
     bool? ntpEnabled,
     String? ntpServer,
     bool? keepAwake,
+    ServiceCheckSettings? serviceChecks,
   }) => NetworkFeatureSettings(
     disableQuic: disableQuic ?? this.disableQuic,
     smartAutoStop: smartAutoStop ?? this.smartAutoStop,
@@ -102,6 +111,7 @@ class NetworkFeatureSettings {
     ntpEnabled: ntpEnabled ?? this.ntpEnabled,
     ntpServer: ntpServer ?? this.ntpServer,
     keepAwake: keepAwake ?? this.keepAwake,
+    serviceChecks: serviceChecks ?? this.serviceChecks,
   );
 
   (bool, bool, bool, bool, bool, String) get profileOptions => (

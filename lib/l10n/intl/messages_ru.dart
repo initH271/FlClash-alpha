@@ -92,9 +92,11 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m28(count) => "Выбрано: ${count}";
 
-  static String m29(label) => "Значение «${label}» должно быть URL";
+  static String m29(minutes) => "${minutes} мин.";
 
-  static String m30(count) =>
+  static String m30(label) => "Значение «${label}» должно быть URL";
+
+  static String m31(count) =>
       "${Intl.plural(count, one: '${count} год назад', few: '${count} года назад', many: '${count} лет назад', other: '${count} года назад')}";
 
   final messages = _notInlinedMessages(_notInlinedMessages);
@@ -189,7 +191,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Автопроверка обновлений",
     ),
     "autoCheckUpdateDesc": MessageLookupByLibrary.simpleMessage(
-      "Автоматически проверять обновления при запуске приложения",
+      "Проверять при запуске и каждые 6 часов на переднем плане. При возврате проверять, если интервал истёк",
     ),
     "autoCloseConnections": MessageLookupByLibrary.simpleMessage(
       "Автозакрытие соединений",
@@ -204,6 +206,12 @@ class MessageLookup extends MessageLookupByLibrary {
     "autoRun": MessageLookupByLibrary.simpleMessage("Автовключение"),
     "autoRunDesc": MessageLookupByLibrary.simpleMessage(
       "Включаться автоматически при открытии приложения",
+    ),
+    "autoServiceChecks": MessageLookupByLibrary.simpleMessage(
+      "Автоматическая проверка сервисов",
+    ),
+    "autoServiceChecksDesc": MessageLookupByLibrary.simpleMessage(
+      "Выбранные сервисы проверяются при работающем прокси, пока приложение на переднем плане. Ручная проверка также доступна.",
     ),
     "autoSetSystemDns": MessageLookupByLibrary.simpleMessage(
       "Автонастройка системного DNS",
@@ -589,10 +597,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "installUpdate": MessageLookupByLibrary.simpleMessage(
       "Установить обновление",
     ),
-    "installedAppsPermissionDeniedMessage":
-        MessageLookupByLibrary.simpleMessage(
-          "Разрешение на список приложений отклонено, поэтому установленные приложения недоступны. Предоставьте его вручную в системных настройках.",
-        ),
+    "installedAppsPermissionDeniedMessage": MessageLookupByLibrary.simpleMessage(
+      "Разрешение на список приложений отклонено, поэтому установленные приложения недоступны. Предоставьте его вручную в системных настройках.",
+    ),
     "installedAppsPermissionDesc": MessageLookupByLibrary.simpleMessage(
       "Эта система не выдаёт список установленных приложений без разрешения. Предоставьте его, чтобы настроить прокси для отдельных приложений.",
     ),
@@ -1159,11 +1166,42 @@ class MessageLookup extends MessageLookupByLibrary {
     "selectedCountTitle": m28,
     "serviceAvailable": MessageLookupByLibrary.simpleMessage("Доступен"),
     "serviceBlocked": MessageLookupByLibrary.simpleMessage("Заблокирован"),
+    "serviceCheckCacheLifetime": MessageLookupByLibrary.simpleMessage(
+      "Срок действия результатов",
+    ),
     "serviceCheckDesc": MessageLookupByLibrary.simpleMessage(
-      "Это проверка доступности и оценка региона, а не гарантия доступа аккаунта. Выберите сервисы и запустите проверку.",
+      "Это проверка доступности и оценка региона, а не гарантия доступа аккаунта. Запустите вручную или используйте настройки автоматической проверки.",
     ),
     "serviceCheckFailed": MessageLookupByLibrary.simpleMessage(
       "Проверка не завершена. Повторите попытку.",
+    ),
+    "serviceCheckInterval": MessageLookupByLibrary.simpleMessage(
+      "Интервал проверки",
+    ),
+    "serviceCheckMinutes": m29,
+    "serviceCheckOnConnect": MessageLookupByLibrary.simpleMessage(
+      "После подключения",
+    ),
+    "serviceCheckOnConnectDesc": MessageLookupByLibrary.simpleMessage(
+      "Проверить один раз после запуска и стабилизации прокси.",
+    ),
+    "serviceCheckOnPanelOpen": MessageLookupByLibrary.simpleMessage(
+      "При открытии панели",
+    ),
+    "serviceCheckOnPanelOpenDesc": MessageLookupByLibrary.simpleMessage(
+      "Проверять только при отсутствии или истечении срока результатов.",
+    ),
+    "serviceCheckOnRouteChange": MessageLookupByLibrary.simpleMessage(
+      "После смены маршрута",
+    ),
+    "serviceCheckOnRouteChangeDesc": MessageLookupByLibrary.simpleMessage(
+      "Удалить прежние результаты и проверить после смены узла или профиля.",
+    ),
+    "serviceCheckPeriodic": MessageLookupByLibrary.simpleMessage(
+      "Периодическая проверка",
+    ),
+    "serviceCheckPeriodicDesc": MessageLookupByLibrary.simpleMessage(
+      "Автоматические проверки приостанавливаются в фоне или при остановке прокси.",
     ),
     "serviceChecks": MessageLookupByLibrary.simpleMessage("Проверка сервисов"),
     "serviceFailed": MessageLookupByLibrary.simpleMessage("Ошибка проверки"),
@@ -1326,7 +1364,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "upstreamProject": MessageLookupByLibrary.simpleMessage("Исходный проект"),
     "url": MessageLookupByLibrary.simpleMessage("URL"),
     "urlDesc": MessageLookupByLibrary.simpleMessage("Получить профиль по URL"),
-    "urlTip": m29,
+    "urlTip": m30,
     "useHosts": MessageLookupByLibrary.simpleMessage("Использовать hosts"),
     "useSystemHosts": MessageLookupByLibrary.simpleMessage(
       "Использовать системный hosts",
@@ -1356,7 +1394,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "whitelistMode": MessageLookupByLibrary.simpleMessage(
       "Режим белого списка",
     ),
-    "yearsAgo": m30,
+    "yearsAgo": m31,
     "zhCN": MessageLookupByLibrary.simpleMessage("Упрощённый китайский"),
   };
 }

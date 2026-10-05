@@ -1,4 +1,5 @@
 import 'package:fl_clash/manager/network_automation_manager.dart';
+import 'package:fl_clash/manager/service_check_manager.dart';
 import 'dart:async';
 
 import 'package:fl_clash/common/common.dart';
@@ -31,7 +32,7 @@ class _CoreContainerState extends ConsumerState<CoreManager>
 
   @override
   Widget build(BuildContext context) {
-    return widget.child;
+    return ServiceCheckManager(child: widget.child);
   }
 
   @override
