@@ -1,52 +1,43 @@
 import argparse
 import hashlib
 import json
+import os
 import pathlib
 import subprocess
 import sys
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-import release_notes
-
-parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument(
-    '--base',
-    default=None,
-    help='Alpha tag to diff against instead of the newest eligible one',
-)
-parser.add_argument(
-    '--dry-run',
-    action='store_true',
-    help='Print the release notes without writing dist/',
-)
+parser = argparse.ArgumentParser()
+parser.add_argument('--base')
+parser.add_argument('--source', default='HEAD')
+parser.add_argument('--dry-run', action='store_true')
 args = parser.parse_args()
+if not args.dry_run and (args.base is not None or args.source != 'HEAD'):
+    parser.error('--base and --source are only allowed with --dry-run')
 
 root = pathlib.Path(__file__).resolve().parents[2]
 metadata = json.loads((root / '.github/release.json').read_text(encoding='utf-8'))
-dist = root / 'dist'
-
+command = [
+    os.environ.get('DART', 'dart'), str(root / 'tool/release_notes.dart'),
+    '--repo', str(root), '--version', metadata['version'],
+    '--build', str(metadata['build']), '--source', args.source,
+]
+if args.base is not None:
+    command.extend(['--base', args.base])
+generated = json.loads(subprocess.check_output(command, cwd=root, text=True))
 if args.dry_run:
-    print(metadata['tag'] if 'tag' in metadata else
-          f"alpha-{metadata['version']}-{metadata['build']}")
-    sys.stdout.write(
-        release_notes.generate(root, metadata['version'], metadata['build'], args.base)['notes']
-    )
+    sys.stdout.write(generated['notes'])
     raise SystemExit(0)
 
+source = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
+if generated['notesSourceSha'] != source:
+    raise RuntimeError('Source changed during release preparation')
+dist = root / 'dist'
 apk = dist / metadata['apk']
 metadata['sha256'] = hashlib.sha256(apk.read_bytes()).hexdigest()
 metadata['tag'] = f"alpha-{metadata['version']}-{metadata['build']}"
-metadata['sourceSha'] = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
-
-generated = release_notes.generate(root, metadata['version'], metadata['build'], args.base)
+metadata['sourceSha'] = source
+metadata.update(generated)
 notes = generated['notes']
-
-generated = release_notes.generate(root, metadata['version'], metadata['build'])
-notes = generated['notes']
-metadata['notes'] = notes
-metadata['notesBaseTag'] = generated['base_tag']
-metadata['notesBaseSha'] = generated['base_sha']
-metadata['notesSourceSha'] = generated['source_sha']
 (dist / 'update.json').write_text(json.dumps(metadata, indent=2) + '\n')
 (dist / 'SHA256SUMS.txt').write_text(f"{metadata['sha256']}  {metadata['apk']}\n")
 (dist / 'release-notes.md').write_text(
