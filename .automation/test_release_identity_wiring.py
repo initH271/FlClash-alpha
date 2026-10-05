@@ -50,6 +50,12 @@ class ReleaseIdentityWiringTests(unittest.TestCase):
             self.assertIn('tool/release_identity.py --field displayVersion', source)
             self.assertIn('--build-name "$display_version"', source)
 
+    def test_release_title_uses_display_version(self):
+        source = self.read('.github/workflows/build.yaml')
+        self.assertIn("json.load(open('dist/update.json'))['displayVersion']", source)
+        self.assertEqual(source.count('--title "FlClash-alpha $tag"'), 0)
+        self.assertIn('gh release create "$tag"', source)
+
 
 if __name__ == '__main__':
     unittest.main()

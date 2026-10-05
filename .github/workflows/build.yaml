@@ -164,11 +164,14 @@ jobs:
         run: |
           python3 .automation/control.py validate
           tag=$(python3 -c "import json; print(json.load(open('dist/update.json'))['tag'])")
+          display=$(python3 -c "import json; print(json.load(open('dist/update.json'))['displayVersion'])")
+          title="FlClash-alpha $display"
           if gh release view "$tag" >/dev/null 2>&1; then
             test "$(gh release view "$tag" --json isDraft --jq .isDraft)" = true
             gh release upload "$tag" dist/FlClash-alpha-arm64-v8a.apk dist/SHA256SUMS.txt dist/update.json --clobber
+            gh release edit "$tag" --title "$title"
           else
-            gh release create "$tag" dist/FlClash-alpha-arm64-v8a.apk dist/SHA256SUMS.txt dist/update.json --target "$(git rev-parse HEAD)" --title "FlClash-alpha $tag" --notes-file dist/release-notes.md --draft
+            gh release create "$tag" dist/FlClash-alpha-arm64-v8a.apk dist/SHA256SUMS.txt dist/update.json --target "$(git rev-parse HEAD)" --title "$title" --notes-file dist/release-notes.md --draft
           fi
           gh release edit "$tag" --draft=false --latest
       - name: Notify owner and trigger CNB mirror
