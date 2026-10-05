@@ -6,6 +6,9 @@ import pathlib
 import subprocess
 import sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
+from tool.release_identity import release_identity  # noqa: E402
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--base')
 parser.add_argument('--source', default='HEAD')
@@ -16,10 +19,12 @@ if not args.dry_run and (args.base is not None or args.source != 'HEAD'):
 
 root = pathlib.Path(__file__).resolve().parents[2]
 metadata = json.loads((root / '.github/release.json').read_text(encoding='utf-8'))
+identity = release_identity(metadata)
 command = [
     os.environ.get('DART', 'dart'), str(root / 'tool/release_notes.dart'),
-    '--repo', str(root), '--version', metadata['version'],
-    '--build', str(metadata['build']), '--source', args.source,
+    '--repo', str(root), '--version', identity['upstreamVersion'],
+    '--build', str(identity['build']), '--display-version', identity['displayVersion'],
+    '--source', args.source,
 ]
 if args.base is not None:
     command.extend(['--base', args.base])
@@ -34,7 +39,7 @@ if generated['notesSourceSha'] != source:
 dist = root / 'dist'
 apk = dist / metadata['apk']
 metadata['sha256'] = hashlib.sha256(apk.read_bytes()).hexdigest()
-metadata['tag'] = f"alpha-{metadata['version']}-{metadata['build']}"
+metadata['tag'] = identity['tag']
 metadata['sourceSha'] = source
 metadata.update(generated)
 notes = generated['notes']

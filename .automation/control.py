@@ -13,6 +13,9 @@ import urllib.parse
 import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from tool.release_identity import next_release, release_identity, verify_native_identity  # noqa: E402
+
 POLICY = json.loads((ROOT / '.automation/policy.json').read_text())
 GH = 'https://api.github.com/repos/' + POLICY['github']
 CNB = 'https://api.cnb.cool/' + POLICY['cnb'] + '/-'
@@ -339,9 +342,8 @@ def prepare_candidate(request, number, branch, previous=None):
         comment(number, f'自动合并已停止，待处理 PR：{pr["html_url"]}\n升级分支：`{branch}`。\n\n'
                 '@507space/FlClash-alpha(开发助手) 请在指定升级分支解决冲突并提交 CNB PR，保留个人功能；不要直接修改 main 或发布。', True)
         return
-    release = json.loads((ROOT / '.github/release.json').read_text())
-    release['version'] = request['tag'].removeprefix('v')
-    release['build'] += 1
+    release = next_release(json.loads((ROOT / '.github/release.json').read_text()),
+                          upstream=request['tag'].removeprefix('v'))
     (ROOT / '.github/release.json').write_text(json.dumps(release, indent=2) + '\n')
     policy = dict(POLICY, upstream_tag=request['tag'], upstream_sha=request['sha'])
     (ROOT / '.automation/policy.json').write_text(json.dumps(policy, indent=2) + '\n')

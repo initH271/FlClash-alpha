@@ -116,7 +116,8 @@ jobs:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
         run: |
           build=$(python3 -c "import json; print(json.load(open('.github/release.json'))['build'])")
-          flutter build apk --release --target-platform android-arm64 --dart-define=APP_ENV=stable --build-number "$build"
+          display_version=$(python3 tool/release_identity.py --field displayVersion)
+          flutter build apk --release --target-platform android-arm64 --dart-define=APP_ENV=stable --build-name "$display_version" --build-number "$build"
       - uses: actions/download-artifact@v4
         if: steps.plan.outputs.active == 'true' && inputs.reuse_run != ''
         with:
