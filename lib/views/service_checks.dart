@@ -39,11 +39,18 @@ class ServiceChecksView extends ConsumerStatefulWidget {
 
 class _ServiceChecksViewState extends ConsumerState<ServiceChecksView> {
   late final ServiceCheckController _controller;
+  late final List<MediaPlatform> _platforms;
 
   @override
   void initState() {
     super.initState();
     _controller = ref.read(serviceCheckControllerProvider.notifier);
+    final selected = ref.read(networkFeaturesProvider).serviceChecks.platforms;
+    // Sort on opening; toggling a checkbox must not move it under the finger.
+    _platforms = [
+      ...MediaPlatform.values.where(selected.contains),
+      ...MediaPlatform.values.where((platform) => !selected.contains(platform)),
+    ];
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _controller.panelOpened();
     });
@@ -105,15 +112,16 @@ class _ServiceChecksViewState extends ConsumerState<ServiceChecksView> {
         Expanded(
           child: ListView.builder(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            itemCount: MediaPlatform.values.length,
+            itemCount: _platforms.length,
             itemBuilder: (_, index) {
-              final platform = MediaPlatform.values[index];
+              final platform = _platforms[index];
               final result = results[platform];
               final status = result?.status ?? MediaUnlockStatus.unknown;
               return Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: ContentPanel(
                   child: CheckboxListTile(
+                    key: ValueKey(platform),
                     value: selected.contains(platform),
                     onChanged: activity.running
                         ? null

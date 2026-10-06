@@ -473,30 +473,37 @@ class MediaUnlockCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final results = ref.watch(serviceCheckResultsProvider);
-    final platforms = results.isEmpty
-        ? const [
-            MediaPlatform.openai,
-            MediaPlatform.claude,
-            MediaPlatform.gemini,
-            MediaPlatform.netflix,
-          ]
-        : results.keys.take(4).toList();
+    // Keep every selected service visible, including pending/unknown results.
+    final platforms = ref.watch(
+      networkFeaturesProvider.select((value) => value.serviceChecks.platforms),
+    );
     return FeatureCard(
       label: context.appLocalizations.serviceChecks,
       icon: Icons.travel_explore,
       large: true,
       onPressed: () => showServiceChecks(context),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          for (final platform in platforms)
-            _ServiceStatusRow(
-              platform: platform,
-              result: results[platform],
-              compact: small,
+      child: platforms.isEmpty
+          ? Text(context.appLocalizations.serviceUnknown)
+          : Scrollbar(
+              child: ListView.builder(
+                key: const ValueKey('dashboard-service-results'),
+                primary: false,
+                padding: EdgeInsets.zero,
+                itemCount: platforms.length,
+                itemBuilder: (_, index) {
+                  final platform = platforms[index];
+                  return Padding(
+                    key: ValueKey(platform),
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: _ServiceStatusRow(
+                      platform: platform,
+                      result: results[platform],
+                      compact: small,
+                    ),
+                  );
+                },
+              ),
             ),
-        ],
-      ),
     );
   }
 }

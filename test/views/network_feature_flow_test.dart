@@ -180,18 +180,28 @@ void main() {
 
   testWidgets('no selected services disables the start button', (tester) async {
     final checker = _Checker();
-    await _service(tester, checker);
-    for (final platform in MediaPlatform.values) {
+    final container = await _service(tester, checker);
+    final selected = container
+        .read(networkFeaturesProvider)
+        .serviceChecks
+        .platforms;
+    for (final platform in MediaPlatform.values.where(selected.contains)) {
       final finder = find.widgetWithText(
         CheckboxListTile,
         platform.defaultName,
       );
       await tester.scrollUntilVisible(finder, 150);
+      await Scrollable.ensureVisible(tester.element(finder), alignment: 0.5);
+      await tester.pumpAndSettle();
       if (tester.widget<CheckboxListTile>(finder).value == true) {
         await tester.tap(finder);
         await tester.pump();
       }
     }
+    expect(
+      container.read(networkFeaturesProvider).serviceChecks.platforms,
+      isEmpty,
+    );
     expect(
       tester
           .widget<FilledButton>(
