@@ -12,6 +12,8 @@ import (
 	logrus "github.com/sirupsen/logrus"
 )
 
+const historySegmentCount = 20
+
 func TestLogHistoryWithoutUILogSubscription(t *testing.T) {
 	home := t.TempDir()
 	startLogHistory(home)

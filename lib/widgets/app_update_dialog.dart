@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/update_download.dart';
+import 'package:fl_clash/common/release_identity.dart';
 import 'package:fl_clash/models/changelog.dart';
 import 'package:fl_clash/widgets/dialog.dart';
 import 'package:material_ui/material_ui.dart';
@@ -30,12 +31,14 @@ class AppUpdateDialog extends StatefulWidget {
   final Map<String, dynamic> release;
   final UpdateDownload? downloader;
   final UpdateInstaller installer;
+  final Future<DateTime?> Function()? releaseDateLoader;
 
   const AppUpdateDialog({
     super.key,
     required this.release,
     this.downloader,
     this.installer = const UpdateInstaller(),
+    this.releaseDateLoader,
   });
 
   @override
@@ -53,11 +56,22 @@ class _AppUpdateDialogState extends State<AppUpdateDialog>
   bool _permission = false;
   bool _opened = false;
   String? _source;
+  final _dateToken = CancelToken();
+  late final Future<DateTime?> _releaseDate;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    final date = parseReleaseDate(widget.release['publishedAt']);
+    _releaseDate =
+        widget.releaseDateLoader?.call() ??
+        (date != null
+            ? Future<DateTime?>.value(date)
+            : request.releaseDates.lookup(
+                widget.release['tag_name'] as String?,
+                _dateToken,
+              ));
     _download();
   }
 
@@ -140,6 +154,7 @@ class _AppUpdateDialogState extends State<AppUpdateDialog>
   @override
   void dispose() {
     _token?.cancel('Update dialog closed');
+    _dateToken.cancel('Update dialog closed');
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -181,7 +196,13 @@ class _AppUpdateDialogState extends State<AppUpdateDialog>
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              '${widget.release['tag_name']} · ${_source ?? widget.release['source']}',
+              '${releaseDisplayVersion(widget.release)} · ${_source ?? widget.release['source']}',
+            ),
+            FutureBuilder<DateTime?>(
+              future: _releaseDate,
+              builder: (context, snapshot) => Text(
+                '${l10n.releaseDate}: ${snapshot.data == null ? l10n.unknown : formatReleaseDate(snapshot.data!)}',
+              ),
             ),
             const SizedBox(height: 12),
             Text(status),

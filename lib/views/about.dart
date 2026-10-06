@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/release_identity.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/providers/providers.dart';
@@ -9,6 +10,7 @@ import 'package:fl_clash/widgets/list.dart';
 import 'package:fl_clash/widgets/scaffold.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
 
 @immutable
 class Contributor {
@@ -19,8 +21,37 @@ class Contributor {
   const Contributor({this.avatar, required this.name, this.link});
 }
 
-class AboutView extends ConsumerWidget {
-  const AboutView({super.key});
+class AboutView extends ConsumerStatefulWidget {
+  final Future<DateTime?> Function()? releaseDateLoader;
+
+  const AboutView({super.key, this.releaseDateLoader});
+
+  @override
+  ConsumerState<AboutView> createState() => _AboutViewState();
+}
+
+class _AboutViewState extends ConsumerState<AboutView> {
+  final _dateToken = CancelToken();
+  late final AppReleaseIdentity _identity;
+  late final Future<DateTime?> _releaseDate;
+
+  @override
+  void initState() {
+    super.initState();
+    _identity = AppReleaseIdentity.installed(
+      globalState.packageInfo.version,
+      globalState.packageInfo.buildNumber,
+    );
+    _releaseDate =
+        widget.releaseDateLoader?.call() ??
+        request.releaseDates.lookup(_identity.releaseTag, _dateToken);
+  }
+
+  @override
+  void dispose() {
+    _dateToken.cancel('About page closed');
+    super.dispose();
+  }
 
   Future<void> _checkUpdate(BuildContext context, WidgetRef ref) async {
     final commonAction = ref.read(commonActionProvider.notifier);
@@ -106,7 +137,7 @@ class AboutView extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final appLocalizations = context.appLocalizations;
     final items = [
       ListTile(
@@ -136,7 +167,7 @@ class AboutView extends ConsumerWidget {
                             style: Theme.of(context).textTheme.headlineSmall,
                           ),
                           Text(
-                            '${globalState.packageInfo.version} (${globalState.packageInfo.buildNumber})',
+                            _identity.displayVersion,
                             style: Theme.of(context).textTheme.labelLarge,
                           ),
                         ],
@@ -159,6 +190,27 @@ class AboutView extends ConsumerWidget {
             Text(
               appLocalizations.personalForkDescription,
               style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              '${appLocalizations.upstreamVersion}: ${_identity.upstreamVersion}',
+              style: context.textTheme.bodySmall,
+            ),
+            FutureBuilder<DateTime?>(
+              future: _releaseDate,
+              builder: (context, snapshot) => Text(
+                '${appLocalizations.releaseDate}: ${snapshot.data == null ? appLocalizations.unknown : formatReleaseDate(snapshot.data!)}',
+                style: context.textTheme.bodySmall,
+              ),
+            ),
+            ExpansionTile(
+              title: Text(appLocalizations.versionDetails),
+              children: [
+                ListTile(
+                  title: Text(appLocalizations.buildNumber),
+                  subtitle: Text(globalState.packageInfo.buildNumber),
+                ),
+              ],
             ),
           ],
         ),

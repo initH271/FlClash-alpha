@@ -116,7 +116,8 @@ jobs:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
         run: |
           build=$(python3 -c "import json; print(json.load(open('.github/release.json'))['build'])")
-          flutter build apk --release --target-platform android-arm64 --dart-define=APP_ENV=stable --build-number "$build"
+          display_version=$(python3 tool/release_identity.py --field displayVersion)
+          flutter build apk --release --target-platform android-arm64 --dart-define=APP_ENV=stable --build-name "$display_version" --build-number "$build"
       - uses: actions/download-artifact@v4
         if: steps.plan.outputs.active == 'true' && inputs.reuse_run != ''
         with:
@@ -163,11 +164,14 @@ jobs:
         run: |
           python3 .automation/control.py validate
           tag=$(python3 -c "import json; print(json.load(open('dist/update.json'))['tag'])")
+          display=$(python3 -c "import json; print(json.load(open('dist/update.json'))['displayVersion'])")
+          title="FlClash-alpha $display"
           if gh release view "$tag" >/dev/null 2>&1; then
             test "$(gh release view "$tag" --json isDraft --jq .isDraft)" = true
             gh release upload "$tag" dist/FlClash-alpha-arm64-v8a.apk dist/SHA256SUMS.txt dist/update.json --clobber
+            gh release edit "$tag" --title "$title"
           else
-            gh release create "$tag" dist/FlClash-alpha-arm64-v8a.apk dist/SHA256SUMS.txt dist/update.json --target "$(git rev-parse HEAD)" --title "FlClash-alpha $tag" --notes-file dist/release-notes.md --draft
+            gh release create "$tag" dist/FlClash-alpha-arm64-v8a.apk dist/SHA256SUMS.txt dist/update.json --target "$(git rev-parse HEAD)" --title "$title" --notes-file dist/release-notes.md --draft
           fi
           gh release edit "$tag" --draft=false --latest
       - name: Notify owner and trigger CNB mirror

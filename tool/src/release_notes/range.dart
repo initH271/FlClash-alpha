@@ -6,6 +6,17 @@ import '../changelog/parser.dart';
 import '../changelog/render.dart';
 
 final _alphaTag = RegExp(r'^alpha-\d+\.\d+\.\d+-(\d+)$');
+final _displayTag = RegExp(r'^v\d+\.\d+\.\d+-alpha\.([1-9]\d*)$');
+
+int? _tagBuild(String tag) {
+  if (_alphaTag.firstMatch(tag) case final legacy?) {
+    return int.parse(legacy[1]!);
+  }
+  if (_displayTag.firstMatch(tag) case final current?) {
+    return 2026094000 + int.parse(current[1]!);
+  }
+  return null;
+}
 
 class AlphaReleaseNotes {
   final String notes;
@@ -33,11 +44,18 @@ class AlphaReleaseNotes {
     required String root,
     required String version,
     required int build,
+    String? displayVersion,
     String? base,
     String source = 'HEAD',
   }) {
     if (build <= 0 || !RegExp(r'^\d+\.\d+\.\d+$').hasMatch(version)) {
       throw ArgumentError('Invalid alpha version or build');
+    }
+    if (displayVersion != null &&
+        !RegExp(
+          '^${RegExp.escape(version)}-alpha\\.[1-9]\\d*\$',
+        ).hasMatch(displayVersion)) {
+      throw ArgumentError('Display version does not match upstream version');
     }
     final sourceSha = _git(root, [
       'rev-parse',
@@ -46,14 +64,14 @@ class AlphaReleaseNotes {
       '$source^{commit}',
     ]);
     if (base != null) {
-      final match = _alphaTag.firstMatch(base);
-      if (match == null) throw ArgumentError('Invalid alpha base tag');
+      final baseBuild = _tagBuild(base);
+      if (baseBuild == null) throw ArgumentError('Invalid alpha base tag');
       try {
         _git(root, ['rev-parse', '--verify', 'refs/tags/$base^{commit}']);
       } on GitException {
         throw ArgumentError('Base tag does not exist');
       }
-      if (int.parse(match[1]!) >= build) {
+      if (baseBuild >= build) {
         throw ArgumentError('Base build is not smaller than this build');
       }
       final ancestor = Process.runSync('git', [
@@ -73,14 +91,13 @@ class AlphaReleaseNotes {
             sourceSha,
             '--list',
             'alpha-*',
+            'v*-alpha.*',
           ]).split('\n').where((tag) {
-            final match = _alphaTag.firstMatch(tag);
-            return match != null && int.parse(match[1]!) < build;
+            final tagBuild = _tagBuild(tag);
+            return tagBuild != null && tagBuild < build;
           }).toList()
           ..sort((a, b) {
-            final byBuild = int.parse(
-              _alphaTag.firstMatch(b)![1]!,
-            ).compareTo(int.parse(_alphaTag.firstMatch(a)![1]!));
+            final byBuild = _tagBuild(b)!.compareTo(_tagBuild(a)!);
             return byBuild != 0 ? byBuild : b.compareTo(a);
           });
     if (tags.isEmpty) {
@@ -110,15 +127,17 @@ class AlphaReleaseNotes {
             item,
     ];
     final release = ChangelogVersion(
-      version: version,
-      tag: 'alpha-$version-$build',
+      version: displayVersion ?? version,
+      tag: displayVersion == null
+          ? 'alpha-$version-$build'
+          : 'v$displayVersion',
       date: '',
       groups: groupItems(items),
     );
     final rendered = renderRelease(release);
     return AlphaReleaseNotes(
       notes:
-          'FlClash-alpha $version（构建 $build）\n\n'
+          'FlClash-alpha ${displayVersion ?? '$version（构建 $build）'}\n\n'
           '${release.isEmpty ? rendered.replaceFirst(emptyVersionNote, '本版没有用户可见的变化。') : rendered}',
       baseTag: baseTag,
       baseSha: baseSha,

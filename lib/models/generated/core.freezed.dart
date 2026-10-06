@@ -952,7 +952,7 @@ $AccessControlPropsCopyWith<$Res> get accessControlProps {
 /// @nodoc
 mixin _$InitParams {
 
-@JsonKey(name: 'home-dir') String get homeDir; int get version;
+@JsonKey(name: 'home-dir') String get homeDir; int get version;@JsonKey(name: 'log-retention-days') int get logRetentionDays;
 /// Create a copy of InitParams
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -966,20 +966,20 @@ $InitParamsCopyWith<InitParams> get copyWith => _$InitParamsCopyWithImpl<InitPar
 @override
 bool operator ==(Object other) {
   final _this = this as InitParams;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is InitParams&&(identical(other.homeDir, _this.homeDir) || other.homeDir == _this.homeDir)&&(identical(other.version, _this.version) || other.version == _this.version));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is InitParams&&(identical(other.homeDir, _this.homeDir) || other.homeDir == _this.homeDir)&&(identical(other.version, _this.version) || other.version == _this.version)&&(identical(other.logRetentionDays, _this.logRetentionDays) || other.logRetentionDays == _this.logRetentionDays));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
 int get hashCode {
   final _this = this as InitParams;
-  return Object.hash(runtimeType,_this.homeDir,_this.version);
+  return Object.hash(runtimeType,_this.homeDir,_this.version,_this.logRetentionDays);
 }
 
 @override
 String toString() {
   final _this = this as InitParams;
-  return 'InitParams(homeDir: ${_this.homeDir}, version: ${_this.version})';
+  return 'InitParams(homeDir: ${_this.homeDir}, version: ${_this.version}, logRetentionDays: ${_this.logRetentionDays})';
 }
 
 
@@ -990,7 +990,7 @@ abstract mixin class $InitParamsCopyWith<$Res>  {
   factory $InitParamsCopyWith(InitParams value, $Res Function(InitParams) _then) = _$InitParamsCopyWithImpl;
 @useResult
 $Res call({
-@JsonKey(name: 'home-dir') String homeDir, int version
+@JsonKey(name: 'home-dir') String homeDir, int version,@JsonKey(name: 'log-retention-days') int logRetentionDays
 });
 
 
@@ -1007,10 +1007,11 @@ class _$InitParamsCopyWithImpl<$Res>
 
 /// Create a copy of InitParams
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? homeDir = null,Object? version = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? homeDir = null,Object? version = null,Object? logRetentionDays = null,}) {
   return _then(InitParams(
 homeDir: null == homeDir ? _self.homeDir : homeDir // ignore: cast_nullable_to_non_nullable
 as String,version: null == version ? _self.version : version // ignore: cast_nullable_to_non_nullable
+as int,logRetentionDays: null == logRetentionDays ? _self.logRetentionDays : logRetentionDays // ignore: cast_nullable_to_non_nullable
 as int,
   ));
 }
@@ -1096,10 +1097,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function(@JsonKey(name: 'home-dir')  String homeDir,  int version)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function(@JsonKey(name: 'home-dir')  String homeDir,  int version, @JsonKey(name: 'log-retention-days')  int logRetentionDays)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _InitParams() when $default != null:
-return $default(_that.homeDir,_that.version);case _:
+return $default(_that.homeDir,_that.version,_that.logRetentionDays);case _:
   return orElse();
 
 }
@@ -1117,10 +1118,10 @@ return $default(_that.homeDir,_that.version);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function(@JsonKey(name: 'home-dir')  String homeDir,  int version)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function(@JsonKey(name: 'home-dir')  String homeDir,  int version, @JsonKey(name: 'log-retention-days')  int logRetentionDays)  $default,) {final _that = this;
 switch (_that) {
 case _InitParams():
-return $default(_that.homeDir,_that.version);case _:
+return $default(_that.homeDir,_that.version,_that.logRetentionDays);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -1137,10 +1138,10 @@ return $default(_that.homeDir,_that.version);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function(@JsonKey(name: 'home-dir')  String homeDir,  int version)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function(@JsonKey(name: 'home-dir')  String homeDir,  int version, @JsonKey(name: 'log-retention-days')  int logRetentionDays)?  $default,) {final _that = this;
 switch (_that) {
 case _InitParams() when $default != null:
-return $default(_that.homeDir,_that.version);case _:
+return $default(_that.homeDir,_that.version,_that.logRetentionDays);case _:
   return null;
 
 }
@@ -1152,11 +1153,12 @@ return $default(_that.homeDir,_that.version);case _:
 @JsonSerializable()
 
 class _InitParams implements InitParams {
-  const _InitParams({@JsonKey(name: 'home-dir') required this.homeDir, required this.version});
+  const _InitParams({@JsonKey(name: 'home-dir') required this.homeDir, required this.version, @JsonKey(name: 'log-retention-days') this.logRetentionDays = 14});
   factory _InitParams.fromJson(Map<String, dynamic> json) => _$InitParamsFromJson(json);
 
 @override@JsonKey(name: 'home-dir') final  String homeDir;
 @override final  int version;
+@override@JsonKey(name: 'log-retention-days') final  int logRetentionDays;
 
 /// Create a copy of InitParams
 /// with the given fields replaced by the non-null parameter values.
@@ -1171,18 +1173,18 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _InitParams&&(identical(other.homeDir, homeDir) || other.homeDir == homeDir)&&(identical(other.version, version) || other.version == version));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _InitParams&&(identical(other.homeDir, homeDir) || other.homeDir == homeDir)&&(identical(other.version, version) || other.version == version)&&(identical(other.logRetentionDays, logRetentionDays) || other.logRetentionDays == logRetentionDays));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
 int get hashCode {
-    return Object.hash(runtimeType,homeDir,version);
+    return Object.hash(runtimeType,homeDir,version,logRetentionDays);
 }
 
 @override
 String toString() {
-    return 'InitParams(homeDir: $homeDir, version: $version)';
+    return 'InitParams(homeDir: $homeDir, version: $version, logRetentionDays: $logRetentionDays)';
 }
 
 
@@ -1193,7 +1195,7 @@ abstract mixin class _$InitParamsCopyWith<$Res> implements $InitParamsCopyWith<$
   factory _$InitParamsCopyWith(_InitParams value, $Res Function(_InitParams) _then) = __$InitParamsCopyWithImpl;
 @override @useResult
 $Res call({
-@JsonKey(name: 'home-dir') String homeDir, int version
+@JsonKey(name: 'home-dir') String homeDir, int version,@JsonKey(name: 'log-retention-days') int logRetentionDays
 });
 
 
@@ -1210,10 +1212,11 @@ class __$InitParamsCopyWithImpl<$Res>
 
 /// Create a copy of InitParams
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? homeDir = null,Object? version = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? homeDir = null,Object? version = null,Object? logRetentionDays = null,}) {
   return _then(_InitParams(
 homeDir: null == homeDir ? _self.homeDir : homeDir // ignore: cast_nullable_to_non_nullable
 as String,version: null == version ? _self.version : version // ignore: cast_nullable_to_non_nullable
+as int,logRetentionDays: null == logRetentionDays ? _self.logRetentionDays : logRetentionDays // ignore: cast_nullable_to_non_nullable
 as int,
   ));
 }

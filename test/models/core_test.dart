@@ -61,6 +61,23 @@ void main() {
     });
   });
 
+  test(
+    'history retention defaults for old init payloads and preserves custom days',
+    () {
+      expect(
+        InitParams.fromJson({'home-dir': '.', 'version': 1}).logRetentionDays,
+        14,
+      );
+      final value = InitParams.fromJson({
+        'home-dir': '.',
+        'version': 1,
+        'log-retention-days': 30,
+      });
+      expect(value.logRetentionDays, 30);
+      expect(value.toJson()['log-retention-days'], 30);
+    },
+  );
+
   group('ChangeProxyParams', () {
     test('fromJson and toJson use snake-case', () {
       final json = {'group-name': 'Proxy', 'proxy-name': 'auto'};

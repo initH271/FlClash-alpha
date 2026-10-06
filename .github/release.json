@@ -1,6 +1,9 @@
 {
   "version": "0.8.98",
-  "build": 2026094012,
+  "upstreamVersion": "0.8.98",
+  "revision": 13,
+  "displayVersion": "0.8.98-alpha.13",
+  "build": 2026094013,
   "applicationId": "com.follow.clash.dev",
   "apk": "FlClash-alpha-arm64-v8a.apk",
   "certificateSha256": "4cc5094e24f4a4cfde3a37d6c839ae376bd74c50075d8ee6bc73e25682e9afad"

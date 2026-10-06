@@ -81,11 +81,17 @@ class CoreController {
     }
   }
 
-  Future<bool> init(int version) async {
+  Future<bool> init(int version, {int logRetentionDays = 14}) async {
     await ensureHomeDir();
     await initGeo();
     final homeDirPath = await appPath.homeDirPath;
-    return _interface.init(InitParams(homeDir: homeDirPath, version: version));
+    return _interface.init(
+      InitParams(
+        homeDir: homeDirPath,
+        version: version,
+        logRetentionDays: logRetentionDays,
+      ),
+    );
   }
 
   FutureOr<bool> get isInit => _interface.isInit;
@@ -235,6 +241,9 @@ class CoreController {
   }
 
   Future<String> exportLogHistory() => _interface.exportLogHistory();
+
+  FutureOr<void> setLogHistoryRetention(int days) =>
+      _interface.setLogHistoryRetention(days);
 
   Future<void> requestGc() async {
     await _interface.forceGc();

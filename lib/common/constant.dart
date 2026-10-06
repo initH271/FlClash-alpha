@@ -57,6 +57,8 @@ const delayTestTimeoutDuration = Duration(seconds: 8);
 const delayTestGuardDuration = Duration(seconds: 30);
 
 const coreConnectionWaitDuration = Duration(seconds: 10);
+const defaultLogRetentionDays = 14;
+const maxLogRetentionDays = 36500;
 
 /// Keep at or below the Core's delay-test concurrency (`delayTestConcurrency`
 /// in core/common.go).
