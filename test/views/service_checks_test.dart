@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:fl_clash/common/media_unlock_checker.dart';
-import 'package:fl_clash/models/media_unlock.dart';
+import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/network_features.dart';
 import 'package:fl_clash/providers/config.dart';
 import 'package:fl_clash/providers/app.dart';
@@ -48,6 +48,66 @@ class _Checker extends MediaUnlockChecker {
 }
 
 void main() {
+  testWidgets('checked domains lead on opening and stay put while toggling', (
+    tester,
+  ) async {
+    final visible = ValueNotifier(true);
+    addTearDown(visible.dispose);
+    await tester.pumpWidget(
+      TestApp(
+        wrapInProviderScope: true,
+        overrides: [
+          networkSettingProvider.overrideWithBuild(
+            (_, _) => const NetworkProps(
+              networkFeatures: NetworkFeatureSettings(
+                serviceChecks: ServiceCheckSettings(
+                  platforms: [MediaPlatform.coinbase, MediaPlatform.github],
+                ),
+              ),
+            ),
+          ),
+          selectedMapProvider.overrideWith((_) => const {}),
+          serviceCheckClientProvider.overrideWithValue(_Checker()),
+        ],
+        homeBuilder: (child) => Scaffold(body: child),
+        child: ValueListenableBuilder<bool>(
+          valueListenable: visible,
+          builder: (_, show, _) =>
+              show ? const ServiceChecksView() : const SizedBox(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    List<MediaPlatform> visiblePlatforms() => tester
+        .widgetList<CheckboxListTile>(find.byType(CheckboxListTile))
+        .map((tile) => (tile.key! as ValueKey<MediaPlatform>).value)
+        .toList();
+    expect(visiblePlatforms().take(3), [
+      MediaPlatform.github,
+      MediaPlatform.coinbase,
+      MediaPlatform.openai,
+    ]);
+    await tester.tap(find.byKey(const ValueKey(MediaPlatform.github)));
+    await tester.pumpAndSettle();
+    expect(visiblePlatforms().first, MediaPlatform.github);
+    expect(
+      tester
+          .widget<CheckboxListTile>(
+            find.byKey(const ValueKey(MediaPlatform.github)),
+          )
+          .value,
+      isFalse,
+    );
+    visible.value = false;
+    await tester.pumpAndSettle();
+    visible.value = true;
+    await tester.pumpAndSettle();
+    expect(visiblePlatforms().take(2), [
+      MediaPlatform.coinbase,
+      MediaPlatform.openai,
+    ]);
+  });
+
   testWidgets('does not probe until requested and publishes results', (
     tester,
   ) async {
@@ -153,6 +213,9 @@ void main() {
     await tester.pumpAndSettle();
     final tile = find.widgetWithText(CheckboxListTile, 'GitHub');
     await tester.scrollUntilVisible(tile, 150);
+    // Center the row before tapping; lazy-list cache entries can be off-screen.
+    await Scrollable.ensureVisible(tester.element(tile), alignment: 0.5);
+    await tester.pumpAndSettle();
     expect(tester.widget<CheckboxListTile>(tile).value, isTrue);
     await tester.tap(tile);
     await tester.pump();
@@ -189,6 +252,9 @@ void main() {
     await tester.pumpAndSettle();
     final github = find.widgetWithText(CheckboxListTile, 'GitHub');
     await tester.scrollUntilVisible(github, 150);
+    // Center the row before tapping; lazy-list cache entries can be off-screen.
+    await Scrollable.ensureVisible(tester.element(github), alignment: 0.5);
+    await tester.pumpAndSettle();
     await tester.tap(github);
     await tester.pump();
     final container = ProviderScope.containerOf(
@@ -203,6 +269,9 @@ void main() {
     visible.value = true;
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(github, 150);
+    // Center the row before tapping; lazy-list cache entries can be off-screen.
+    await Scrollable.ensureVisible(tester.element(github), alignment: 0.5);
+    await tester.pumpAndSettle();
     expect(tester.widget<CheckboxListTile>(github).value, isFalse);
     expect(checker.calls, 0);
   });
