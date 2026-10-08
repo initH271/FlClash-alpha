@@ -89,6 +89,13 @@ class App {
         false;
   }
 
+  Future<void> copyFileToUri(String path, Uri destination) async {
+    await methodChannel.invokeMethod<void>('copyFileToUri', {
+      'path': path,
+      'uri': destination.toString(),
+    });
+  }
+
   final Map<String, ImageProvider?> _packageIcons = {};
   final Map<String, Future<ImageProvider?>> _packageIconTasks = {};
 

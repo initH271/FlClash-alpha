@@ -166,30 +166,45 @@ Future<void> _combineLogs(
   ({String corePath, List<String> appPaths, String recentLogs, String output})
   input,
 ) async {
-  final archive = ZipDecoder().decodeBytes(
-    await File(input.corePath).readAsBytes(),
-  );
-  final readme = archive.findFile('README.txt');
-  if (readme != null) archive.removeFile(readme);
-  for (final path in input.appPaths) {
-    archive.addFile(
-      ArchiveFile(
-        p.join('app', p.basename(path)).replaceAll('\\', '/'),
-        await File(path).length(),
-        await File(path).readAsBytes(),
-      ),
-    );
-  }
-  archive.addFile(ArchiveFile.string('recent-ui.log', input.recentLogs));
-  archive.addFile(
-    ArchiveFile.string(
-      'README.txt',
-      'FlClash complete retained logs\ncore-*.jsonl: rolling core history, 20 files of 5 MiB\napp/*.jsonl: rolling APP history, 10 files of 5 MiB\ncoverage.txt: first and last record time of each retained core file\nrecent-ui.log: UI snapshot at export, only the latest in-memory lines; it overlaps core and APP history and is not the full day\nOlder records expire. Records before this build was installed cannot be recovered.\n',
-    ),
-  );
   final output = File(input.output);
   try {
-    await output.writeAsBytes(ZipEncoder().encode(archive));
+    final source = InputFileStream(input.corePath);
+    try {
+      final archive = ZipDecoder().decodeStream(source);
+      final readme = archive.findFile('README.txt');
+      final coreDescription = readme == null
+          ? 'FlClash core log history\n'
+          : utf8.decode(readme.content);
+      final encoder = ZipFileEncoder()..create(input.output);
+      try {
+        for (final file in archive.files) {
+          if (file.name != 'README.txt') encoder.addArchiveFile(file);
+        }
+        for (final path in input.appPaths) {
+          await encoder.addFile(
+            File(path),
+            p.join('app', p.basename(path)).replaceAll('\\', '/'),
+          );
+        }
+        encoder.addArchiveFile(
+          ArchiveFile.string('recent-ui.log', input.recentLogs),
+        );
+        encoder.addArchiveFile(
+          ArchiveFile.string(
+            'README.txt',
+            '${coreDescription.trimRight()}\n\n'
+                'app/*.jsonl: rolling APP history, 10 files of 5 MiB\n'
+                'recent-ui.log: UI snapshot at export, only the latest in-memory lines; '
+                'it overlaps core and APP history and is not the full day\n'
+                'Older records expire. Records before this build was installed cannot be recovered.\n',
+          ),
+        );
+      } finally {
+        await encoder.close();
+      }
+    } finally {
+      await source.close();
+    }
   } catch (_) {
     if (await output.exists()) await output.delete();
     rethrow;

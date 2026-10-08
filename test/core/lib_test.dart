@@ -218,6 +218,15 @@ void main() {
   });
 
   group('listeners', () {
+    test('a rejected core start never creates the VPN service', () async {
+      await lib.start();
+      service.calls.clear();
+      service.onInvokeMethod = (_) =>
+          const CoreMethodResponse(id: '1', result: false);
+      expect(await lib.startListener(), isFalse);
+      expect(service.calls, ['invokeMethod:startListener']);
+    });
+
     test('a listener is started only when both sides agree', () async {
       await lib.start();
       service.onInvokeMethod = (_) =>

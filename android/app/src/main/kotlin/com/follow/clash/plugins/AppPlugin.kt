@@ -47,6 +47,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import java.io.File
 
 class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware {
 
@@ -203,6 +204,18 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
 
             "getLastExitInfo" -> reply(result) {
                 GlobalState.lastExitInfo()
+            }
+
+            "copyFileToUri" -> reply(result) {
+                val path = requireNotNull(call.argument<String>("path"))
+                val uri = requireNotNull(call.argument<String>("uri")).toUri()
+                File(path).inputStream().use { input ->
+                    val output = requireNotNull(
+                        GlobalState.application.contentResolver.openOutputStream(uri, "wt"),
+                    ) { "Could not open export destination" }
+                    output.use { input.copyTo(it) }
+                }
+                null
             }
 
             else -> {

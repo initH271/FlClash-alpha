@@ -83,6 +83,7 @@ class TestSetupAction extends SetupAction {
   Error? coreRunningError;
   int authorizeCalls = 0;
   AuthorizeCode authorizeResult = AuthorizeCode.none;
+  Completer<void>? profileGate;
 
   @override
   Future<AuthorizeCode> authorizeCore() async {
@@ -115,6 +116,7 @@ class TestSetupAction extends SetupAction {
     Future<void> Function()? preloadInvoke,
   }) async {
     applyProfileCalls++;
+    await profileGate?.future;
     await preloadInvoke?.call();
     return true;
   }
@@ -161,6 +163,18 @@ void main() {
   }
 
   group('setRunning gating', () {
+    test('stop supersedes a start waiting for its configuration', () async {
+      markInitialized();
+      action.profileGate = Completer<void>();
+      final starting = action.setRunning(true);
+      await Future<void>.delayed(Duration.zero);
+      expect(action.coreRunningCalls, isEmpty);
+      await action.setRunning(false);
+      action.profileGate!.complete();
+      await starting;
+      expect(action.coreRunningCalls, [false]);
+      expect(container.read(runTimeProvider), isNull);
+    });
     test('ignores a start request before initialization completes', () async {
       await container.read(setupActionProvider.notifier).setRunning(true);
 
@@ -752,7 +766,7 @@ void main() {
 
         await messageAction.setRunning(true, initialize: true);
 
-        expect(messageAction.coreRunningCalls, [true, false]);
+        expect(messageAction.coreRunningCalls, [false]);
         expect(scoped.read(runTimeProvider), isNull);
         verify(() => core.setupConfig(any())).called(1);
       },

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/plugins/app.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
@@ -27,16 +28,24 @@ class Picker {
   Future<Uri?> saveFileWithPath(String fileName, String localPath) async {
     final localFile = File(localPath);
     if (!await localFile.exists()) {
-      await localFile.create(recursive: true);
+      throw FileSystemException('Export source does not exist', localPath);
     }
-    final bytes = await localFile.readAsBytes();
-    final uri = await FilePicker.saveFile(
-      fileName: fileName,
-      initialDirectory: await appPath.downloadDirPath,
-      bytes: bytes,
-    );
-    await localFile.safeDelete();
-    return uri;
+    try {
+      final uri = await FilePicker.saveFile(
+        fileName: fileName,
+        initialDirectory: await appPath.downloadDirPath,
+        bytes: Uint8List(0),
+      );
+      if (uri == null) return null;
+      if (uri.scheme == 'content' && app != null) {
+        await app!.copyFileToUri(localPath, uri);
+      } else {
+        await localFile.copy(uri.toFilePath());
+      }
+      return uri;
+    } finally {
+      await localFile.safeDelete();
+    }
   }
 
   Future<String?> pickerConfigQRCode() async {

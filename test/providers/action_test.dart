@@ -505,7 +505,7 @@ void main() {
             container.read(setupActionProvider.notifier) as _RaceSetupAction;
         await action.setRunning(true);
         action.transitions.clear();
-        action.applyProfileDebounceCount = 0;
+        action.profileApplyCount = 0;
         action.stopCompleter = stopCompleter;
 
         final stopFuture = action.setRunning(false);
@@ -522,7 +522,7 @@ void main() {
         expect(action.transitions, [false, true]);
         expect(container.read(runTimeProvider), isNotNull);
         expect(container.read(isStartProvider), isTrue);
-        expect(action.applyProfileDebounceCount, 1);
+        expect(action.profileApplyCount, 1);
         expect(action.resetCoreTrafficCount, 0);
 
         await action.setRunning(false);
@@ -555,7 +555,7 @@ void main() {
         expect(action.transitions, [true, false]);
         expect(container.read(runTimeProvider), isNull);
         expect(container.read(isStartProvider), isFalse);
-        expect(action.applyProfileDebounceCount, 0);
+        expect(action.profileApplyCount, 1);
         expect(action.resetCoreTrafficCount, 1);
       });
 
@@ -583,7 +583,7 @@ void main() {
 
         expect(action.transitions, [true, true]);
         expect(container.read(isStartProvider), isTrue);
-        expect(action.applyProfileDebounceCount, 1);
+        expect(action.profileApplyCount, 2);
         expect(action.resetCoreTrafficCount, 0);
 
         await action.setRunning(false);
@@ -635,7 +635,7 @@ void main() {
 
           expect(action.transitions, isEmpty);
           expect(container.read(isStartProvider), isTrue);
-          expect(action.applyProfileDebounceCount, 1);
+          expect(action.profileApplyCount, 1);
 
           await action.setRunning(false);
           expect(action.transitions, [false]);
@@ -883,15 +883,21 @@ class _AuthorizationSetupAction extends SetupAction {
 }
 
 class _RaceSetupAction extends SetupAction {
-  int applyProfileDebounceCount = 0;
+  int profileApplyCount = 0;
   int resetCoreTrafficCount = 0;
   final transitions = <bool>[];
   Completer<bool>? startCompleter;
   Completer<bool>? stopCompleter;
 
   @override
-  void applyProfileDebounce({bool silence = false, bool force = false}) {
-    applyProfileDebounceCount++;
+  Future<bool> applyProfile({
+    bool silence = false,
+    bool force = false,
+    Future<void> Function()? preloadInvoke,
+  }) async {
+    profileApplyCount++;
+    await preloadInvoke?.call();
+    return true;
   }
 
   @override
