@@ -71,6 +71,8 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
 
     private val requestInstalledAppsCallback = PendingCallback<Boolean>()
 
+    private var exportDocumentResult: Result? = null
+
     private var isRequestingNotificationPermission = false
 
     private val gson = Gson()
@@ -206,6 +208,8 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
                 GlobalState.lastExitInfo()
             }
 
+            "createExportDocument" -> createExportDocument(call, result)
+
             "copyFileToUri" -> reply(result) {
                 val path = requireNotNull(call.argument<String>("path"))
                 val uri = requireNotNull(call.argument<String>("uri")).toUri()
@@ -222,6 +226,42 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
                 result.notImplemented()
             }
         }
+    }
+
+    private fun createExportDocument(call: MethodCall, result: Result) = onMainThread {
+        val activity = activity
+        val fileName = call.argument<String>("fileName")
+        if (activity == null) {
+            result.error("NO_ACTIVITY", "No activity available to choose an export destination", null)
+            return@onMainThread
+        }
+        if (fileName.isNullOrBlank()) {
+            result.error("INVALID_ARGUMENT", "Export file name is required", null)
+            return@onMainThread
+        }
+        if (exportDocumentResult != null) {
+            result.error("EXPORT_PENDING", "An export destination is already being chosen", null)
+            return@onMainThread
+        }
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/zip"
+            putExtra(Intent.EXTRA_TITLE, fileName)
+        }
+        exportDocumentResult = result
+        try {
+            @Suppress("DEPRECATION")
+            activity.startActivityForResult(intent, EXPORT_DOCUMENT_REQUEST_CODE)
+        } catch (error: Exception) {
+            exportDocumentResult = null
+            result.error("PLATFORM_ERROR", error.toString(), null)
+        }
+    }
+
+    private fun cancelExportDocument() {
+        val result = exportDocumentResult
+        exportDocumentResult = null
+        result?.success(null)
     }
 
     private fun handleGetPackageIcon(call: MethodCall, result: Result) = reply(result) {
@@ -414,6 +454,7 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        cancelExportDocument()
         packageChangeContext?.unregisterReceiver(packageChangeReceiver)
         packageChangeContext = null
         channel.setMethodCallHandler(null)
@@ -452,6 +493,7 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
     }
 
     override fun onDetachedFromActivity() {
+        cancelExportDocument()
         channel.invokeMethod("exit", null)
         detachFromActivity()
         invokeVpnPrepareCallback(false)
@@ -460,6 +502,21 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
     }
 
     private fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?): Boolean {
+        if (requestCode == EXPORT_DOCUMENT_REQUEST_CODE) {
+            val result = exportDocumentResult
+            exportDocumentResult = null
+            if (resultCode == Activity.RESULT_OK) {
+                val uri = data?.data
+                if (uri == null) {
+                    result?.error("INVALID_DESTINATION", "The document provider returned no URI", null)
+                } else {
+                    result?.success(uri.toString())
+                }
+            } else {
+                result?.success(null)
+            }
+            return true
+        }
         if (requestCode != VPN_PERMISSION_REQUEST_CODE) {
             return false
         }
@@ -493,5 +550,6 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
         const val VPN_PERMISSION_REQUEST_CODE = 1001
         const val NOTIFICATION_PERMISSION_REQUEST_CODE = 1002
         const val INSTALLED_APPS_PERMISSION_REQUEST_CODE = 1003
+        const val EXPORT_DOCUMENT_REQUEST_CODE = 1004
     }
 }

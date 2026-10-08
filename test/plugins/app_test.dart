@@ -13,6 +13,43 @@ void main() {
     App().clearPackageIconCache();
   });
 
+  test('keeps the complete document provider URI for file exports', () async {
+    const destination =
+        'content://com.android.providers.downloads.documents/document/msf%3A123';
+    MethodCall? received;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          received = call;
+          return destination;
+        });
+    final uri = await App().createExportDocument('history.zip');
+    expect(uri.toString(), destination);
+    expect(uri!.scheme, 'content');
+    expect(uri.authority, 'com.android.providers.downloads.documents');
+    expect(received!.method, 'createExportDocument');
+    expect(received!.arguments, {'fileName': 'history.zip'});
+  });
+
+  test(
+    'cancelling the Android document picker returns no destination',
+    () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (_) async => null);
+      expect(await App().createExportDocument('history.zip'), isNull);
+    },
+  );
+
+  test('a document picker failure is surfaced to the export caller', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (_) async {
+          throw PlatformException(code: 'NO_ACTIVITY');
+        });
+    await expectLater(
+      App().createExportDocument('history.zip'),
+      throwsA(isA<PlatformException>()),
+    );
+  });
+
   test(
     'exports a local file using only paths in the platform message',
     () async {
