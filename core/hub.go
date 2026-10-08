@@ -61,6 +61,12 @@ func handleStartListener() bool {
 	return true
 }
 
+func tunStartupReady() bool {
+	configMu.Lock()
+	defer configMu.Unlock()
+	return isInit.Load() && currentConfig != nil && isRunning.Load()
+}
+
 func handleStopListener() bool {
 	configMu.Lock()
 	defer configMu.Unlock()
