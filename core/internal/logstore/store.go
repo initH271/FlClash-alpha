@@ -37,6 +37,9 @@ type Store struct {
 	retentionDays int
 	now           func() time.Time
 	spans         map[string]recordSpan
+	indexedPath   string
+	indexed       segmentIndex
+	pending       []string
 }
 
 type recordSpan struct{ earliest, latest time.Time }
@@ -67,6 +70,15 @@ func openStore(dir string, maxBytes int64, maxFiles, days int, now func() time.T
 	if err != nil {
 		return nil, err
 	}
+	if days > 0 {
+		for _, path := range files {
+			if span, ok := loadSpan(path); ok {
+				s.spans[path] = span
+			} else {
+				s.pending = append(s.pending, path)
+			}
+		}
+	}
 	if len(files) > 0 {
 		path := files[len(files)-1]
 		s.lastStamp, _ = time.Parse("20060102T150405.000000000Z", strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "core-"), ".jsonl"))
@@ -87,7 +99,12 @@ func openStore(dir string, maxBytes int64, maxFiles, days int, now func() time.T
 			return nil, err
 		}
 	}
-	if err := s.prune(); err != nil {
+	if days > 0 {
+		err = s.pruneAge(true)
+	} else {
+		err = s.prune()
+	}
+	if err != nil {
 		_ = s.Close()
 		return nil, err
 	}
@@ -111,14 +128,14 @@ func (s *Store) files() ([]string, error) {
 
 func (s *Store) prune() error {
 	if s.retentionDays > 0 {
-		return s.pruneAge()
+		return s.pruneAge(false)
 	}
 	files, err := s.files()
 	if err != nil {
 		return err
 	}
 	for len(files) > s.maxFiles {
-		if err := os.Remove(files[0]); err != nil {
+		if err := removeSegment(files[0]); err != nil {
 			return err
 		}
 		files = files[1:]
@@ -144,8 +161,12 @@ func (s *Store) closeFile() error {
 	if s.file == nil {
 		return nil
 	}
+	path := s.file.Name()
 	err := errors.Join(s.buffer.Flush(), s.file.Close())
 	s.file, s.buffer = nil, nil
+	if err == nil {
+		err = s.saveSpan(path)
+	}
 	return err
 }
 
@@ -219,7 +240,7 @@ func (s *Store) SetRetention(days int) error {
 		return nil
 	}
 	s.retentionDays, s.maxFiles = days, 0
-	return s.pruneAge()
+	return s.pruneAge(false)
 }
 
 func (s *Store) Prune() error {
@@ -231,7 +252,45 @@ func (s *Store) Prune() error {
 	return s.prune()
 }
 
-func (s *Store) pruneAge() error {
+func (s *Store) MigrateNext() (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return false, os.ErrClosed
+	}
+	if len(s.pending) == 0 {
+		return false, nil
+	}
+	path := s.pending[0]
+	s.pending = s.pending[1:]
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return len(s.pending) > 0, nil
+	} else if err != nil {
+		return false, err
+	}
+	active := s.file != nil && s.file.Name() == path
+	if active {
+		if err := s.closeFile(); err != nil {
+			return false, err
+		}
+	}
+	cutoff := s.now().Add(-time.Duration(s.retentionDays) * 24 * time.Hour)
+	if err := s.pruneSegment(path, cutoff, false); err != nil {
+		return false, err
+	}
+	if active {
+		if _, err := os.Stat(path); err == nil {
+			if err := s.openFile(path); err != nil {
+				return false, err
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return false, err
+		}
+	}
+	return len(s.pending) > 0, nil
+}
+
+func (s *Store) pruneAge(skipUnindexed bool) error {
 	var active string
 	if s.file != nil {
 		active = s.file.Name()
@@ -245,25 +304,8 @@ func (s *Store) pruneAge() error {
 	}
 	cutoff := s.now().Add(-time.Duration(s.retentionDays) * 24 * time.Hour)
 	for _, path := range files {
-		span, known := s.spans[path]
-		if known && span.earliest.After(cutoff) {
-			continue
-		}
-		if known && !span.latest.After(cutoff) {
-			if err := os.Remove(path); err != nil {
-				return err
-			}
-			delete(s.spans, path)
-			continue
-		}
-		span, exists, err := s.filterExpired(path, cutoff)
-		if err != nil {
+		if err := s.pruneSegment(path, cutoff, skipUnindexed); err != nil {
 			return err
-		}
-		if exists {
-			s.spans[path] = span
-		} else {
-			delete(s.spans, path)
 		}
 	}
 	if active != "" {
@@ -274,6 +316,30 @@ func (s *Store) pruneAge() error {
 		}
 	}
 	return nil
+}
+
+func (s *Store) pruneSegment(path string, cutoff time.Time, skipUnindexed bool) error {
+	span, known := s.spans[path]
+	if skipUnindexed && !known || known && span.earliest.After(cutoff) {
+		return nil
+	}
+	if known && !span.latest.After(cutoff) {
+		if err := removeSegment(path); err != nil {
+			return err
+		}
+		delete(s.spans, path)
+		return nil
+	}
+	span, exists, err := s.filterExpired(path, cutoff)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		delete(s.spans, path)
+		return nil
+	}
+	s.spans[path] = span
+	return s.saveSpan(path)
 }
 
 func (s *Store) filterExpired(path string, cutoff time.Time) (recordSpan, bool, error) {
@@ -307,8 +373,11 @@ func (s *Store) filterExpired(path string, cutoff time.Time) (recordSpan, bool, 
 			return recordSpan{}, false, readErr
 		}
 	}
+	if err := f.Close(); err != nil {
+		return recordSpan{}, false, err
+	}
 	if len(kept) == 0 {
-		return recordSpan{}, false, os.Remove(path)
+		return recordSpan{}, false, removeSegment(path)
 	}
 	if !changed {
 		return span, true, nil
@@ -338,7 +407,10 @@ func (s *Store) Flush() error {
 	if s.buffer == nil {
 		return nil
 	}
-	return s.buffer.Flush()
+	if err := s.buffer.Flush(); err != nil {
+		return err
+	}
+	return s.saveSpan(s.file.Name())
 }
 
 func (s *Store) Close() error {
@@ -352,7 +424,7 @@ func (s *Store) Export(path string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.retentionDays > 0 {
-		if err := s.pruneAge(); err != nil {
+		if err := s.pruneAge(false); err != nil {
 			return err
 		}
 	}

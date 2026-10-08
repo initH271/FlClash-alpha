@@ -126,13 +126,13 @@ void main() {
       expect(result, 'ok');
     });
 
-    test('setupConfig waits for asynchronous preload', () async {
+    test('setupConfig starts listeners only after config succeeds', () async {
       const params = SetupParams(selectedMap: {}, testUrl: 'http://x.com');
       final preloadCompleter = Completer<void>();
       final events = <String>[];
       when(() => mock.setupConfig(params)).thenAnswer((_) {
         events.add('setup');
-        return Future.value('ok');
+        return Future.value('');
       });
 
       final setupFuture = controller.setupConfig(
@@ -150,7 +150,25 @@ void main() {
       expect(completed, isFalse);
 
       preloadCompleter.complete();
-      expect(await setupFuture, 'ok');
+      expect(await setupFuture, '');
+    });
+
+    test('a pending or failed config never starts listeners', () async {
+      const params = SetupParams(selectedMap: {}, testUrl: 'http://x.com');
+      final gate = Completer<String>();
+      when(() => mock.setupConfig(params)).thenAnswer((_) => gate.future);
+      var started = false;
+      final result = controller.setupConfig(
+        params: params,
+        preloadInvoke: () async {
+          started = true;
+        },
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(started, isFalse);
+      gate.complete('invalid configuration');
+      expect(await result, 'invalid configuration');
+      expect(started, isFalse);
     });
   });
 

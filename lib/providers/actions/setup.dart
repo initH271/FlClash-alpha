@@ -158,15 +158,16 @@ class SetupAction extends _$SetupAction {
     }
 
     try {
-      await _setCoreRunning(request);
+      final applied = await applyProfile(
+        force: true,
+        preloadInvoke: () => _setCoreRunning(request, duringProfile: true),
+      );
+      if (!applied) _rollbackRunning(request);
+      return applied;
     } catch (_) {
       _rollbackRunning(request);
       rethrow;
     }
-    if (_isCurrent(request)) {
-      applyProfileDebounce(force: true, silence: true);
-    }
-    return true;
   }
 
   Future<bool> _stop(_RunRequest request) async {
@@ -205,6 +206,7 @@ class SetupAction extends _$SetupAction {
       } finally {
         if (ref.mounted) routing.end(token, applied: applied);
       }
+      if (!applied) throw StateError('Core listener transition failed');
     });
   }
 
@@ -530,7 +532,7 @@ class SetupAction extends _$SetupAction {
           }
           final message = await _core.setupConfig(
             params: _setupParams,
-            preloadInvoke: preloadInvoke,
+            preloadInvoke: profileFailed ? null : preloadInvoke,
           );
           if (message.isNotEmpty) {
             throw MessageException(message);

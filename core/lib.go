@@ -217,6 +217,13 @@ func stopTunLocked() {
 }
 
 func handleStartTun(callback unsafe.Pointer, fd int, stack, address, dns string) bool {
+	if !tunStartupReady() {
+		if callback != nil {
+			releaseObject(callback)
+		}
+		logError("startTun requires an initialized, configured and running core")
+		return false
+	}
 	tunLock.Lock()
 	defer tunLock.Unlock()
 	stopTunLocked()
@@ -294,11 +301,7 @@ func startTUN(callback unsafe.Pointer, fd C.int, stackChar, addressChar, dnsChar
 	if !started {
 		return false
 	}
-	if !isRunning.Load() {
-		handleStartListener()
-	} else {
-		handleResetConnections()
-	}
+	handleResetConnections()
 	return true
 }
 

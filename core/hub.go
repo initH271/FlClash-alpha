@@ -52,10 +52,19 @@ func handleInitClash(params *InitParams) bool {
 func handleStartListener() bool {
 	configMu.Lock()
 	defer configMu.Unlock()
+	if !isInit.Load() || currentConfig == nil {
+		return false
+	}
 	isRunning.Store(true)
 	updateListeners(currentConfig)
 	resolver.ResetConnection()
 	return true
+}
+
+func tunStartupReady() bool {
+	configMu.Lock()
+	defer configMu.Unlock()
+	return isInit.Load() && currentConfig != nil && isRunning.Load()
 }
 
 func handleStopListener() bool {

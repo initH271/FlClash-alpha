@@ -107,6 +107,9 @@ func (r *historyRecorder) run() {
 	defer ticker.Stop()
 	cleanup := time.NewTicker(time.Minute)
 	defer cleanup.Stop()
+	migration := time.NewTicker(100 * time.Millisecond)
+	defer migration.Stop()
+	migrate := migration.C
 	var writeError error
 	report := func(err error) {
 		if err != nil && writeError == nil {
@@ -140,7 +143,16 @@ func (r *historyRecorder) run() {
 			reportDrops()
 			report(r.store.Flush())
 		case <-cleanup.C:
-			report(r.store.Prune())
+			if migrate == nil {
+				report(r.store.Prune())
+			}
+		case <-migrate:
+			more, err := r.store.MigrateNext()
+			report(err)
+			if !more || err != nil {
+				migration.Stop()
+				migrate = nil
+			}
 		}
 	}
 }
@@ -205,7 +217,7 @@ func handleExportLogHistory() (string, error) {
 		return "", errors.New("start the core before exporting log history")
 	}
 	result := make(chan historyResult, 1)
-	timer := time.NewTimer(time.Minute)
+	timer := time.NewTimer(5 * time.Minute)
 	defer timer.Stop()
 	r.mu.RLock()
 	if r.closed {

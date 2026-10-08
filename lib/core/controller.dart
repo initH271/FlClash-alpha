@@ -118,13 +118,8 @@ class CoreController {
     required SetupParams params,
     Future<void> Function()? preloadInvoke,
   }) async {
-    if (preloadInvoke == null) {
-      return _interface.setupConfig(params);
-    }
-    final (result, _) = await (
-      _interface.setupConfig(params),
-      preloadInvoke(),
-    ).wait;
+    final result = await _interface.setupConfig(params);
+    if (result.isEmpty) await preloadInvoke?.call();
     return result;
   }
 

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive_io.dart';
+import 'package:crypto/crypto.dart';
 import 'package:fl_clash/common/log_history.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -14,11 +15,62 @@ void main() {
     core = '${dir.path}/core.zip';
     final archive = Archive()
       ..addFile(ArchiveFile.string('core-test.jsonl', 'core history\n'))
-      ..addFile(ArchiveFile.string('README.txt', 'core-only'));
+      ..addFile(
+        ArchiveFile.string(
+          'README.txt',
+          'Retention: 14 days by record timestamp; no segment-count limit\n'
+              'coverage.txt: core log coverage',
+        ),
+      );
     await File(core).writeAsBytes(ZipEncoder().encode(archive));
   });
 
   tearDown(() async => dir.delete(recursive: true));
+
+  test('exports a core archive larger than the Android heap', () async {
+    const size = 320 * 1024 * 1024;
+    final payload = File('${dir.path}/large.jsonl');
+    final handle = await payload.open(mode: FileMode.write);
+    await handle.truncate(size);
+    await handle.setPosition(size - 4);
+    await handle.writeString('tail');
+    await handle.close();
+    final stream = InputFileStream(payload.path);
+    final encoder = ZipFileEncoder()..create(core);
+    try {
+      encoder.addArchiveFile(
+        ArchiveFile.stream('core-large.jsonl', stream)
+          ..compression = CompressionType.none,
+      );
+    } finally {
+      await encoder.close();
+      await stream.close();
+    }
+    final history = AppLogHistory(() async => Directory('${dir.path}/app'));
+    history.add('info', 'APP snapshot');
+    final output = await history.exportAll(core, 'recent');
+    expect(await File(output).length(), greaterThan(size));
+    final archiveStream = InputFileStream(output);
+    try {
+      final archive = ZipDecoder().decodeStream(archiveStream);
+      final entry = archive.findFile('core-large.jsonl')!;
+      expect(entry.size, size);
+      final extracted = File('${dir.path}/extracted.jsonl');
+      final destination = OutputFileStream(extracted.path);
+      try {
+        entry.writeContent(destination);
+      } finally {
+        await destination.close();
+      }
+      expect(
+        await sha256.bind(extracted.openRead()).first,
+        await sha256.bind(payload.openRead()).first,
+      );
+      expect(archive.findFile('recent-ui.log'), isNotNull);
+    } finally {
+      await archiveStream.close();
+    }
+  }, timeout: const Timeout(Duration(minutes: 2)));
 
   test(
     'one archive includes core, APP history beyond 5000, and UI snapshot',
@@ -44,7 +96,8 @@ void main() {
         'recent UI',
       );
       final readme = utf8.decode(archive.findFile('README.txt')!.content);
-      expect(readme, contains('20 files of 5 MiB'));
+      expect(readme, contains('Retention: 14 days by record timestamp'));
+      expect(readme, isNot(contains('20 files of 5 MiB')));
       expect(readme, contains('coverage.txt:'));
       expect(readme, contains('not the full day'));
       final app = archive.files

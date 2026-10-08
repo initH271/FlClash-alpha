@@ -20,6 +20,7 @@ class CoreAction extends _$CoreAction {
         logRetentionDays: ref.read(appSettingProvider).logRetentionDays,
       );
       commonPrint.log('init result: $res');
+      if (!res) throw StateError('Core initialization failed');
     } else {
       await Future<void>.sync(
         () => _core.setLogHistoryRetention(

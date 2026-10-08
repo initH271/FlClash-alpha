@@ -339,7 +339,7 @@ abstract class CoreHandlerInterface with CoreInterface {
   Future<String> exportLogHistory() {
     return _invokeMessage(
       method: CoreMethod.exportLogHistory,
-      timeout: const Duration(seconds: 75),
+      timeout: const Duration(minutes: 5, seconds: 15),
     );
   }
 
