@@ -162,6 +162,27 @@ void main() {
     },
   );
 
+  for (final code in ['NO_ACTIVITY', 'EXPORT_PENDING']) {
+    test('Android picker $code cleans up without starting a copy', () async {
+      final source = File('${dir.path}/source.zip');
+      await source.writeAsString('archive');
+      final methods = <String>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            methods.add(call.method);
+            throw PlatformException(code: code);
+          });
+      await expectLater(
+        Picker(androidApp: App()).saveFileWithPath('history.zip', source.path),
+        throwsA(
+          isA<PlatformException>().having((error) => error.code, 'code', code),
+        ),
+      );
+      expect(methods, ['createExportDocument']);
+      expect(await source.exists(), isFalse);
+    });
+  }
+
   test(
     'a failed destination choice still removes the temporary source',
     () async {
