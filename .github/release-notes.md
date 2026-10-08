@@ -1,3 +1,17 @@
+FlClash-alpha 0.8.98-alpha.15
+
+<!-- flclash:changelog:begin -->
+### Bug Fixes
+- **core,logs** Fix VPN startup with large retained logs and stream complete log exports
+
+<!-- flclash:changelog:end -->
+
+<!-- flclash:changelog:json
+{"schemaVersion":2,"versions":[{"version":"0.8.98-alpha.15","tag":"v0.8.98-alpha.15","date":"","prerelease":false,"groups":[{"type":"fix","entries":[{"id":"56f5a2f","scope":"core,logs","text":"Fix VPN startup with large retained logs and stream complete log exports"}]}]}]}
+-->
+
+---
+
 FlClash-alpha 0.8.98（构建 2026094010）
 
 - 首页新增 Bettbox v1.19.4 的一组可选组件，可在编辑器中选择并保存，原有默认布局保持不变。
