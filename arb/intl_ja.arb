@@ -267,8 +267,6 @@
   "ipv6InboundDesc": "IPv6インバウンドを許可します",
   "exportLogs": "すべてのログをエクスポート",
   "exportSuccess": "エクスポートが完了しました",
-  "exportCanceled": "エクスポートをキャンセルしました",
-  "exportFailed": "エクスポートに失敗しました",
   "iconStyle": "アイコンスタイル",
   "onlyIcon": "アイコンのみ",
   "stackMode": "スタックモード",

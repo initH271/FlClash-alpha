@@ -8,6 +8,10 @@ import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 class Picker {
+  Picker({App? androidApp}) : _androidApp = androidApp ?? app;
+
+  final App? _androidApp;
+
   Future<PlatformFile?> pickerFile() async {
     return FilePicker.pickFile(initialDirectory: await appPath.downloadDirPath);
   }
@@ -30,15 +34,22 @@ class Picker {
     if (!await localFile.exists()) {
       throw FileSystemException('Export source does not exist', localPath);
     }
-    final initialUri = app == null
-        ? null
-        : await app!.filePickerInitialUri(localFile.parent.path);
     try {
-      return await exportFileToDocument(
-        fileName: fileName,
-        source: localFile,
-        initialUri: (_) => initialUri,
-      );
+      final androidApp = _androidApp;
+      final uri = androidApp != null
+          ? await androidApp.createExportDocument(fileName)
+          : await FilePicker.saveFile(
+              fileName: fileName,
+              initialDirectory: await appPath.downloadDirPath,
+              bytes: Uint8List(0),
+            );
+      if (uri == null) return null;
+      if (androidApp != null) {
+        await androidApp.copyFileToUri(localPath, uri);
+      } else {
+        await localFile.copy(uri.toFilePath());
+      }
+      return uri;
     } finally {
       await localFile.safeDelete();
     }

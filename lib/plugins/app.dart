@@ -84,28 +84,17 @@ class App {
     return methodChannel.invokeMethod<bool>('requestNotificationsPermission');
   }
 
-  /// Best place for the save dialog: the download folder when it has one.
-  /// ACTION_CREATE_DOCUMENT only accepts a document URI here, and a directory
-  /// path would be read by providers as a document in the app sandbox.
-  Future<Uri?> filePickerInitialUri(String fallbackDirectory) async {
-    for (final candidate in [await appPath.downloadDirPath, fallbackDirectory]) {
-      if (candidate.isEmpty) {
-        continue;
-      }
-      final uri = await methodChannel.invokeMethod<String>(
-        'getDocumentTreeUri',
-        {'path': candidate},
-      );
-      if (uri != null && uri.isNotEmpty) {
-        return Uri.parse(uri);
-      }
-    }
-    return null;
-  }
-
   Future<bool> openFile(String path) async {
     return await methodChannel.invokeMethod<bool>('openFile', {'path': path}) ??
         false;
+  }
+
+  Future<Uri?> createExportDocument(String fileName) async {
+    final uri = await methodChannel.invokeMethod<String>(
+      'createExportDocument',
+      {'fileName': fileName},
+    );
+    return uri == null ? null : Uri.parse(uri);
   }
 
   Future<void> copyFileToUri(String path, Uri destination) async {

@@ -267,8 +267,6 @@
   "ipv6InboundDesc": "允许IPv6入站",
   "exportLogs": "导出全部日志",
   "exportSuccess": "导出成功",
-  "exportCanceled": "已取消导出",
-  "exportFailed": "导出失败",
   "iconStyle": "图标样式",
   "onlyIcon": "仅图标",
   "stackMode": "栈模式",

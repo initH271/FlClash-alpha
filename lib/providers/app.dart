@@ -38,21 +38,16 @@ class Logs extends _$Logs with AutoDisposeNotifierMixin {
     this.value = state.append(value);
   }
 
-  /// Resolves with the saved destination, null when the user dismissed the
-  /// dialog, and throws [ExportException] for every other failure, so the UI can
-  /// tell a cancellation from a write the provider rejected.
-  Future<Uri?> exportLogs() async {
-    final path = File(await ref.read(coreHandlerProvider).exportLogHistory());
-    // A superseded attempt cannot clean up once its process is gone.
-    await cleanExportPartials(path.parent);
+  Future<bool> exportLogs() async {
+    final path = await ref.read(coreHandlerProvider).exportLogHistory();
     String? archive;
     try {
       final recent = await encodeLogsTask(value.list);
-      archive = await appLogHistory.exportAll(path.path, recent);
+      archive = await appLogHistory.exportAll(path, recent);
       final name = 'FlClash_logs_${DateTime.now().millisecondsSinceEpoch}.zip';
-      return await picker.saveFileWithPath(name, archive);
+      return await picker.saveFileWithPath(name, archive) != null;
     } finally {
-      await path.safeDelete();
+      await File(path).safeDelete();
       if (archive != null) await File(archive).safeDelete();
     }
   }

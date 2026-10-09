@@ -52,7 +52,6 @@ class _LogsViewState extends ConsumerState<LogsView> {
   final _listController = LogListController();
   late final ScrollController _scrollController;
   bool _exportingHistory = false;
-  int _exportAttempt = 0;
 
   @override
   void initState() {
@@ -85,16 +84,11 @@ class _LogsViewState extends ConsumerState<LogsView> {
     if (_exportingHistory) return;
     setState(() => _exportingHistory = true);
     final l = context.appLocalizations;
-    // Only the newest overlapping export may report.
-
-    final attempt = ++_exportAttempt;
     try {
-      final uri = await globalState.safeRun<Uri?>(
-        () => ref.read(logsProvider.notifier).exportLogs(),
-        title: l.exportLogs,
-      );
-      if (!mounted || attempt != _exportAttempt) return;
-      if (uri != null) {
+      final result = await globalState.safeRun<bool>(() async {
+        return ref.read(logsProvider.notifier).exportLogs();
+      }, title: l.exportLogs);
+      if (result == true && mounted) {
         unawaited(
           dialogs.showMessage(
             title: l.tip,
@@ -102,20 +96,8 @@ class _LogsViewState extends ConsumerState<LogsView> {
           ),
         );
       }
-    } catch (error) {
-      if (!mounted || attempt != _exportAttempt) return;
-      final failure = error is ExportException ? error.failure : null;
-      final message = switch (failure) {
-        ExportFailure.cancelled => l.exportCanceled,
-        _ => l.exportFailed,
-      };
-      unawaited(
-        dialogs.showMessage(title: l.tip, message: TextSpan(text: message)),
-      );
     } finally {
-      if (mounted && attempt == _exportAttempt) {
-        setState(() => _exportingHistory = false);
-      }
+      if (mounted) setState(() => _exportingHistory = false);
     }
   }
 

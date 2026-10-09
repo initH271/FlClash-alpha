@@ -331,8 +331,6 @@ class MessageLookup extends MessageLookupByLibrary {
     "expand": MessageLookupByLibrary.simpleMessage("标准"),
     "expectedStatus": MessageLookupByLibrary.simpleMessage("预期状态"),
     "expireTime": MessageLookupByLibrary.simpleMessage("到期时间"),
-    "exportCanceled": MessageLookupByLibrary.simpleMessage("已取消导出"),
-    "exportFailed": MessageLookupByLibrary.simpleMessage("导出失败"),
     "exportFile": MessageLookupByLibrary.simpleMessage("导出文件"),
     "exportLogs": MessageLookupByLibrary.simpleMessage("导出全部日志"),
     "exportSuccess": MessageLookupByLibrary.simpleMessage("导出成功"),

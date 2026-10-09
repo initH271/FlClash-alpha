@@ -267,8 +267,6 @@
   "ipv6InboundDesc": "Разрешить входящий IPv6",
   "exportLogs": "Экспортировать все журналы",
   "exportSuccess": "Экспорт выполнен",
-  "exportCanceled": "Экспорт отменён",
-  "exportFailed": "Не удалось выполнить экспорт",
   "iconStyle": "Стиль значков",
   "onlyIcon": "Только значок",
   "stackMode": "Режим стека",

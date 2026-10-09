@@ -2075,26 +2075,6 @@ class AppLocalizations {
     );
   }
 
-  /// `Export canceled`
-  String get exportCanceled {
-    return Intl.message(
-      'Export canceled',
-      name: 'exportCanceled',
-      desc: '',
-      args: [],
-    );
-  }
-
-  /// `Export failed`
-  String get exportFailed {
-    return Intl.message(
-      'Export failed',
-      name: 'exportFailed',
-      desc: '',
-      args: [],
-    );
-  }
-
   /// `Icon style`
   String get iconStyle {
     return Intl.message('Icon style', name: 'iconStyle', desc: '', args: []);

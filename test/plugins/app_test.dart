@@ -3,56 +3,73 @@ import 'package:fl_clash/common/constant.dart';
 import 'package:fl_clash/plugins/app.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
-
-class _Paths extends PathProviderPlatform {
-  @override
-  Future<String?> getDownloadsPath() async => null;
-
-  @override
-  Future<String?> getApplicationSupportPath() async => '/tmp';
-
-  @override
-  Future<String?> getTemporaryPath() async => '/tmp';
-
-  @override
-  Future<String?> getApplicationCachePath() async => '/tmp';
-}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   const channel = MethodChannel('$packageName/app');
-  late PathProviderPlatform oldPaths;
 
   setUp(() {
-    oldPaths = PathProviderPlatform.instance;
-    PathProviderPlatform.instance = _Paths();
     App().clearPackageIconCache();
   });
 
-  test('a directory is offered to the dialog as a document URI', () async {
+  test('keeps the complete document provider URI for file exports', () async {
+    const destination =
+        'content://com.android.providers.downloads.documents/document/msf%3A123';
     MethodCall? received;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
           received = call;
-          return 'content://com.android.externalstorage.documents/document/primary%3ADownload';
+          return destination;
         });
-
-    final uri = await App().filePickerInitialUri('/storage/emulated/0/Download');
-
-    expect(received!.method, 'getDocumentTreeUri');
-    expect(received!.arguments, {'path': '/tmp'});
-    expect(uri, Uri.parse('content://com.android.externalstorage.documents/document/primary%3ADownload'));
+    final uri = await App().createExportDocument('history.zip');
+    expect(uri.toString(), destination);
     expect(uri!.scheme, 'content');
+    expect(uri.authority, 'com.android.providers.downloads.documents');
+    expect(received!.method, 'createExportDocument');
+    expect(received!.arguments, {'fileName': 'history.zip'});
   });
 
-  test('a directory without a document URI leaves the dialog unseeded', () async {
+  test(
+    'cancelling the Android document picker returns no destination',
+    () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (_) async => null);
+      expect(await App().createExportDocument('history.zip'), isNull);
+    },
+  );
+
+  test('a document picker failure is surfaced to the export caller', () async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(channel, (_) async => null);
-
-    expect(await App().filePickerInitialUri('/data/local/tmp'), isNull);
+        .setMockMethodCallHandler(channel, (_) async {
+          throw PlatformException(code: 'NO_ACTIVITY');
+        });
+    await expectLater(
+      App().createExportDocument('history.zip'),
+      throwsA(isA<PlatformException>()),
+    );
   });
+
+  test(
+    'exports a local file using only paths in the platform message',
+    () async {
+      MethodCall? received;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            received = call;
+            return null;
+          });
+      await App().copyFileToUri(
+        '/private/history.zip',
+        Uri.parse('content://logs/1'),
+      );
+      expect(received!.method, 'copyFileToUri');
+      expect(received!.arguments, {
+        'path': '/private/history.zip',
+        'uri': 'content://logs/1',
+      });
+    },
+  );
 
   test('a failed native copy is surfaced to the export caller', () async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -71,7 +88,6 @@ void main() {
   tearDown(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null);
-    PathProviderPlatform.instance = oldPaths;
     App().clearPackageIconCache();
   });
 

@@ -267,8 +267,6 @@
   "ipv6InboundDesc": "Allow IPv6 inbound",
   "exportLogs": "Export all logs",
   "exportSuccess": "Export successful",
-  "exportCanceled": "Export canceled",
-  "exportFailed": "Export failed",
   "iconStyle": "Icon style",
   "onlyIcon": "Icon only",
   "stackMode": "Stack mode",
