@@ -89,6 +89,14 @@ class App {
         false;
   }
 
+  Future<Uri?> createExportDocument(String fileName) async {
+    final uri = await methodChannel.invokeMethod<String>(
+      'createExportDocument',
+      {'fileName': fileName},
+    );
+    return uri == null ? null : Uri.parse(uri);
+  }
+
   Future<void> copyFileToUri(String path, Uri destination) async {
     await methodChannel.invokeMethod<void>('copyFileToUri', {
       'path': path,

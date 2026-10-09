@@ -1,3 +1,17 @@
+FlClash-alpha 0.8.98-alpha.16
+
+<!-- flclash:changelog:begin -->
+### Bug Fixes
+- **android** Fix Android log exports losing the selected document URI
+
+<!-- flclash:changelog:end -->
+
+<!-- flclash:changelog:json
+{"schemaVersion":2,"versions":[{"version":"0.8.98-alpha.16","tag":"v0.8.98-alpha.16","date":"","prerelease":false,"groups":[{"type":"fix","entries":[{"id":"ec5a51f","scope":"android","text":"Fix Android log exports losing the selected document URI"}]}]}]}
+-->
+
+---
+
 FlClash-alpha 0.8.98-alpha.15
 
 <!-- flclash:changelog:begin -->
