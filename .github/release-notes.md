@@ -1,14 +1,16 @@
-FlClash-alpha 0.8.98-alpha.15
+FlClash-alpha 0.8.98-alpha.16
 
 <!-- flclash:changelog:begin -->
 ### Bug Fixes
 - **core,logs** Fix VPN startup with large retained logs and stream complete log exports
+- **android,logs** Save exported logs through the document URI the picker returns
 
 <!-- flclash:changelog:end -->
 
 <!-- flclash:changelog:json
-{"schemaVersion":2,"versions":[{"version":"0.8.98-alpha.15","tag":"v0.8.98-alpha.15","date":"","prerelease":false,"groups":[{"type":"fix","entries":[{"id":"56f5a2f","scope":"core,logs","text":"Fix VPN startup with large retained logs and stream complete log exports"}]}]}]}
+{"schemaVersion":2,"versions":[{"version":"0.8.98-alpha.16","tag":"v0.8.98-alpha.16","date":"","prerelease":false,"groups":[{"type":"fix","entries":[{"id":"56f5a2f","scope":"core,logs","text":"Fix VPN startup with large retained logs and stream complete log exports"},{"id":"pending","scope":"android,logs","text":"Save exported logs through the document URI the picker returns"}]}]}]}
 -->
+
 
 ---
 

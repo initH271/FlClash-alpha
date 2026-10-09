@@ -3,13 +3,31 @@ import 'package:fl_clash/common/constant.dart';
 import 'package:fl_clash/plugins/app.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+
+class _Paths extends PathProviderPlatform {
+  @override
+  Future<String?> getDownloadsPath() async => null;
+
+  @override
+  Future<String?> getApplicationSupportPath() async => '/tmp';
+
+  @override
+  Future<String?> getTemporaryPath() async => '/tmp';
+
+  @override
+  Future<String?> getApplicationCachePath() async => '/tmp';
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   const channel = MethodChannel('$packageName/app');
+  late PathProviderPlatform oldPaths;
 
   setUp(() {
+    oldPaths = PathProviderPlatform.instance;
+    PathProviderPlatform.instance = _Paths();
     App().clearPackageIconCache();
   });
 
@@ -34,6 +52,29 @@ void main() {
     },
   );
 
+  test('a directory is offered to the dialog as a document URI', () async {
+    MethodCall? received;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          received = call;
+          return 'content://com.android.externalstorage.documents/document/primary%3ADownload';
+        });
+
+    final uri = await App().filePickerInitialUri('/storage/emulated/0/Download');
+
+    expect(received!.method, 'getDocumentTreeUri');
+    expect(received!.arguments, {'path': '/tmp'});
+    expect(uri, Uri.parse('content://com.android.externalstorage.documents/document/primary%3ADownload'));
+    expect(uri!.scheme, 'content');
+  });
+
+  test('a directory without a document URI leaves the dialog unseeded', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (_) async => null);
+
+    expect(await App().filePickerInitialUri('/data/local/tmp'), isNull);
+  });
+
   test('a failed native copy is surfaced to the export caller', () async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (_) async {
@@ -51,6 +92,7 @@ void main() {
   tearDown(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null);
+    PathProviderPlatform.instance = oldPaths;
     App().clearPackageIconCache();
   });
 

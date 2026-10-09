@@ -30,19 +30,15 @@ class Picker {
     if (!await localFile.exists()) {
       throw FileSystemException('Export source does not exist', localPath);
     }
+    final initialUri = app == null
+        ? null
+        : await app!.filePickerInitialUri(localFile.parent.path);
     try {
-      final uri = await FilePicker.saveFile(
+      return await exportFileToDocument(
         fileName: fileName,
-        initialDirectory: await appPath.downloadDirPath,
-        bytes: Uint8List(0),
+        source: localFile,
+        initialUri: (_) => initialUri,
       );
-      if (uri == null) return null;
-      if (uri.scheme == 'content' && app != null) {
-        await app!.copyFileToUri(localPath, uri);
-      } else {
-        await localFile.copy(uri.toFilePath());
-      }
-      return uri;
     } finally {
       await localFile.safeDelete();
     }

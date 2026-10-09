@@ -23,6 +23,7 @@ export 'keyboard.dart';
 export 'l10n_labels.dart';
 export 'layout.dart';
 export 'link.dart';
+export 'log_export.dart';
 export 'lock.dart';
 export 'measure.dart';
 export 'mixin.dart';

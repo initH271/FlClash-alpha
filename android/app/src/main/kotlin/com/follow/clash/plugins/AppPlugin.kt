@@ -55,8 +55,16 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
 
     private var activityBinding: ActivityPluginBinding? = null
 
+    private val documentExportHandler = DocumentExportHandler { activity }
+
     private val activityResultListener =
-        PluginRegistry.ActivityResultListener(::onActivityResult)
+        PluginRegistry.ActivityResultListener { requestCode, resultCode, data ->
+            if (documentExportHandler.onActivityResult(requestCode, resultCode, data)) {
+                true
+            } else {
+                onActivityResult(requestCode, resultCode, data)
+            }
+        }
 
     private val permissionsResultListener =
         PluginRegistry.RequestPermissionsResultListener(::onRequestPermissionsResultListener)
@@ -123,6 +131,10 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
 
     override fun onMethodCall(call: MethodCall, rawResult: Result) {
         val result = MainThreadResult(rawResult)
+        if (call.method in DOCUMENT_EXPORT_METHODS) {
+            documentExportHandler.onMethodCall(call, result)
+            return
+        }
         when (call.method) {
             "getNetworkAddresses" -> {
                 val manager = GlobalState.application.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -204,6 +216,11 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
 
             "getLastExitInfo" -> reply(result) {
                 GlobalState.lastExitInfo()
+            }
+
+            "getDocumentTreeUri" -> {
+                val path = call.argument<String>("path")
+                result.success(path?.let { DocumentExportRules.treeUriFor(File(it))?.toString() })
             }
 
             "copyFileToUri" -> reply(result) {
@@ -444,6 +461,8 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
+        // The stream belongs to the engine, not the recreated activity.
+        documentExportHandler.detachActivity()
         detachFromActivity()
     }
 
@@ -453,6 +472,7 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
 
     override fun onDetachedFromActivity() {
         channel.invokeMethod("exit", null)
+        documentExportHandler.detachActivity()
         detachFromActivity()
         invokeVpnPrepareCallback(false)
         invokeRequestNotificationCallback(false)
@@ -490,6 +510,12 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
     }
 
     private companion object {
+        val DOCUMENT_EXPORT_METHODS = setOf(
+            "createExportDocument",
+            "writeExportChunk",
+            "renameExportDocument",
+        )
+
         const val VPN_PERMISSION_REQUEST_CODE = 1001
         const val NOTIFICATION_PERMISSION_REQUEST_CODE = 1002
         const val INSTALLED_APPS_PERMISSION_REQUEST_CODE = 1003
