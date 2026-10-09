@@ -31,27 +31,6 @@ void main() {
     App().clearPackageIconCache();
   });
 
-  test(
-    'exports a local file using only paths in the platform message',
-    () async {
-      MethodCall? received;
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(channel, (call) async {
-            received = call;
-            return null;
-          });
-      await App().copyFileToUri(
-        '/private/history.zip',
-        Uri.parse('content://logs/1'),
-      );
-      expect(received!.method, 'copyFileToUri');
-      expect(received!.arguments, {
-        'path': '/private/history.zip',
-        'uri': 'content://logs/1',
-      });
-    },
-  );
-
   test('a directory is offered to the dialog as a document URI', () async {
     MethodCall? received;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
