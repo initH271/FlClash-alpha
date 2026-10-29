@@ -52,6 +52,20 @@ Main is protected on CNB: ordinary developers/NPCs cannot push directly;
 PRs require administrator approval and passing checks. The owner account's scoped
 automation token may synchronize main. Personal signing stays on GitHub.
 
+The development NPC takes work from one entry only: an issue comment dispatched by
+the controller. Its `pull_request.comment@npc` pipeline is a one-CPU echo guard with
+no `npc:go` stage, so an `@` in a PR comment — the owner's included — never starts
+a model run; only an issue comment does. The `DeepSeek development` stage carries a
+60-minute `timeout`. Until an NPC run finishes, the controller holds the ladder: a
+row whose dispatch comment has no valid `flclash-requirement` signature is not a
+controller dispatch and never opens a PR or raises the rung. A developer run that
+is still not terminal 75 minutes after its dispatch gets one unsigned
+`<!-- flclash-requirement-overrun <sn> -->` comment naming the build and the runtime;
+the controller does not dispatch again, so a missing 60-minute timeout stays
+visible. Commits record their origin in a `FlClash-Actor` trailer: `npc/开发助手`
+for the development NPC and `controller` for the controller's own merge commits. A
+commit without that trailer is a human commit.
+
 ## One build, two download channels
 
 GitHub standard public runners are primary. The scheduler first reuses an APK

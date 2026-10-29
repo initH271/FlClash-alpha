@@ -570,7 +570,9 @@ requirement flow instead of an ordinary fix. An agent that needs to change them 
 requirement form, selects 自动化配置 under 影响范围, and checks 允许改自动化配置. The checkbox is the owner's
 authorization: without it the requirement cannot modify those paths at all, and `.automation/requirements.py` rejects
 the form when the area is selected unchecked. The development NPC implements the change on the `automation/req-<n>`
-branch the controller names; the controller merges the PR.
+branch the controller names; the controller merges the PR. The development NPC takes work through no other door:
+it ignores every `@` in PR comments, the owner's included, so dispatch or rework by commenting on the requirement
+issue and letting the controller dispatch.
 
 Do not push a `fix/` branch for one of these changes and merge it by hand. Only
 `automation/req-*`, `automation/security-sync-*` and `automation/cnb-main-*` are auto-merged by the controller

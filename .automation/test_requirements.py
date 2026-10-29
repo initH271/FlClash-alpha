@@ -159,7 +159,7 @@ class RequirementTests(unittest.TestCase):
               patch('control.sync_branch') as push):
             req.sync_main('9', 's' * 40)
         self.assertIn(('commit-tree', 'tree-1', '-p', 's' * 40, '-p', 'm' * 40,
-                       '-m', 'Merge main into automation/req-9'), calls)
+                       '-m', 'Merge main into automation/req-9', '-m', 'FlClash-Actor: controller'), calls)
         push.assert_called_once_with('automation/req-9', 'new-commit')
         self.assertIn('合入', note.call_args.args[1])
 
@@ -239,3 +239,55 @@ class RequirementTests(unittest.TestCase):
         comments = [self.marker('dev', 240, 'old', '2026-09-22T02:00:00Z', scope='other')]
         action = self.decide(comments)
         self.assertEqual(('dev', 60), (action['phase'], action['rung']))
+
+    def test_first_dispatch_names_the_issue_head_and_checks(self):
+        text = self.decide()['instruction']
+        self.assertIn('需求 Issue #9', text)
+        self.assertIn('不要 sleep', text)
+        self.assertIn('FlClash-Actor: npc/开发助手', text)
+        self.assertIn('tool/hooks/comment_density.sh', text)
+        self.assertNotIn('立刻开 CNB PR', text)
+        self.assertIn('远端分支头：不存在（首次派发）', text)
+
+    def test_a_dispatch_with_a_known_head_names_the_sha_not_the_tree(self):
+        comments = [self.marker('dev', 60, '', '2026-09-22T02:00:00Z')]
+        rows = [self.attempt('error', '2026-09-22T02:00:00Z')]
+        text = self.decide(comments, rows, tree='abc', sha='c' * 40)['instruction']
+        self.assertIn('远端分支头：`' + 'c' * 40 + '`', text)
+        self.assertNotIn('从已有提交', text)
+        self.assertNotIn('分支头：`abc`', text)
+
+    def test_unsigned_runs_do_not_open_a_pr_or_raise_the_rung(self):
+        started = '2026-09-22T02:00:00Z'
+        comments = [self.marker('dev', 60, '', started), {
+            'created_at': '2026-09-22T02:05:00Z', 'body': '提交 SHA 已满足验收',
+            'author': {'username': '507space/FlClash-alpha(开发助手)', 'is_npc': True}, 'signed': False}]
+        unsigned = [dict(self.attempt('success', started), signed=False)]
+        self.assertNotEqual('open-pr', self.decide(comments, unsigned, tree='abc')['kind'])
+        self.assertEqual('wait', self.decide(comments, [dict(self.attempt('pending', started), signed=False)])['kind'])
+
+    def test_attempts_reports_whether_the_dispatch_was_signed(self):
+        statuses = {'npc': [{'context': {'npc.slug': req.POLICY['cnb'], 'npc.name': '开发助手', 'sn': 'cnb-a-1'},
+                             'statuses': [{'state': 'pending'}]}]}
+        signed = dict(self.marker('dev', 60, '', '2026-09-22T02:00:00Z'), statuses=statuses)
+        unsigned = {'created_at': '2026-09-22T02:00:00Z', 'body': '随便 @ 一下', 'statuses': statuses}
+        rows = req.attempts([signed, unsigned])
+        self.assertEqual([True, False], [row['signed'] for row in rows])
+
+    def test_a_hung_development_run_reports_overrun_once(self):
+        started = '2026-09-22T00:40:00Z'
+        comments = [self.marker('dev', 60, '', started)]
+        rows = [self.attempt('pending', started)]
+        action = self.decide(comments, rows)
+        self.assertEqual(('overrun', 'cnb-test-1', 140), (action['kind'], action['sn'], action['minutes']))
+        notes = [{'created_at': '2026-09-22T02:50:00Z', 'body': req.OVERRUN.format('cnb-test-1')}]
+        self.assertEqual('wait', self.decide(comments + notes, rows)['kind'])
+        self.assertEqual('wait', self.decide(comments, [self.attempt('pending', '2026-09-22T02:30:00Z')])['kind'])
+
+    def test_overrun_is_posted_without_a_signature(self):
+        with patch.object(req, 'comment') as note:
+            req.act(self.issue, {'kind': 'overrun', 'sn': 'cnb-a-1', 'minutes': 95}, '')
+        body = note.call_args.args[1]
+        self.assertTrue(body.startswith(req.OVERRUN.format('cnb-a-1')))
+        self.assertIn('约 95 分钟', body)
+        self.assertNotIn('<!-- flclash-requirement {', body)
