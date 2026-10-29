@@ -384,9 +384,8 @@ def act(issue, action, sha):
     comment(number, body, action['work_mode'])
 
 
-HOLD_NOTICE = ('owner 已占用分支 `{branch}`：控制器暂停派发、开 PR、同步 main 和转发。'
-               '推完提交后发 RELEASE 恢复；新提交照常要过 CNB 检查和结对审核。'
-               '已经转发到 GitHub 的 PR 不在本轮暂停范围内，要防止它被合并，请先把 GitHub PR 转为草稿。')
+HOLD_NOTICE = ('owner 已占用分支 `{branch}`：控制器暂停派发、开 PR、同步 main、转发和合并。'
+               '推完提交后发 RELEASE 恢复；新提交照常要过 CNB 检查和结对审核。')
 HOLD_RUNNING = '开发助手构建 `{sn}` 仍在运行，HOLD 拦不住它的推送，等它结束或在 CNB 上手动停止后再推。'
 
 

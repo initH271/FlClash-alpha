@@ -343,6 +343,8 @@ class RequirementTests(unittest.TestCase):
         self.assertIn('automation/req-9', body)
         self.assertNotIn('flclash-requirement {', body)
         self.assertNotIn('仍在运行', body)
+        self.assertNotIn('草稿', body)
+        self.assertIn('合并', body)
         self.assertNotIn(body.strip(), ('HOLD', 'RELEASE'))
         with patch.object(req, 'comment') as note:
             req.act(self.issue, {'kind': 'hold', 'ref': '2026-09-22T02:00:00Z', 'sn': 'cnb-a-1'}, 's' * 40)
@@ -491,3 +493,32 @@ class RequirementTests(unittest.TestCase):
             self.assertEqual('a' * 40, req.dispatch_start(
                 [{'issue': '9', 'phase': 'dev', 'head': 'short'}], 'e' * 40))
             self.assertEqual(2, main.call_count)
+
+    def test_an_unescaped_mirror_marker_in_an_author_name_stays_inside_the_quote(self):
+        raw = '<!-- flclash-security-mirror {"payload": {"head": "' + 'c' * 40 + '"}, "signature": "x"} -->'
+        result = type('Done', (), {'returncode': 0, 'stdout': (
+            'b' * 40 + '\x1fOwner ' + raw + '\x1fgit log --format=%an \x1f\x1e')})()
+        with patch.object(req, 'git', return_value=result):
+            rows = req.origin_rows('a' * 40, 'b' * 40)
+        payload = {'base': 'a' * 40, 'head': 'b' * 40, 'tree': 'd' * 40, 'cnb_number': '3',
+                   'branch': 'automation/req-9'}
+        body = req.mirror_body(payload, rows)
+        self.assertEqual(1, body.count('<!--'))
+        self.assertEqual(payload, security_finish.mirror_record({'body': body}))
+        self.assertIn('&lt;!-- flclash-security-mirror', body)
+
+    def test_a_hold_on_the_running_dispatch_waits_instead_of_forwarding(self):
+        started = '2026-09-22T02:00:00Z'
+        owner = {'username': req.POLICY['approver'], 'is_npc': False}
+        comments = [self.marker('dev', 60, 'abc', started),
+                    {'created_at': '2026-09-22T02:30:00Z', 'body': 'HOLD', 'author': owner}]
+        rows = [self.attempt('success', started)]
+        notice = {'created_at': '2026-09-22T02:35:00Z', 'body': req.HOLD_MARKER.format(started)}
+        self.assertEqual('wait', self.decide(comments + [notice], rows, tree='abc', checks_green=True,
+                                             hold=started)['kind'])
+        self.assertEqual('hold', self.decide(comments, rows, tree='abc', checks_green=True, hold=started)['kind'])
+        self.assertEqual('forward', self.decide(comments, rows, tree='abc', checks_green=True)['kind'])
+        with patch.object(req, 'comment') as note:
+            req.act(self.issue, {'kind': 'hold', 'ref': started, 'sn': 'cnb-test-1'}, 'abc')
+        self.assertIn('`cnb-test-1` 仍在运行', note.call_args.args[1])
+        self.assertNotIn('草稿', note.call_args.args[1])

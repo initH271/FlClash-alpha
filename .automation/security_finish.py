@@ -5,6 +5,7 @@ import os
 import re
 import tomllib
 
+import pause
 from control import CNB, GH, POLICY, api, check_name, comment, gating_statuses, git, pages, sign, sync_branch, verify
 from reviews import find_request, result, scope, state, reconcile as review_reconcile
 from security_groups import GROUPS, repair_branch
@@ -157,6 +158,10 @@ def forward_pull(issue, pull, base):
             api(f'{GH}/pulls/{target["number"]}', 'PATCH', {'state': 'closed'})
             continue
         if mirror_attestation(target):
+            held = pause.paused('main', target['head'].get('ref') or '')
+            if held:
+                print(f'release in flight ({held["head"][:12]}); deferring merge of GitHub PR #{target["number"]}')
+                return
             merged = api(f'{GH}/pulls/{target["number"]}/merge', 'PUT', {
                 'sha': head, 'merge_method': 'merge',
                 'commit_title': 'fix(security): 合并已验证的兼容依赖修复 [skip ci]'})
@@ -314,6 +319,17 @@ def paired_review_passed(sha):
                for item in statuses)
 
 
+def defer(ref, pull, held):
+    if held.get('source') == 'hold':
+        print(f'{ref} held by owner; deferring merge')
+        return
+    match = re.fullmatch(r'automation/req-(\d+)', ref)
+    if match:
+        pause.deferred(match.group(1), held['head'], held['pull'])
+        return
+    print(f'{ref} deferred while {held["head"][:12]} is releasing')
+
+
 def merge_ready():
     for listed in pages(f'{GH}/pulls?state=open', size_key='per_page'):
         ref = listed['head']['ref']
@@ -327,6 +343,10 @@ def merge_ready():
         if not paired_review_passed(sha):
             continue
         if ref.startswith(('automation/security-sync-', 'automation/req-')) and not mirror_attestation(pull):
+            continue
+        held = pause.paused('main', ref)
+        if held:
+            defer(ref, pull, held)
             continue
         merged = api(f'{GH}/pulls/{pull["number"]}/merge', 'PUT', {
             'sha': sha, 'merge_method': 'merge'})

@@ -593,12 +593,6 @@ the next dispatch and in the mirrored GitHub pull request so the next agent read
 agent may push on the owner's behalf only when the owner asked for it explicitly in that session; it never decides to
 push there on its own.
 
-Temporary (remove when the release lock lands): until the release lock (requirement 1C) merges, the owner freezes every
-pull request that would move `main` before approving a release. On CNB, prefix the title of a security fix PR with
-`WIP: ` (`merge_one` skips `is_wip`); on GitHub, convert an already forwarded req or security-sync PR to a draft
-(`merge_ready` skips drafts). Restore both after the release. Delete this paragraph when 1C merges; do not edit the rest
-of the section instead.
-
 ## Commit Messages
 
 Subjects follow Conventional Commits and are enforced by the `commit-msg` hook in `.pre-commit-config.yaml`, which runs
