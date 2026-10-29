@@ -256,6 +256,32 @@ class SecurityFinishTests(unittest.TestCase):
                 finish.ensure_scan(sha)
             self.assertEqual(1, api.call_count)
 
+    def test_rescan_reads_the_scan_job_when_a_run_was_cancelled(self):
+        sha = 'a' * 40
+        cancelled = {'id': 7, 'head_sha': sha, 'status': 'completed', 'conclusion': 'cancelled'}
+
+        def responder(scan_conclusion):
+            def api(path, *args):
+                if path.endswith('/jobs'):
+                    return {'jobs': [{'name': 'Dependency vulnerability scan', 'conclusion': scan_conclusion},
+                                     {'name': 'track', 'conclusion': 'cancelled'}]}
+                if path.endswith('/dispatches'):
+                    return {}
+                return {'workflow_runs': [cancelled, dict(cancelled, id=8)]}
+            return api
+
+        with patch.object(finish, 'api', side_effect=responder('success')) as api:
+            finish.ensure_scan(sha)
+            self.assertNotIn('/dispatches', ' '.join(call.args[0] for call in api.call_args_list))
+        with patch.object(finish, 'api', side_effect=responder('cancelled')) as api:
+            finish.ensure_scan(sha)
+            self.assertTrue(api.call_args_list[-1].args[0].endswith('/dispatches'))
+        with patch.object(finish, 'api', side_effect=lambda path, *args: (
+                {'jobs': []} if path.endswith('/jobs')
+                else {'workflow_runs': [dict(cancelled, id=n) for n in range(5)]})):
+            with self.assertRaises(RuntimeError):
+                finish.ensure_scan(sha)
+
     def test_head_change_prevents_forwarding_and_never_approves_on_cnb(self):
         issue = {'number': '26', 'state': 'open'}
         pull = {'number': '50', 'state': 'open', 'is_wip': False,
