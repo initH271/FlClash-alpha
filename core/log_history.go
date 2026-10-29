@@ -1,4 +1,4 @@
-package main
+package core
 
 import (
 	"core/internal/logstore"
@@ -97,7 +97,7 @@ func startLogHistoryWithRetention(home string, days int) {
 	historyState.recorder = r
 	historyState.Unlock()
 	historyState.once.Do(func() { logrus.AddHook(historyHook{}) })
-	safeGoDetached("log history", r.run)
+	safeGo("log history", r.run)
 }
 
 func (r *historyRecorder) run() {
@@ -242,4 +242,19 @@ func handleExportLogHistory() (string, error) {
 	case <-timer.C:
 		return "", errors.New("log history export timed out")
 	}
+}
+
+func exportLogHistoryCall(*MethodCall) (any, error) {
+	path, err := handleExportLogHistory()
+	if err != nil {
+		return nil, &MethodError{Code: "log_history_export_failed", Message: err.Error()}
+	}
+	return path, nil
+}
+
+func setLogHistoryRetentionCall(days int) (bool, error) {
+	if err := handleSetLogHistoryRetention(days); err != nil {
+		return false, &MethodError{Code: "log_retention_update_failed", Message: err.Error()}
+	}
+	return true, nil
 }

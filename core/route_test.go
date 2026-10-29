@@ -188,12 +188,18 @@ func TestRouteChangesSplitResetsFromMoves(t *testing.T) {
 
 func TestStartingTheListenersAdvancesTheEpoch(t *testing.T) {
 	recorder := recordRoutes(t)
-	withCurrentConfig(t, nil)
-	t.Cleanup(func() { isRunning.Store(false) })
+	withCurrentConfig(t, &config.Config{General: &config.General{}})
+	wasInit := isInit.Swap(true)
+	t.Cleanup(func() {
+		isRunning.Store(false)
+		isInit.Store(wasInit)
+	})
 	handleWatchRoute(true, 0)
 	before := routeState().CoreEpoch
 
-	handleStartListener()
+	if !handleStartListener() {
+		t.Fatal("a configured core refused to start its listeners")
+	}
 
 	if got := routeState().CoreEpoch; got != before+1 {
 		t.Errorf("epoch = %d after the listeners came up, want %d", got, before+1)

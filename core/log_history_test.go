@@ -1,4 +1,4 @@
-package main
+package core
 
 import (
 	"archive/zip"
@@ -70,7 +70,7 @@ func TestHistoryQueueOverflowIsRecorded(t *testing.T) {
 	entry := &logrus.Entry{Time: time.Now(), Level: logrus.InfoLevel, Message: "queued record"}
 	_ = (historyHook{}).Fire(entry)
 	_ = (historyHook{}).Fire(entry)
-	safeGoDetached("history test", r.run)
+	safeGo("history test", r.run)
 	t.Cleanup(stopLogHistory)
 	path, err := handleExportLogHistory()
 	if err != nil {

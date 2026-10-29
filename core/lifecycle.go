@@ -32,6 +32,7 @@ func handleInitClash(params *InitParams) bool {
 	constant.SetHomeDir(params.HomeDir)
 	initOwnership(params.HomeDir)
 	clearSpilledResponses()
+	startLogHistoryWithRetention(params.HomeDir, params.LogRetentionDays)
 	isInit.Store(true)
 	return true
 }
@@ -43,6 +44,9 @@ func handleGetIsInit() bool {
 func handleStartListener() bool {
 	configMu.Lock()
 	defer configMu.Unlock()
+	if !isInit.Load() || currentConfig == nil {
+		return false
+	}
 	isRunning.Store(true)
 	updateListeners(currentConfig)
 	resolver.ResetConnection()
@@ -50,6 +54,12 @@ func handleStartListener() bool {
 	// connections just dropped, so its answer must not stand for this route.
 	bumpRouteEpoch()
 	return true
+}
+
+func tunStartupReady() bool {
+	configMu.Lock()
+	defer configMu.Unlock()
+	return isInit.Load() && currentConfig != nil && isRunning.Load()
 }
 
 func handleStopListener() bool {
@@ -101,6 +111,7 @@ func handleShutdown() bool {
 	configMu.Unlock()
 
 	handleForceGC()
+	stopLogHistory()
 	return true
 }
 

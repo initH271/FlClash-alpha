@@ -186,6 +186,8 @@ var methodHandlers = map[CoreMethod]methodHandler{
 	stopListenerMethod:             withoutArguments(handleStopListener),
 	getMemoryStatsMethod:           withoutArguments(handleGetMemoryStats),
 	startLogMethod:                 acknowledged(handleStartLog),
+	exportLogHistoryMethod:         exportLogHistoryCall,
+	setLogHistoryRetentionMethod:   withFallible(setLogHistoryRetentionCall),
 	stopLogMethod:                  acknowledged(handleStopLog),
 	validateConfigMethod:           withMessage(handleValidateConfig),
 	decryptConfigMethod:            withFallible(handleDecryptConfig),
