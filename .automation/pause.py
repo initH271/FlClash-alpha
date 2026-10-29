@@ -34,6 +34,11 @@ def held(comments):
     return owner[-1].get('created_at', '') if owner and command(owner[-1]) == 'HOLD' else ''
 
 
+def _clock():
+    """Wall clock the lock measures against; tests replace it to fix the time."""
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
 def stamp(value, now=None):
     text = (value or '').replace('Z', '+00:00')
     try:
@@ -64,12 +69,12 @@ def candidates():
         if (not (head.get('ref') or '').startswith(UPSTREAM_PREFIX) or base.get('ref') != 'main'
                 or (head.get('repo') or {}).get('full_name') != POLICY['github']):
             continue
-        yield {'head': head.get('ref'), 'sha': head.get('sha') or '', 'pull': pull.get('number'),
+        yield {'head': head.get('sha') or '', 'ref': head.get('ref') or '', 'pull': pull.get('number'),
                'issue': issue_number(pull.get('body'))}
 
 
 def running_lock(found):
-    """Return the oldest unfinished build.yaml run for a candidate head, or None."""
+    """Return the oldest unfinished build.yaml run for a candidate sha, or None."""
     runs = api(RUNS_URL + '?per_page=100').get('workflow_runs') or []
     open_runs = [run for run in running_owner(found, runs) if run.get('status') != 'completed']
     if not open_runs:
@@ -79,13 +84,13 @@ def running_lock(found):
 
 def running_owner(found, runs):
     # build.yaml names a run `Android <sha>`, so a candidate matches on its commit.
-    shas = [item['sha'] for item in found if item['sha']]
+    shas = [item['head'] for item in found if item['head']]
     return [run for run in runs
             if any(sha in (run.get('display_title') or '') for sha in shas)]
 
 
 def pending_status(item):
-    status = api(f'{GH}/commits/{item["sha"]}/status') if item['sha'] else {}
+    status = api(f'{GH}/commits/{item["head"]}/status') if item['head'] else {}
     for row in (status or {}).get('statuses') or []:
         if row.get('context') == APPROVED_BUILD and row.get('state') == 'pending':
             return row
@@ -93,14 +98,14 @@ def pending_status(item):
 
 
 def expired_notice(item, notify):
-    """Release a pending status past the limit, once per head and only when asked to."""
-    head = item['head']
-    if not notify or EXPIRED_MARKER.format(head) in said(read_comments(item['issue'])):
+    """Release a pending status past the limit, once per sha and only when asked to."""
+    if not notify or EXPIRED_MARKER.format(item['head']) in said(read_comments(item['issue'])):
         return
     approver = '@' + POLICY['approver']
-    comment(item['issue'], EXPIRED_MARKER.format(head) + '\n\n'
-            + f'{approver}，候选 `{head[:12]}`（GitHub PR #{item["pull"]}）的 approved-build 状态已 pending '
-            f'超过 {LOCK_LIMIT_MINUTES} 分钟，控制器不再把它算作发版锁，下一轮起恢复合并。'
+    comment(item['issue'], EXPIRED_MARKER.format(item['head']) + '\n\n'
+            + f'{approver}，候选 `{item["head"][:12]}`（GitHub PR #{item["pull"]}）的 approved-build 状态已 pending '
+            f'超过 {LOCK_LIMIT_MINUTES} 分钟，该候选不再算作发版锁；'
+            '如果没有其他发版在进行，下一轮起恢复合并。'
             '构建确实还在跑时，请手动冻结（CNB PR 标题加 `WIP: `，GitHub PR 转为草稿）。')
 
 
@@ -133,12 +138,11 @@ def release_lock(now=None, notify=True):
     None means nobody asked GitHub yet, False means no lock, a dict is the lock.
     """
     global _release
+    if now is None:
+        now = _clock()
     if _release is None:
         _release = measure(now, notify) or False
-    shown = dict(_release) if _release else None
-    if shown:
-        del shown['sha']
-    return shown
+    return dict(_release) if _release else None
 
 
 def measure(now, notify):
@@ -147,20 +151,28 @@ def measure(now, notify):
         return None
     run = running_lock(found)
     if run:
-        owner = next(item for item in found if item['sha'] and item['sha'] in (run.get('display_title') or ''))
+        title = run.get('display_title') or ''
+        owner = next(item for item in found if item['head'] and item['head'] in title)
         lock = dict(owner, since=run.get('created_at') or '', evidence='build.yaml 运行未结束')
     else:
-        pending = [(item, row) for item in found for row in [pending_status(item)] if row]
-        if not pending:
+        locks = []
+        for item in found:
+            row = pending_status(item)
+            if not row:
+                continue
+            # Every candidate is checked: an expired one drops out alone, the others still count.
+            since = row.get('created_at') or ''
+            if minutes_between(since, now) > LOCK_LIMIT_MINUTES:
+                if item['issue']:
+                    expired_notice(item, notify)
+                else:
+                    print(f'release lock expired on {item["head"][:12]} '
+                          'but the pull request names no CNB issue')
+                continue
+            locks.append(dict(item, since=since, evidence='approved-build 状态 pending'))
+        if not locks:
             return None
-        item, row = pending[0]
-        lock = dict(item, since=row.get('created_at') or '', evidence='approved-build 状态 pending')
-        if minutes_between(lock['since'], now) > LOCK_LIMIT_MINUTES:
-            if lock['issue']:
-                expired_notice(lock, notify)
-            else:
-                print(f'release lock expired on {lock["head"][:12]} but the pull request names no CNB issue')
-            return None
+        lock = min(locks, key=lambda item: stamp(item['since'], now))
     lock = dict(lock, source='release', minutes=minutes_between(lock['since'], now))
     report(lock, notify)
     return lock
@@ -200,7 +212,7 @@ def paused(scope, branch='', comments=None, now=None):
             comments = list(pages(f'{CNB}/issues/{number}/comments'))
     since = held(comments or [])
     if since and branch.startswith('automation/req-'):
-        return {'source': 'hold', 'since': since, 'branch': branch}
+        return {'source': 'hold', 'head': '', 'ref': branch, 'branch': branch, 'since': since}
     return release_lock(now) if scope == 'main' else None
 
 
@@ -208,12 +220,13 @@ def status(branch=''):
     """Read-only view of what would pause an action right now."""
     lock = release_lock(notify=False)
     hold = ''
-    if branch:
+    number = branch.removeprefix('automation/req-').split('/')[0]
+    if number.isdigit():
         try:
-            seen = read_comments(branch.removeprefix('automation/req-').split('/')[0])
+            seen = read_comments(number)
         except (RuntimeError, IndexError, ValueError):
             seen = []
-        hold = held(seen) if branch.startswith('automation/req-') else ''
+        hold = held(seen)
     print(json.dumps({'release': lock, 'hold': hold or None}, ensure_ascii=False))
 
 

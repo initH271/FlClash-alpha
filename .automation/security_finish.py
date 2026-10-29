@@ -160,7 +160,11 @@ def forward_pull(issue, pull, base):
         if mirror_attestation(target):
             held = pause.paused('main', target['head'].get('ref') or '')
             if held:
-                print(f'release in flight ({held["head"][:12]}); deferring merge of GitHub PR #{target["number"]}')
+                if held.get('source') == 'hold':
+                    print(f'{held["ref"]} held by owner; deferring merge of GitHub PR #{target["number"]}')
+                else:
+                    print(f'release in flight ({held["head"][:12]}); '
+                          f'deferring merge of GitHub PR #{target["number"]}')
                 return
             merged = api(f'{GH}/pulls/{target["number"]}/merge', 'PUT', {
                 'sha': head, 'merge_method': 'merge',
