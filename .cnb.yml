@@ -34,7 +34,7 @@ main:
     - name: Go dependency regression tests
       runner: { cpus: 2 }
       docker:
-        image: golang:1.26.8
+        image: golang:1.27.1
       stages:
         - name: Verify core with resolved dependencies
           script: |
@@ -71,7 +71,6 @@ main:
           - /root/.cache/go-build:copy-on-write
       stages:
         - name: Reuse toolchain image
-          if: 'case "$CNB_PULL_REQUEST_BRANCH" in automation/req-*) exit 0 ;; *) exit 1 ;; esac'
           type: docker:cache
           options:
             dockerfile: .cnb/Dockerfile
@@ -79,12 +78,11 @@ main:
           exports:
             name: TOOLCHAIN_IMAGE
         - name: Test Flutter and Android changes
-          if: 'case "$CNB_PULL_REQUEST_BRANCH" in automation/req-*) exit 0 ;; *) exit 1 ;; esac'
           image: $TOOLCHAIN_IMAGE
           timeout: 45m
           script: |
             changed=$(git diff --name-only "$CNB_PULL_REQUEST_TARGET_SHA" HEAD || true)
-            printf '%s\n' "$changed" | grep -Eq '^(lib/|android/|test/|pubspec\.yaml|analysis_options\.yaml)' || { echo 'No Flutter or Android changes'; exit 0; }
+            printf '%s\n' "$changed" | grep -Eq '^(lib/|android/|test/|pubspec\.yaml|analysis_options\.yaml|\.cnb/Dockerfile|\.cnb\.yml)' || { echo 'No Flutter or Android changes'; exit 0; }
             git submodule update --init --recursive
             flutter pub get
             flutter analyze --no-fatal-infos
@@ -94,10 +92,59 @@ main:
             (cd plugins/rust_api/rust && cargo build --locked)
             export FRB_DART_LOAD_EXTERNAL_LIBRARY_NATIVE_LIB_DIR="$PWD/plugins/rust_api/rust/target/debug"
             flutter test --reporter expanded
+        - name: Android unit tests
+          image: $TOOLCHAIN_IMAGE
+          timeout: 30m
+          script: |
+            changed=$(git diff --name-only "$CNB_PULL_REQUEST_TARGET_SHA" HEAD || true)
+            printf '%s\n' "$changed" | grep -Eq '^(android/|core/|pubspec\.(yaml|lock)|\.cnb/Dockerfile|\.cnb\.yml)' || { echo 'Skipped: no android/, core/, pubspec or CI toolchain changes'; exit 0; }
+            git submodule update --init --recursive
+            flutter pub get
+            flutter_root=${FLUTTER_ROOT:-$(dirname "$(dirname "$(readlink -f "$(command -v flutter)")")")}
+            printf 'flutter.sdk=%s\nsdk.dir=%s\n' "$flutter_root" "$ANDROID_HOME" > android/local.properties
+            wrapper_dir="$flutter_root/bin/cache/artifacts/gradle_wrapper"
+            [ -f "$wrapper_dir/gradlew" ] || flutter precache --android
+            cp "$wrapper_dir/gradlew" android/gradlew
+            chmod +x android/gradlew
+            [ -f android/gradle/wrapper/gradle-wrapper.jar ] || cp "$wrapper_dir/gradle/wrapper/gradle-wrapper.jar" android/gradle/wrapper/gradle-wrapper.jar
+            cat > /tmp/cnb-maven-mirror.gradle <<'EOF'
+            def central = 'https://repo.maven.apache.org/maven2'
+            def mirror = 'https://mirrors.cloud.tencent.com/nexus/repository/maven-public/'
+            def prefer = { repos ->
+              repos.configureEach { repo ->
+                if (repo instanceof MavenArtifactRepository && repo.url.toString().replaceAll('/$', '') == central) repo.url = mirror
+              }
+              if (!repos.findByName('cnbMirror')) try {
+                def m = repos.maven { name = 'cnbMirror'; url = mirror }
+                repos.remove(m)
+                repos.add(0, m)
+              } catch (Exception ignored) {}
+            }
+            beforeSettings { prefer(it.pluginManagement.repositories); prefer(it.dependencyResolutionManagement.repositories) }
+            settingsEvaluated { if (it.pluginManagement.repositories.size() == 1) it.pluginManagement.repositories.gradlePluginPortal() }
+            allprojects { prefer(buildscript.repositories); prefer(repositories) }
+            EOF
+            cd android
+            ./gradlew --init-script /tmp/cnb-maven-mirror.gradle :common:testDebugUnitTest :service:testDebugUnitTest :app:testDebugUnitTest -Ptarget-platform=android-arm64 -x :app:compileFlutterBuildDebug -x :app:copyFlutterAssetsDebug
+        - name: Android Go vet
+          image: $TOOLCHAIN_IMAGE
+          timeout: 15m
+          script: |
+            changed=$(git diff --name-only "$CNB_PULL_REQUEST_TARGET_SHA" HEAD || true)
+            printf '%s\n' "$changed" | grep -Eq '^(core/|build_config\.yaml|\.cnb/Dockerfile|\.cnb\.yml)' || { echo 'Skipped: no core/, build_config.yaml or CI toolchain changes'; exit 0; }
+            git submodule update --init --recursive
+            cd core
+            tags=$(sed -n 's/^tags:[[:space:]]*//p' ../build_config.yaml | head -n 1 | tr -d "\"' \r")
+            [ -n "$tags" ] || { echo 'No tags line in build_config.yaml'; exit 1; }
+            CC="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang"
+            [ -x "$CC" ] || { echo "Missing NDK compiler: $CC"; exit 1; }
+            pkgs=". ./tun ./platform"
+            [ -d mobile ] && pkgs="$pkgs ./mobile"
+            CGO_ENABLED=1 GOOS=android GOARCH=arm64 CC="$CC" go vet -tags="$tags" $pkgs
     - name: Rust dependency regression tests
       runner: { cpus: 2 }
       docker:
-        image: rust:1.95-bookworm
+        image: rust:1.99-bookworm
       stages:
         - name: Verify desktop helper and Rust API
           script: |

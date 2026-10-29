@@ -7,15 +7,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
     ANDROID_HOME=/opt/android-sdk ANDROID_SDK_ROOT=/opt/android-sdk \
     RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo \
-    PUB_CACHE=/root/.pub-cache RUSTUP_TOOLCHAIN=1.95.0
+    PUB_CACHE=/root/.pub-cache RUSTUP_TOOLCHAIN=1.99.0
 ENV PATH=/opt/flutter/bin:/usr/local/go/bin:/opt/cargo/bin:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:$PATH
-RUN curl -fsSL --retry 3 https://go.dev/dl/go1.26.8.linux-amd64.tar.gz -o /tmp/go.tar.gz && \
-    echo 'd0f743b33e8d8945e6b1f432edd15785c70507121d6e2a723b21285eddf8b57b  /tmp/go.tar.gz' | sha256sum -c - && \
+RUN curl -fsSL --retry 3 https://go.dev/dl/go1.27.1.linux-amd64.tar.gz -o /tmp/go.tar.gz && \
+    echo '63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445  /tmp/go.tar.gz' | sha256sum -c - && \
     tar -xzf /tmp/go.tar.gz -C /usr/local && rm /tmp/go.tar.gz
 RUN curl -fsSL --retry 3 https://sh.rustup.rs -o /tmp/rustup.sh && \
-    sh /tmp/rustup.sh -y --profile minimal --default-toolchain 1.95.0 --target aarch64-linux-android && rm /tmp/rustup.sh
+    sh /tmp/rustup.sh -y --profile minimal --default-toolchain 1.99.0 --target aarch64-linux-android && rm /tmp/rustup.sh
 ENV TAR_OPTIONS=--no-same-owner
-RUN git clone --depth 1 --branch 3.47.1 https://github.com/flutter/flutter.git /opt/flutter && \
+RUN git clone --depth 1 --branch 3.47.6 https://github.com/flutter/flutter.git /opt/flutter && \
     git config --global --add safe.directory /opt/flutter && \
     flutter config --no-analytics && flutter precache --android
 RUN curl -fsSL --retry 3 https://dl.google.com/android/repository/commandlinetools-linux-15859902_latest.zip -o /tmp/android.zip && \
@@ -23,6 +23,6 @@ RUN curl -fsSL --retry 3 https://dl.google.com/android/repository/commandlinetoo
     mkdir -p /opt/android-sdk/cmdline-tools && unzip -q /tmp/android.zip -d /opt/android-sdk/cmdline-tools && \
     mv /opt/android-sdk/cmdline-tools/cmdline-tools /opt/android-sdk/cmdline-tools/latest && rm /tmp/android.zip && \
     yes | sdkmanager --licenses >/dev/null && \
-    sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358'
+    sdkmanager 'platform-tools' 'platforms;android-36' 'platforms;android-37.0' 'build-tools;36.0.0' 'build-tools;37.0.0' 'ndk;28.2.13676358'
 ENV ANDROID_NDK_HOME=/opt/android-sdk/ndk/28.2.13676358
 RUN flutter config --android-sdk /opt/android-sdk && mkdir -p /run/sshd && ssh-keygen -A
