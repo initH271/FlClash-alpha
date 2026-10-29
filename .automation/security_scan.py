@@ -48,15 +48,17 @@ def osv_query(url, method='GET', data=None, until=None):
     until = deadline() if until is None else until
     attempts = 0
     for delay in (0, *RETRY_DELAYS):
-        remaining = until - time.monotonic()
-        if delay and delay > max(0, remaining - 1):
+        # The wait is taken first, so the timeout is what the request actually
+        # has left. A wait that would leave less than a second for the request
+        # ends the retries instead of pushing one past the deadline.
+        if delay and delay + 1 > until - time.monotonic():
             break
         if delay:
             print(f'Transient OSV connection failure; retry after {delay}s')
             time.sleep(delay)
         attempts += 1
         try:
-            return api(url, method, data, timeout=max(1, min(REQUEST_TIMEOUT, int(remaining))))
+            return api(url, method, data, timeout=max(1, min(REQUEST_TIMEOUT, int(until - time.monotonic()))))
         except (TRANSIENT + (urllib.error.URLError, HttpStatusError)) as error:
             if not retryable(error):
                 raise

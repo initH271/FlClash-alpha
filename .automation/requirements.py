@@ -3,8 +3,10 @@ import json
 import re
 import time
 
+import env_failure
 import pause
-from control import CNB, GH, POLICY, api, check_name, comment, gating_statuses, git, pages, sign, verify
+from control import (CNB, GH, POLICY, api, check_name, comment, gating_statuses, git, pages, sign, sync_branch,
+                     verify)
 from reviews import find_request, reconcile as review_reconcile, scope, state
 from security_finish import ensure_branch_scan, merge_ready, push_github
 
@@ -20,6 +22,9 @@ TERMINAL = {'success', 'error', 'failure', 'cancel', 'cancelled'}
 ROLES = ('开发助手', '审查助手')
 QUOTA = ('额度', '配额', '余额不足')
 REVIEW_GATE = 'Paired review gate'
+DEPENDENCY_GATE = 'Go dependency regression tests'
+RESCAN_STAGE = 'Rescan actual versions'
+BUILD_SN = re.compile(r'cnb-[a-z0-9-]+')
 
 
 def owner(issue):
@@ -193,7 +198,7 @@ def dispatch_action(parsed, phase, rung, tree, log, note, previous, role, sha=''
 
 
 def decide(issue, comments, rows, tree, contained, checks_green, review_failed, review_text, now,
-           has_pull=False, sha='', behind=False, review_only=False, hold=''):
+           has_pull=False, sha='', behind=False, review_only=False, hold='', env_failure=None):
     parsed = parse(issue.get('body', ''))
     parsed['number'] = str(issue['number'])
     known = [item for item in markers(comments) if item.get('issue') == str(issue['number'])]
@@ -222,6 +227,19 @@ def decide(issue, comments, rows, tree, contained, checks_green, review_failed, 
         return {'kind': 'wait'}
     if running(rows):
         return overrun(rows, comments, now) or {'kind': 'wait'}
+    # A scan that never reached its advisory source already produced two empty
+    # commits; another dispatch would only report the same unreachable network.
+    if env_failure and not review_failed:
+        head = env_failure['sha']
+        env_marks = [item for item in known if item.get('phase') in (ENV_RETRY, ENV_BLOCKED)]
+        if any(item.get('head') == head for item in env_marks):
+            return {'kind': 'wait'}
+        count = len([item for item in env_marks if item.get('phase') == ENV_RETRY]) + 1
+        if count <= ENV_LIMIT:
+            return {'kind': 'env-retry', 'head': head, 'sn': env_failure['sn'], 'count': count}
+        if not any(item.get('phase') == ENV_BLOCKED for item in env_marks):
+            env_notice(str(issue['number']), ENV_BLOCKED, env_failure['sn'], ENV_LIMIT, head)
+        return {'kind': 'wait'}
     rows = [row for row in rows if row.get('signed', True)]
     last = scoped[-1] if scoped else None
     if last and quota(last.get('detail', '')):
@@ -309,10 +327,14 @@ def pull_for(number, pulls):
     return max(matching, key=lambda item: int(item['number']), default=None)
 
 
+def pull_statuses(number):
+    return gating_statuses(api(f'{CNB}/pulls/{number}/commit-statuses')) if number else []
+
+
 def check_state(number, pull=None):
     if not number:
         return False, False
-    statuses = gating_statuses(api(f'{CNB}/pulls/{number}/commit-statuses'))
+    statuses = pull_statuses(number)
     if pull and any(check_name(item) == REVIEW_GATE and item['state'] != 'success' for item in statuses):
         # The gate only polls for 32 minutes; a review that finishes later must still count.
         if state(scope('cnb', pull)) == 'success':
@@ -323,9 +345,77 @@ def check_state(number, pull=None):
 
 
 def ci_passed(number):
-    statuses = [item for item in gating_statuses(api(f'{CNB}/pulls/{number}/commit-statuses'))
-                if check_name(item) != REVIEW_GATE]
+    statuses = [item for item in pull_statuses(number) if check_name(item) != REVIEW_GATE]
     return bool(statuses) and all(item['state'] == 'success' for item in statuses)
+
+
+def build_log(sn):
+    """Return the stage log of the build a failed check points at, or ''.
+
+    The pull request status only names the build, so the stage that ran the
+    rescan has to be located first. A build without it is not a scan failure.
+    """
+    for pipeline in (api(f'{CNB}/build/status/{sn}', missing=True) or {}).get('pipelines', {}).values():
+        for stage in pipeline['stages']:
+            if stage['name'] != RESCAN_STAGE:
+                continue
+            return api(f'{CNB}/build/logs/stage/{sn}/{pipeline["id"]}/{stage["id"]}', missing=True) or ''
+    return ''
+
+
+def unreachable(pull, statuses):
+    """Return {'kind', 'sha', 'sn'} when the only red check is an unreachable advisory source.
+
+    A dependency scan that cannot reach OSV fails like any other CI error, so the
+    marker it leaves in its stage log is the one signal that the code was never
+    judged. Anything unexpected returns None and stays an ordinary failure.
+    """
+    try:
+        failed = [item for item in statuses or [] if item.get('state') in {'error', 'failure'}]
+        if len(failed) != 1 or check_name(failed[0]) != DEPENDENCY_GATE:
+            return None
+        found = BUILD_SN.search(str(failed[0].get('target_url') or ''))
+        head = ((pull or {}).get('head') or {}).get('sha') or ''
+        if not found or not head:
+            return None
+        log = build_log(found.group())
+    except (RuntimeError, OSError, ValueError, TypeError, KeyError):
+        return None
+    for payload in env_failure.parse(log):
+        if payload.get('sha') == head:
+            return {'kind': payload['kind'], 'sha': head, 'sn': found.group()}
+    return None
+
+
+ENV_RETRY = 'env-retry'
+ENV_BLOCKED = 'env-blocked'
+ENV_LIMIT = 2
+
+
+def env_notice(number, phase, sn, count, sha):
+    """Tell the owner why nothing was dispatched, and what the empty commit did."""
+    log = f'https://cnb.cool/{POLICY["cnb"]}/-/build/logs/{sn}'
+    if phase == ENV_RETRY:
+        body = (f'依赖复扫访问 OSV 失败，属于环境失败，不是代码问题，没有放行。已推空提交 `{sha[:12]}` 重新触发检查，'
+                f'这是第 {count}/{ENV_LIMIT} 次自动重跑；新提交上的检查和结对审核都会重跑。')
+    else:
+        body = (f'依赖复扫已自动重跑 {ENV_LIMIT} 次，仍然访问不到 OSV（api.osv.dev），停止自动重跑，没有放行。'
+                f'请确认 OSV 恢复后，向 `{branch_name(number)}` 推一个新提交重新触发。')
+    comment(number, envelope({'issue': number, 'phase': phase, 'head': sha, 'sn': sn}) + '\n\n'
+            + body + f'\n\n最近一次日志：{log}')
+
+
+def env_retry(number, action):
+    """Re-run the checks with an empty commit: CNB cannot re-trigger a pull_request pipeline."""
+    head = action['head']
+    commit = git('commit-tree', f'{head}^{{tree}}', '-p', head,
+                 '-m', 'Retry dependency rescan after environment failure',
+                 '-m', 'FlClash-Actor: controller')
+    if not re.fullmatch(r'[a-f0-9]{40}', commit):
+        print(f'cannot build an empty retry commit on {head[:12]}')
+        return
+    sync_branch(branch_name(number), commit)
+    env_notice(number, ENV_RETRY, action['sn'], action.get('count', 1), head)
 
 
 def review_block(pull):
@@ -363,6 +453,9 @@ def act(issue, action, sha):
         return
     if action['kind'] == 'hold':
         hold_notice(number, action)
+        return
+    if action['kind'] == 'env-retry':
+        env_retry(number, action)
         return
     if action['kind'] == 'overrun':
         comment(number, OVERRUN.format(action['sn']) + '\n\n'
@@ -554,7 +647,6 @@ def sync_main(number, sha):
         return
     commit = git('commit-tree', merged.stdout.splitlines()[0], '-p', sha, '-p', main,
                  '-m', f'Merge main into {branch}', '-m', 'FlClash-Actor: controller')
-    from control import sync_branch
     sync_branch(branch, commit)
     comment(number, f'分支落后 main，已把 main（`{main[:12]}`）合入 `{branch}`，新提交 `{commit[:12]}`。'
             '检查和结对审核会在新提交上重跑。')
@@ -593,6 +685,7 @@ def reconcile():
                 status = api(f'{CNB}/build/status/{row["sn"]}', missing=True) or {}
                 row['detail'] = (row['detail'] + '\n' + json.dumps(status, ensure_ascii=False))[:500]
         green, failed = check_state(pull['number'] if pull else '', pull)
+        scan_failed = unreachable(pull, pull_statuses(pull)) if failed and not green and pull else None
         blocked, text = review_block(pull) if failed or (pull and not green) else (False, '')
         if failed and not text:
             text = 'CI 未通过。先读失败日志，再推同一分支。'
@@ -610,7 +703,7 @@ def reconcile():
         hold = pause.paused('branch', branch_name(number), issue_comments) or {}
         action = decide(issue, comments, rows, tree, contained(sha), green, blocked, text, now,
                         has_pull=bool(pull), sha=sha, behind=behind, review_only=review_only,
-                        hold=hold.get('since', ''))
+                        hold=hold.get('since', ''), env_failure=scan_failed)
         if action['kind'] == 'dispatch' and failed:
             action['instruction'] += '\n' + text
         if action['kind'] == 'dispatch':

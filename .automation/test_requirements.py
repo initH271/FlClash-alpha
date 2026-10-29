@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 import control
+import env_failure
 import pause
 import requirements as req
 import security_finish
@@ -61,12 +62,14 @@ class RequirementTests(unittest.TestCase):
 
     def decide(self, comments=None, rows=None, tree='', **kwargs):
         defaults = {'contained': False, 'checks_green': False, 'review_failed': False, 'review_text': '',
-                    'has_pull': False, 'sha': '', 'behind': False, 'review_only': False, 'hold': ''}
+                    'has_pull': False, 'sha': '', 'behind': False, 'review_only': False, 'hold': '',
+                    'env_failure': None}
         defaults.update(kwargs)
         return req.decide(self.issue, comments or [], rows or [], tree, defaults['contained'],
                           defaults['checks_green'], defaults['review_failed'], defaults['review_text'], self.now,
                           has_pull=defaults['has_pull'], sha=defaults['sha'], behind=defaults['behind'],
-                          review_only=defaults['review_only'], hold=defaults['hold'])
+                          review_only=defaults['review_only'], hold=defaults['hold'],
+                          env_failure=defaults['env_failure'])
 
     def test_placeholder_form_is_not_dispatched_twice(self):
         self.issue['body'] = BODY.replace('加快日志导出', '一句话说清要改的行为')
@@ -167,7 +170,7 @@ class RequirementTests(unittest.TestCase):
             return 'new-commit' if args[0] == 'commit-tree' else ''
         with (patch.object(req, 'api', return_value={'object': {'sha': 'm' * 40}}),
               patch.object(req, 'git', side_effect=git), patch.object(req, 'comment') as note,
-              patch('control.sync_branch') as push):
+              patch.object(req, 'sync_branch') as push):
             req.sync_main('9', 's' * 40)
         self.assertIn(('commit-tree', 'tree-1', '-p', 's' * 40, '-p', 'm' * 40,
                        '-m', 'Merge main into automation/req-9', '-m', 'FlClash-Actor: controller'), calls)
@@ -529,3 +532,159 @@ class RequirementTests(unittest.TestCase):
             req.act(self.issue, {'kind': 'hold', 'ref': started, 'sn': 'cnb-test-1'}, 'abc')
         self.assertIn('`cnb-test-1` 仍在运行', note.call_args.args[1])
         self.assertNotIn('草稿', note.call_args.args[1])
+
+    def env_marker(self, phase, head, at='2026-09-22T02:10:00Z'):
+        payload = {'issue': '9', 'phase': phase, 'head': head, 'sn': 'cnb-retry-1'}
+        return {'created_at': at, 'body': req.envelope(payload)}
+
+    def env_pull(self, head='b' * 40):
+        return {'number': 4, 'head': {'sha': head, 'ref': 'refs/heads/automation/req-9'}}
+
+    def env_statuses(self, state='error', name=req.DEPENDENCY_GATE, sn='cnb-ud2-1k64u0imv'):
+        return {'statuses': [{'state': state, 'context': f'cnb({name})',
+                              'target_url': f'https://cnb.cool/507space/FlClash-alpha/-/build/logs/{sn}'}]}
+
+    def test_a_first_environment_failure_retries_with_an_empty_commit(self):
+        head = 'b' * 40
+        self.assertEqual('env-retry', self.decide(env_failure={'kind': 'osv-unreachable', 'sha': head,
+                                                               'sn': 'cnb-ud2-1k64u0imv'})['kind'])
+        calls = []
+
+        def git(*args, check=True):
+            calls.append(args)
+            return 'c' * 40 if args[0] == 'commit-tree' else ''
+        with patch.object(req, 'git', side_effect=git), patch.object(req, 'sync_branch') as push, \
+                patch.object(req, 'comment') as note:
+            req.act(self.issue, {'kind': 'env-retry', 'head': head, 'sn': 'cnb-ud2-1k64u0imv', 'count': 1}, head)
+        self.assertEqual(('commit-tree', head + '^{tree}', '-p', head,
+                          '-m', 'Retry dependency rescan after environment failure',
+                          '-m', 'FlClash-Actor: controller'), calls[0])
+        self.assertEqual(('automation/req-9', 'c' * 40), push.call_args.args)
+        body = note.call_args.args[1]
+        self.assertIn('这是第 1/2 次自动重跑', body)
+        self.assertIn('`' + 'b' * 12 + '`', body)
+        self.assertIn('build/logs/cnb-ud2-1k64u0imv', body)
+        self.assertIn('"phase": "env-retry"', body)
+
+    def test_a_retried_head_waits_instead_of_pushing_another_commit(self):
+        head = 'b' * 40
+        comments = [self.env_marker('env-retry', head)]
+        self.assertEqual('wait', self.decide(comments, env_failure={'kind': 'osv-unreachable', 'sha': head,
+                                                                   'sn': 'cnb-ud2-1k64u0imv'})['kind'])
+        with patch.object(req, 'git') as git, patch.object(req, 'sync_branch') as push:
+            req.act(self.issue, {'kind': 'wait'}, head)
+        git.assert_not_called()
+        push.assert_not_called()
+
+    def test_two_retries_are_the_limit_and_the_owner_is_told_once(self):
+        head = 'b' * 40
+        comments = [self.env_marker('env-retry', 'd' * 40, '2026-09-22T02:05:00Z'),
+                    self.env_marker('env-retry', 'e' * 40)]
+        failure = {'kind': 'osv-unreachable', 'sha': head, 'sn': 'cnb-ud2-1k64u0imv'}
+        posted = []
+        with patch.object(req, 'comment', side_effect=lambda *args: posted.append(args[1])):
+            self.assertEqual('wait', self.decide(comments, env_failure=failure)['kind'])
+        self.assertEqual(1, len(posted))
+        self.assertIn('api.osv.dev', posted[0])
+        self.assertIn('没有放行', posted[0])
+        self.assertIn('"phase": "env-blocked"', posted[0])
+        self.assertIn('"head": "' + head + '"', posted[0])
+        blocked = [self.env_marker('env-blocked', head)]
+        with patch.object(req, 'comment') as note:
+            self.assertEqual('wait', self.decide(comments + blocked, env_failure=failure)['kind'])
+        note.assert_not_called()
+
+    def test_a_failure_without_the_marker_is_an_ordinary_failure(self):
+        statuses = self.env_statuses()['statuses']
+        pull = self.env_pull('b' * 40)
+        with patch.object(req, 'build_log', return_value='no marker at all\n'):
+            self.assertIsNone(req.unreachable(pull, statuses))
+        for error in (RuntimeError('CNB is down'), KeyError('pipelines'), ValueError('bad json')):
+            with patch.object(req, 'api', side_effect=error):
+                self.assertIsNone(req.unreachable(pull, statuses))
+            with patch.object(req, 'build_log', side_effect=error):
+                self.assertIsNone(req.unreachable(pull, statuses))
+        # Without a marker the ladder behaves exactly as it did before.
+        started = '2026-09-22T02:00:00Z'
+        dispatch = self.marker('dev', 60, 'tree-1', started)
+        rows = [self.attempt('failure', started)]
+        self.assertEqual(self.decide([dispatch], rows, tree='tree-1'),
+                         self.decide([dispatch], rows, tree='tree-1', env_failure=None))
+
+    def test_more_than_one_red_check_is_not_an_environment_failure(self):
+        statuses = self.env_statuses()['statuses'] + [{'state': 'failure', 'context': 'cnb(Automation unit tests)',
+                                                      'target_url': 'https://cnb.cool/x/-/build/logs/cnb-a-1'}]
+        with patch.object(req, 'build_log') as log:
+            self.assertIsNone(req.unreachable(self.env_pull(), statuses))
+        log.assert_not_called()
+        statuses = [{'state': 'error', 'context': 'cnb(Automation unit tests)',
+                     'target_url': 'https://cnb.cool/x/-/build/logs/cnb-a-1'}]
+        with patch.object(req, 'build_log') as log:
+            self.assertIsNone(req.unreachable(self.env_pull(), statuses))
+        log.assert_not_called()
+
+    def test_a_marker_for_another_head_is_not_an_environment_failure(self):
+        pull = self.env_pull('b' * 40)
+        line = env_failure.line('osv-unreachable', sha='f' * 40)
+        with patch.object(req, 'build_log', return_value='stage log\n' + line + '\n'):
+            self.assertIsNone(req.unreachable(pull, self.env_statuses()['statuses']))
+        mine = env_failure.line('osv-unreachable', sha='b' * 40)
+        with patch.object(req, 'build_log', return_value='stage log\n' + mine + '\n'):
+            self.assertEqual({'kind': 'osv-unreachable', 'sha': 'b' * 40, 'sn': 'cnb-ud2-1k64u0imv'},
+                             req.unreachable(pull, self.env_statuses()['statuses']))
+
+    def test_the_rescan_stage_log_is_read_from_the_build_status(self):
+        status = {'pipelines': {'cnb-ud2-1k64u0imv-001': {
+            'id': 'cnb-ud2-1k64u0imv-001', 'name': 'Project NPC development',
+            'stages': [{'id': 'stage-0', 'name': 'Verify core with resolved dependencies'},
+                       {'id': 'stage-1', 'name': req.RESCAN_STAGE}]}}}
+        urls = []
+
+        def api(url, missing=False):
+            urls.append(url)
+            return status if '/build/status/' in url else env_failure.line('osv-unreachable', sha='b' * 40)
+        with patch.object(req, 'api', side_effect=api):
+            self.assertIn('osv-unreachable', req.build_log('cnb-ud2-1k64u0imv'))
+        self.assertEqual(['https://api.cnb.cool/507space/FlClash-alpha/-/build/status/cnb-ud2-1k64u0imv',
+                          'https://api.cnb.cool/507space/FlClash-alpha/-/build/logs/stage/cnb-ud2-1k64u0imv/'
+                          'cnb-ud2-1k64u0imv-001/stage-1'], urls)
+        with patch.object(req, 'api', return_value={'pipelines': {}}):
+            self.assertEqual('', req.build_log('cnb-ud2-1k64u0imv'))
+        with patch.object(req, 'api', return_value=None):
+            self.assertEqual('', req.build_log('cnb-ud2-1k64u0imv'))
+
+    def test_an_environment_marker_does_not_move_the_development_ladder(self):
+        head = 'b' * 40
+        started = '2026-09-22T02:00:00Z'
+        dispatch = self.marker('dev', 60, 'tree-1', started)
+        failure = {'kind': 'osv-unreachable', 'sha': head, 'sn': 'cnb-ud2-1k64u0imv'}
+        blocked = [{'created_at': '2026-09-22T02:20:00Z', 'body': '结对审核未通过。按阻断项修改后推同一分支。'}]
+        with patch.object(req, 'comment'):
+            after_retry = self.decide([dispatch, self.env_marker('env-retry', head, '2026-09-22T02:05:00Z')],
+                                      [self.attempt('success', started)], tree='tree-1', review_failed=True,
+                                      env_failure=failure)
+        without = self.decide([dispatch], [self.attempt('success', started)], tree='tree-1', review_failed=True)
+        self.assertEqual('dispatch', after_retry['kind'])
+        self.assertEqual({key: value for key, value in without.items() if key != 'instruction'},
+                         {key: value for key, value in after_retry.items() if key != 'instruction'})
+
+    def test_an_environment_failure_never_forwards_or_syncs(self):
+        head = 'b' * 40
+        failure = {'kind': 'osv-unreachable', 'sha': head, 'sn': 'cnb-ud2-1k64u0imv'}
+        for kwargs in ({'checks_green': True, 'has_pull': True}, {'checks_green': True, 'behind': True},
+                       {'review_failed': True, 'behind': True}):
+            expected = 'dispatch' if kwargs.get('review_failed') else 'env-retry'
+            defaults = {key: value for key, value in kwargs.items() if key != 'checks_green'}
+        self.assertEqual(expected, self.decide(checks_green=kwargs.get('checks_green', False),
+                                               env_failure=failure, **defaults)['kind'])
+        self.assertEqual('sync-main', self.decide(checks_green=True, behind=True)['kind'])
+
+    def test_a_blocked_review_still_gets_a_developer_after_an_environment_retry(self):
+        head = 'b' * 40
+        started = '2026-09-22T02:00:00Z'
+        dispatch = self.marker('dev', 60, 'tree-1', started)
+        comments = [dispatch, self.env_marker('env-retry', head, '2026-09-22T02:05:00Z')]
+        rows = [self.attempt('success', started)]
+        action = self.decide(comments, rows, tree='tree-1', review_failed=True, env_failure=None)
+        self.assertEqual('dispatch', action['kind'])
+        self.assertEqual(120, action['rung'])
