@@ -3,8 +3,8 @@
   "cnb": "507space/FlClash-alpha",
   "approver": "Aharon",
   "upstream": "chen08209/FlClash",
-  "upstream_tag": "v0.8.98",
-  "upstream_sha": "7c61c90ac20493b474d19c75ec96262b478b4b88",
+  "upstream_tag": "v0.9.2",
+  "upstream_sha": "7fd417fb9a9a277c6a9339a8ac87f907df7c25f7",
   "queue_timeout_minutes": 10,
   "fallback_min_core_hours": 7,
   "protected_paths": [
