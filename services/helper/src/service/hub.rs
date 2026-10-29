@@ -1131,9 +1131,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::CONFLICT);
         assert!(lock_surviving_poison(&MANAGED_CORE).is_none());
         let body: serde_json::Value = serde_json::from_slice(
-            &warp::hyper::body::to_bytes(response.into_body())
-                .await
-                .unwrap(),
+            &response.into_body().collect().await.unwrap().to_bytes(),
         )
         .unwrap();
         assert_eq!(body["code"], "coreVerificationFailed");
