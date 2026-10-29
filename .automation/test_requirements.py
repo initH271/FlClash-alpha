@@ -627,6 +627,18 @@ class RequirementTests(unittest.TestCase):
                          self.decide([dispatch], rows, tree='tree-1', env_failure=None))
         self.assertEqual('retry', self.decide([dispatch], rows, tree='tree-1')['phase'])
 
+    def test_a_red_paired_review_gate_is_not_only_an_environment_failure(self):
+        # The pull request status list carries the review gate next to CI; a red gate
+        # is a review verdict, not an unreachable advisory source.
+        statuses = self.env_statuses()['statuses'] + [
+            {'state': 'failure', 'context': 'cnb(' + req.REVIEW_GATE + ')',
+             'target_url': 'https://cnb.cool/x/-/reviews'}]
+        with patch.object(req, 'build_log') as log:
+            self.assertIsNone(req.unreachable(self.env_pull(), statuses))
+        log.assert_not_called()
+        with patch.object(req, 'build_log', return_value=''):
+            self.assertIsNone(req.unreachable(self.env_pull(), self.env_statuses('success')['statuses']))
+
     def test_more_than_one_red_check_is_not_an_environment_failure(self):
         statuses = self.env_statuses()['statuses'] + [{'state': 'failure', 'context': 'cnb(Automation unit tests)',
                                                       'target_url': 'https://cnb.cool/x/-/build/logs/cnb-a-1'}]

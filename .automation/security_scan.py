@@ -1,6 +1,7 @@
 import argparse
 import hashlib
 import json
+import math
 import os
 import pathlib
 import re
@@ -35,6 +36,11 @@ def deadline():
     return time.monotonic() + remaining
 
 
+def timeout_for(until):
+    """Whole seconds left before the deadline, floored so the request ends inside it."""
+    return max(1, min(REQUEST_TIMEOUT, math.floor(until - time.monotonic())))
+
+
 def retryable(error):
     if isinstance(error, HttpStatusError):
         return error.code in RETRYABLE_STATUS
@@ -48,9 +54,9 @@ def osv_query(url, method='GET', data=None, until=None):
     until = deadline() if until is None else until
     attempts = 0
     for delay in (0, *RETRY_DELAYS):
-        # The wait is taken first, so the timeout is what the request actually
-        # has left. A wait that would leave less than a second for the request
-        # ends the retries instead of pushing one past the deadline.
+        # The wait is taken first, so the timeout below is what the request
+        # actually has left. A wait that would leave less than a second for it
+        # ends the retries instead of pushing one request past the deadline.
         if delay and delay + 1 > until - time.monotonic():
             break
         if delay:
@@ -58,7 +64,7 @@ def osv_query(url, method='GET', data=None, until=None):
             time.sleep(delay)
         attempts += 1
         try:
-            return api(url, method, data, timeout=max(1, min(REQUEST_TIMEOUT, int(until - time.monotonic()))))
+            return api(url, method, data, timeout=timeout_for(until))
         except (TRANSIENT + (urllib.error.URLError, HttpStatusError)) as error:
             if not retryable(error):
                 raise
