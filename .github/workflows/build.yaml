@@ -106,6 +106,8 @@ jobs:
           trap 'cp /tmp/flclash-pubspec.yaml pubspec.yaml' EXIT
           sed -i 's/build_assets: true/build_assets: false/g' pubspec.yaml
           if [ -f .automation/candidate.json ]; then
+            (cd plugins/rust_api/rust && cargo build --locked)
+            export FRB_DART_LOAD_EXTERNAL_LIBRARY_NATIVE_LIB_DIR="$PWD/plugins/rust_api/rust/target/debug"
             flutter test --reporter expanded
           else
             flutter test test/common/app_update_test.dart test/common/update_download_test.dart test/widgets/app_update_dialog_test.dart test/views/about_view_test.dart test/common/log_history_test.dart test/core/protocol_contract_test.dart test/views/logs_view_test.dart --reporter expanded
