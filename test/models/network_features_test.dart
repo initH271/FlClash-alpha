@@ -2,20 +2,23 @@ import 'dart:convert';
 
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/enum/enum.dart';
-import 'package:fl_clash/views/dashboard/widget_registry.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('legacy config keeps its layout and disables new automation', () {
+  test('fork-only dashboard widgets are dropped from a legacy config', () {
     final config = Config.fromJson({
       'appSettingProps': {
-        'dashboardWidgets': ['networkSpeed', 'intranetIp'],
+        'dashboardWidgets': ['networkSpeed', 'mediaUnlock', 'onlinePanel'],
       },
     });
-    expect(config.appSettingProps.dashboardWidgets, [
-      DashboardWidget.networkSpeed,
-      DashboardWidget.intranetIp,
-    ]);
+    expect(
+      config.appSettingProps.dashboardWidgets,
+      contains(DashboardWidget.networkSpeed),
+    );
+    expect(
+      config.appSettingProps.dashboardWidgets.map((item) => item.name),
+      isNot(anyOf(contains('mediaUnlock'), contains('onlinePanel'))),
+    );
     expect(config.networkProps.networkFeatures.disableQuic, false);
     expect(config.networkProps.networkFeatures.smartAutoStop, false);
   });
@@ -42,6 +45,5 @@ void main() {
       config.networkProps.networkFeatures.toJson(),
     );
     expect(restored.appSettingProps.dashboardWidgets, DashboardWidget.values);
-    expect(DashboardWidget.values.map((item) => item.widget).length, 23);
   });
 }

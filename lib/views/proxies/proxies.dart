@@ -157,10 +157,6 @@ class _ProxiesViewState extends ConsumerState<ProxiesView> {
     final picker = widget.picker;
     final primaryAction = _buildPrimaryAction();
     return CommonScaffold(
-      floatingChrome: true,
-      effectsEnabled: ref.watch(
-        appSettingProvider.select((state) => state.isAnimateToPage),
-      ),
       isLoading: isLoading,
       resizeToAvoidBottomInset: false,
       primaryAction: primaryAction,
