@@ -3,6 +3,7 @@ import json
 import re
 import time
 
+import pause
 from control import CNB, GH, POLICY, api, check_name, comment, gating_statuses, git, pages, sign, verify
 from reviews import find_request, reconcile as review_reconcile, scope, state
 from security_finish import ensure_branch_scan, merge_ready, push_github
@@ -106,6 +107,7 @@ def running(rows):
 
 OVERRUN = '<!-- flclash-requirement-overrun {} -->'
 OVERRUN_MINUTES = 75
+HOLD_MARKER = '<!-- flclash-requirement-hold {} -->'
 
 
 def overrun(rows, comments, now):
@@ -191,7 +193,7 @@ def dispatch_action(parsed, phase, rung, tree, log, note, previous, role, sha=''
 
 
 def decide(issue, comments, rows, tree, contained, checks_green, review_failed, review_text, now,
-           has_pull=False, sha='', behind=False, review_only=False):
+           has_pull=False, sha='', behind=False, review_only=False, hold=''):
     parsed = parse(issue.get('body', ''))
     parsed['number'] = str(issue['number'])
     known = [item for item in markers(comments) if item.get('issue') == str(issue['number'])]
@@ -203,6 +205,11 @@ def decide(issue, comments, rows, tree, contained, checks_green, review_failed, 
                 'body': '需求表单不完整，未派开发助手。缺：' + '、'.join(parsed['missing'])}
     if contained:
         return {'kind': 'close'}
+    if hold:
+        if HOLD_MARKER.format(hold) in ' '.join(item.get('body') or '' for item in comments):
+            return {'kind': 'wait'}
+        return {'kind': 'hold', 'ref': hold, 'sn': next(
+            (row['sn'] for row in rows if row['state'] not in TERMINAL and row['role'] in ROLES), '')}
     scoped = [item for item in known if item.get('scope') == parsed['scope'] and item.get('phase') != 'invalid']
     # Quota and stuck stop spending developer rounds; they never hold back work that already passed.
     if checks_green:
@@ -354,13 +361,17 @@ def act(issue, action, sha):
     if action['kind'] == 'sync-main':
         sync_main(number, sha)
         return
+    if action['kind'] == 'hold':
+        hold_notice(number, action)
+        return
     if action['kind'] == 'overrun':
         comment(number, OVERRUN.format(action['sn']) + '\n\n'
                 + f'开发助手构建 `{action["sn"]}` 已运行约 {action["minutes"]} 分钟，还没结束。'
                 '控制器不重复派发；开发阶段的 60 分钟超时没有生效，请 owner 查看构建。')
         return
     payload = {'issue': number, 'scope': parse(issue.get('body', ''))['scope'] if action['phase'] != 'invalid' else 'form',
-               'phase': action['phase'], 'rung': action['rung'], 'tree': action.get('tree') or sha or ''}
+               'phase': action['phase'], 'rung': action['rung'], 'tree': action.get('tree') or sha or '',
+               'head': sha}
     if action['kind'] == 'note':
         comment(number, envelope(payload) + '\n\n' + action['body'])
         return
@@ -371,6 +382,20 @@ def act(issue, action, sha):
     body = (envelope(payload) + '\n\n'
             f'@{POLICY["cnb"]}({role}) 分支 `{branch_name(number)}`。\n' + action['instruction'])
     comment(number, body, action['work_mode'])
+
+
+HOLD_NOTICE = ('owner 已占用分支 `{branch}`：控制器暂停派发、开 PR、同步 main 和转发。'
+               '推完提交后发 RELEASE 恢复；新提交照常要过 CNB 检查和结对审核。'
+               '已经转发到 GitHub 的 PR 不在本轮暂停范围内，要防止它被合并，请先把 GitHub PR 转为草稿。')
+HOLD_RUNNING = '开发助手构建 `{sn}` 仍在运行，HOLD 拦不住它的推送，等它结束或在 CNB 上手动停止后再推。'
+
+
+def hold_notice(number, action):
+    number = str(number)
+    body = HOLD_MARKER.format(action['ref']) + '\n\n' + HOLD_NOTICE.format(branch=branch_name(number))
+    if action.get('sn'):
+        body += '\n\n' + HOLD_RUNNING.format(sn=action['sn'])
+    comment(number, body)
 
 
 def close_done(issue, number):
@@ -391,9 +416,51 @@ def open_cnb_pr(issue, number, sha):
         'body': f'需求 #{number}，提交 `{sha}`。检查由流水线跑，控制器不在这里合并。'})
 
 
-def mirror_body(payload):
+def mirror_body(payload, origins=()):
+    lines = ('**提交归属**\n\n' + '\n'.join(origins) + '\n\n') if origins else ''
     return ('承接 CNB 需求分支。GitHub 是唯一合并入口。检查成功后由控制器合并。\n\n'
+            + lines
             + '<!-- flclash-security-mirror ' + json.dumps(sign(payload)) + ' -->')
+
+
+def origin_rows(base, sha, limit=20):
+    if not re.fullmatch(r'[a-f0-9]{40}', base or '') or not re.fullmatch(r'[a-f0-9]{40}', sha or ''):
+        return []
+    log = git('log', '--first-parent', f'--max-count={limit}',
+              '--format=%H%x1f%an%x1f%s%x1f%(trailers:key=FlClash-Actor,valueonly,separator=%x2c)%x1e',
+              f'{base}..{sha}', check=False)
+    if log.returncode:
+        return []
+    rows = []
+    for record in filter(None, (item.strip() for item in log.stdout.split('\x1e'))):
+        fields = record.split('\x1f')
+        if len(fields) < 3:
+            continue
+        commit, author, subject = fields[:3]
+        actor = fields[3].strip() if len(fields) > 3 else ''
+        rows.append('- `{}` 归属：{}'.format(commit[:8], actor or f'人工（无 FlClash-Actor，作者 {author}）')
+                    + '：' + subject[:80].replace('<', '&lt;'))
+    return rows
+
+
+def foreign_commits(since, sha, limit=10):
+    """Return (sha, author, subject) for commits on the branch that carry no FlClash-Actor trailer."""
+    if not (re.fullmatch(r'[a-f0-9]{40}', since or '') and re.fullmatch(r'[a-f0-9]{40}', sha or '')):
+        return []
+    if since == sha:
+        return []
+    log = git('log', '--first-parent', f'--max-count={limit}',
+              '--format=%H%x1f%an%x1f%s%x1f%(trailers:key=FlClash-Actor,valueonly,separator=%x2c)%x1e',
+              f'{since}..{sha}', check=False)
+    if log.returncode:
+        return []
+    found = []
+    for record in filter(None, (item.strip() for item in log.stdout.split('\x1e'))):
+        fields = record.split('\x1f')
+        if len(fields) > 3 and fields[3].strip():
+            continue
+        found.append((fields[0], fields[1], fields[2]))
+    return found
 
 
 def forward(issue, number, sha):
@@ -424,7 +491,7 @@ def forward(issue, number, sha):
     created = api(f'{GH}/pulls', 'POST', {
         'base': 'main', 'head': branch,
         'title': issue.get('title', f'[需求] {number}'),
-        'body': mirror_body(payload)})
+        'body': mirror_body(payload, origin_rows(base, sha))})
     comment(number, '需求已送至 GitHub：' + created['html_url'])
     settle(issue, number, sha, created['number'])
 
@@ -442,10 +509,11 @@ def advance(issue, number, sha, pull):
     if not source:
         return
     push_github(sha, branch_name(number))
-    payload = {'base': api(f'{GH}/git/ref/heads/main')['object']['sha'], 'head': sha,
+    base = api(f'{GH}/git/ref/heads/main')['object']['sha']
+    payload = {'base': base, 'head': sha,
                'tree': git('rev-parse', sha + '^{tree}'), 'cnb_number': str(source['number']),
                'branch': branch_name(number)}
-    api(f'{GH}/pulls/{pull["number"]}', 'PATCH', {'body': mirror_body(payload)})
+    api(f'{GH}/pulls/{pull["number"]}', 'PATCH', {'body': mirror_body(payload, origin_rows(base, sha))})
     comment(number, f'GitHub PR 已跟进到 `{sha[:12]}`：' + pull['html_url'])
     settle(issue, number, sha, pull['number'])
 
@@ -503,7 +571,8 @@ def reconcile():
         if issue.get('state') != 'open' or not str(issue.get('title', '')).startswith('[需求]') or not owner(issue):
             continue
         number = str(issue['number'])
-        comments = list(pages(f'{CNB}/issues/{number}/comments'))
+        issue_comments = list(pages(f'{CNB}/issues/{number}/comments'))
+        comments = list(issue_comments)
         pull = pull_for(number, pulls)
         if pull:
             pull = api(f'{CNB}/pulls/{pull["number"]}')
@@ -530,11 +599,36 @@ def reconcile():
             review_only = True
             behind, conflict = main_drift(sha)
             behind = behind and not conflict
+        hold = pause.paused('branch', branch_name(number), issue_comments) or {}
         action = decide(issue, comments, rows, tree, contained(sha), green, blocked, text, now,
-                        has_pull=bool(pull), sha=sha, behind=behind, review_only=review_only)
+                        has_pull=bool(pull), sha=sha, behind=behind, review_only=review_only,
+                        hold=hold.get('since', ''))
         if action['kind'] == 'dispatch' and failed:
             action['instruction'] += '\n' + text
+        if action['kind'] == 'dispatch':
+            foreign = foreign_commits(dispatch_start(known_marks(number, issue_comments), sha), sha)
+            if foreign:
+                action['instruction'] += '\n' + FOREIGN_NOTE + '；'.join(
+                    f'{item[0][:8]} {item[1]} {item[2]}' for item in foreign) + '。先读这些提交，不要回退或覆盖。'
         act(issue, action, sha)
+
+
+FOREIGN_NOTE = '分支上有不是开发助手推的提交：'
+
+
+def known_marks(number, comments):
+    return [item for item in markers(comments)
+            if item.get('issue') == str(number) and item.get('phase') in ('dev', 'retry', 'targeted', 'diagnose')]
+
+
+def dispatch_start(marks, sha):
+    """Where the branch was before this round: the last signed dispatch head, else GitHub main."""
+    for item in reversed(marks):
+        head = item.get('head')
+        if re.fullmatch(r'[a-f0-9]{40}', head or '') and head != sha:
+            return head
+    main = api(f'{GH}/git/ref/heads/main')['object']['sha']
+    return main if re.fullmatch(r'[a-f0-9]{40}', main or '') else ''
 
 
 if __name__ == '__main__':

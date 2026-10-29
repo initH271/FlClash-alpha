@@ -6,6 +6,7 @@ import time
 import urllib.error
 import urllib.request
 
+import pause
 from control import CNB, GH, POLICY, api, approved, check_name, comment as post_comment, gating_statuses, pages
 from reviews import ROLES, scope
 
@@ -27,6 +28,8 @@ def should_wake(issue, comment):
     body = comment.get('body', '').strip()
     author = comment.get('author') or {}
     if str(issue.get('title', '')).startswith('[需求]'):
+        if pause.command(comment):
+            return True
         if WAKE_MARKER in body:
             return True
         return (author.get('is_npc') is True and author.get('username') in (
@@ -129,7 +132,7 @@ def _age(stamp, now):
 
 def stalled(issue, comments, pull, checks, now):
     """Return a one-time key for a requirement state no event will advance, or ''."""
-    key = _stalled(issue, comments, pull, checks, now)
+    key = '' if pause.held(comments) else _stalled(issue, comments, pull, checks, now)
     if key or not pull or not comments or (checks and all(item['state'] == 'success' for item in checks)):
         return key
     # A stuck requirement may still be resynced or forwarded, so it gets one idle wake per head.

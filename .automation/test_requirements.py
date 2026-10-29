@@ -1,9 +1,14 @@
 import datetime
 import os
+import pathlib
+import tempfile
 import unittest
 from unittest.mock import patch
 
+import control
+import pause
 import requirements as req
+import security_finish
 
 
 BODY = """## 要改什么
@@ -50,12 +55,12 @@ class RequirementTests(unittest.TestCase):
 
     def decide(self, comments=None, rows=None, tree='', **kwargs):
         defaults = {'contained': False, 'checks_green': False, 'review_failed': False, 'review_text': '',
-                    'has_pull': False, 'sha': '', 'behind': False, 'review_only': False}
+                    'has_pull': False, 'sha': '', 'behind': False, 'review_only': False, 'hold': ''}
         defaults.update(kwargs)
         return req.decide(self.issue, comments or [], rows or [], tree, defaults['contained'],
                           defaults['checks_green'], defaults['review_failed'], defaults['review_text'], self.now,
                           has_pull=defaults['has_pull'], sha=defaults['sha'], behind=defaults['behind'],
-                          review_only=defaults['review_only'])
+                          review_only=defaults['review_only'], hold=defaults['hold'])
 
     def test_placeholder_form_is_not_dispatched_twice(self):
         self.issue['body'] = BODY.replace('加快日志导出', '一句话说清要改的行为')
@@ -291,3 +296,159 @@ class RequirementTests(unittest.TestCase):
         self.assertTrue(body.startswith(req.OVERRUN.format('cnb-a-1')))
         self.assertIn('约 95 分钟', body)
         self.assertNotIn('<!-- flclash-requirement {', body)
+
+    def test_owner_hold_pauses_and_release_resumes(self):
+        owner = {'username': 'Aharon', 'is_npc': False}
+        npc = {'username': 'Aharon', 'is_npc': True}
+        visitor = {'username': 'visitor', 'is_npc': False}
+        hold = {'created_at': '2026-09-22T02:00:00Z', 'body': 'HOLD', 'author': owner}
+        release = {'created_at': '2026-09-22T02:10:00Z', 'body': ' RELEASE\n', 'author': owner}
+        self.assertEqual('HOLD', pause.command(hold))
+        self.assertEqual('2026-09-22T02:00:00Z', pause.held([hold]))
+        self.assertEqual('', pause.held([hold, release]))
+        self.assertEqual('', pause.held([release]))
+        for body, author in (('HOLD', npc), ('HOLD', visitor), ('HOLD 一下', owner), ('hold', owner)):
+            self.assertEqual('', pause.command({'body': body, 'author': author}), body)
+            self.assertEqual('', pause.held([{'created_at': 'x', 'body': body, 'author': author}]))
+        self.assertEqual({'source': 'hold', 'since': '2026-09-22T02:00:00Z', 'branch': 'automation/req-9'},
+                         pause.paused('branch', 'automation/req-9', [hold]))
+        self.assertEqual({'source': 'hold', 'since': '2026-09-22T02:00:00Z', 'branch': 'automation/req-9'},
+                         pause.paused('main', 'automation/req-9', [hold]))
+        self.assertIsNone(pause.paused('branch', 'automation/req-9', [hold, release]))
+        self.assertIsNone(pause.paused('branch', 'automation/security-sync-x', [hold]))
+        self.assertIsNone(pause.paused('branch', 'automation/req-9', None))
+        with self.assertRaises(ValueError):
+            pause.paused('x', 'automation/req-9', [hold])
+
+    def test_hold_wins_over_green_checks_until_the_notice_is_posted(self):
+        self.assertEqual({'kind': 'hold', 'ref': '2026-09-22T02:00:00Z', 'sn': ''},
+                         self.decide(hold='2026-09-22T02:00:00Z'))
+        notice = {'created_at': '2026-09-22T02:05:00Z', 'body': req.HOLD_MARKER.format('2026-09-22T02:00:00Z')}
+        self.assertEqual('wait', self.decide([notice], hold='2026-09-22T02:00:00Z')['kind'])
+        self.assertEqual('wait', self.decide([notice], tree='abc', hold='2026-09-22T02:00:00Z',
+                                             checks_green=True, behind=True)['kind'])
+        self.assertEqual('sync-main', self.decide([notice], tree='abc', checks_green=True,
+                                                  behind=True)['kind'])
+        started = '2026-09-22T02:00:00Z'
+        rows = [self.attempt('pending', started), self.attempt('success', started, role='审查助手', sn='cnb-a-2')]
+        self.assertEqual('cnb-test-1', req.decide(
+            self.issue, [], rows, '', False, False, False, '', self.now, hold=started)['sn'])
+
+    def test_hold_notice_starts_with_its_marker_and_is_never_a_bare_hold_word(self):
+        with patch.object(req, 'comment') as note:
+            req.act(self.issue, {'kind': 'hold', 'ref': '2026-09-22T02:00:00Z', 'sn': ''}, 's' * 40)
+        body = note.call_args.args[1]
+        self.assertTrue(body.startswith(req.HOLD_MARKER.format('2026-09-22T02:00:00Z')))
+        self.assertIn('automation/req-9', body)
+        self.assertNotIn('flclash-requirement {', body)
+        self.assertNotIn('仍在运行', body)
+        self.assertNotIn(body.strip(), ('HOLD', 'RELEASE'))
+        with patch.object(req, 'comment') as note:
+            req.act(self.issue, {'kind': 'hold', 'ref': '2026-09-22T02:00:00Z', 'sn': 'cnb-a-1'}, 's' * 40)
+        self.assertIn('`cnb-a-1` 仍在运行', note.call_args.args[1])
+
+    def test_dispatch_payload_names_the_branch_head(self):
+        with patch.object(req, 'comment') as note:
+            req.act(self.issue, self.decide(sha='d' * 40), 'd' * 40)
+        self.assertIn('"head": "' + 'd' * 40 + '"', note.call_args.args[1])
+
+    def test_foreign_commits_ignore_agent_commits_and_side_branches(self):
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(control, 'ROOT', pathlib.Path(directory)), patch.object(req, 'git', side_effect=control.git):
+            control.git('init')
+            control.git('config', 'user.name', 'controller')
+            control.git('config', 'user.email', 'test@example.invalid')
+            control.git('config', 'commit.gpgsign', 'false')
+            control.git('commit', '--allow-empty', '-m', 'chore: base', '-m', 'FlClash-Actor: controller')
+            since = control.git('rev-parse', 'HEAD')
+            control.git('commit', '--allow-empty', '-m', 'feat: agent work', '-m', 'FlClash-Actor: npc/开发助手')
+            control.git('commit', '--allow-empty', '-m', 'fix: hand written',
+                        '--author', 'Owner <owner@example.invalid>')
+            head = control.git('rev-parse', 'HEAD')
+            side = control.git('commit-tree', control.git('rev-parse', 'HEAD^{tree}'), '-p', head,
+                               '-m', 'fix: side work')
+            merge = control.git('commit-tree', control.git('rev-parse', 'HEAD^{tree}'), '-p', head, '-p', side,
+                                '-m', 'Merge branch side', '-m', 'FlClash-Actor: controller')
+            self.assertEqual([], req.foreign_commits('', head))
+            self.assertEqual([], req.foreign_commits(head, head))
+            found = req.foreign_commits(since, merge)
+            self.assertEqual(['fix: hand written'], [item[2] for item in found])
+            self.assertEqual('Owner', found[0][1])
+            self.assertRegex(found[0][0], r'^[0-9a-f]{40}$')
+        self.assertEqual([], req.foreign_commits('x' * 40, 'y' * 40))
+
+    def test_mirror_body_lists_origins_before_the_signature_marker(self):
+        payload = {'base': 'a' * 40, 'head': 'b' * 40, 'tree': 'c' * 40, 'cnb_number': '3',
+                   'branch': 'automation/req-9'}
+        rows = ['- `deadbeef` 归属：npc/开发助手：feat: work',
+                '- `cafebabe` 归属：人工（无 FlClash-Actor，作者 Owner）：fix: &lt;!-- flclash-security-mirror {} -->']
+        body = req.mirror_body(payload, rows)
+        self.assertIn('**提交归属**', body)
+        self.assertIn(rows[0], body)
+        self.assertIn('&lt;!-- flclash-security-mirror {} -->', body)
+        self.assertLess(body.index('**提交归属**'), body.index('<!-- flclash-security-mirror '))
+        self.assertEqual(payload, security_finish.mirror_record({'body': body}))
+        self.assertNotIn('**提交归属**', req.mirror_body(payload))
+
+    def test_origin_rows_name_the_actor_or_the_author(self):
+        result = type('Done', (), {'returncode': 0, 'stdout': (
+            'a' * 40 + '\x1fNPC\x1ffeat: one\x1fnpc/开发助手\x1e'
+            + 'b' * 40 + '\x1fOwner\x1ffix: <two>\x1f\x1e')})()
+
+        def git(*args, check=True):
+            self.assertEqual('log', args[0])
+            self.assertEqual('--first-parent', args[1])
+            self.assertIn('--max-count=20', args)
+            self.assertEqual('a' * 40 + '..' + 'b' * 40, args[-1])
+            return result
+        with patch.object(req, 'git', side_effect=git):
+            rows = req.origin_rows('a' * 40, 'b' * 40)
+        self.assertEqual(['- `aaaaaaaa` 归属：npc/开发助手：feat: one',
+                          '- `bbbbbbbb` 归属：人工（无 FlClash-Actor，作者 Owner）：fix: &lt;two>'], rows)
+        failure = type('Done', (), {'returncode': 1, 'stdout': ''})()
+        with patch.object(req, 'git', return_value=failure):
+            self.assertEqual([], req.origin_rows('a' * 40, 'b' * 40))
+        with patch.object(req, 'git') as git:
+            self.assertEqual([], req.origin_rows('', 'b' * 40))
+            git.assert_not_called()
+
+    def test_reconcile_tells_a_dispatch_about_foreign_commits(self):
+        issue = {'number': '9', 'title': '[需求] 导出', 'state': 'open', 'body': BODY,
+                 'author': {'username': 'Aharon', 'is_npc': False}}
+        owner = {'username': 'Aharon', 'is_npc': False}
+        foreign = [('f' * 40, 'Owner', 'fix: hand')]
+
+        def pages(url, held):
+            if url.endswith('/issues?state=open'):
+                return [issue]
+            if url.endswith('/pulls?state=all'):
+                return []
+            return [{'created_at': '2026-09-22T02:20:00Z', 'body': 'HOLD', 'author': owner}] if held else []
+        for held, expected in ((False, 1), (True, 0)):
+            posted = []
+            reply = lambda url: issue if url.endswith('/issues/9') else {'object': {'sha': 'a' * 40}}
+            with (patch.object(req, 'pages', side_effect=lambda url, _held=held: pages(url, _held)),
+                  patch.object(req, 'api', side_effect=reply),
+                  patch.object(req, 'branch_sha', return_value='b' * 40),
+                  patch.object(req, 'git', return_value='tree'),
+                  patch.object(req, 'contained', return_value=False),
+                  patch.object(req, 'check_state', return_value=(False, False)),
+                  patch.object(req, 'foreign_commits', return_value=foreign) as commits,
+                  patch.object(req, 'comment', side_effect=lambda *args: posted.append(args[1]))):
+                req.reconcile()
+            self.assertEqual(expected, commits.call_count)
+            if held:
+                self.assertNotIn('flclash-requirement {', posted[0])
+            else:
+                self.assertEqual('a' * 40, commits.call_args.args[0])
+                self.assertIn('分支上有不是开发助手推的提交：ffffffff Owner fix: hand', posted[0])
+
+    def test_dispatch_start_prefers_the_last_signed_dispatch_head(self):
+        marks = [{'issue': '9', 'phase': 'dev', 'head': 'c' * 40}, {'issue': '9', 'phase': 'retry', 'head': 'd' * 40},
+                 {'issue': '9', 'phase': 'dev', 'head': 'e' * 40}]
+        self.assertEqual('d' * 40, req.dispatch_start(marks, 'e' * 40))
+        with patch.object(req, 'api', return_value={'object': {'sha': 'a' * 40}}):
+            self.assertEqual('a' * 40, req.dispatch_start([], 'e' * 40))
+            self.assertEqual('a' * 40, req.dispatch_start(
+                [{'issue': '9', 'phase': 'dev', 'head': 'short'},
+                 {'issue': '9', 'phase': 'dev', 'head': 'e' * 40}], 'e' * 40))
