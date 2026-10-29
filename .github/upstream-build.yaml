@@ -28,10 +28,10 @@ jobs:
           fetch-depth: 0
 
       - name: Test commit message hook
-        run: bash tool/check_commit_msg_test.sh
+        run: bash tool/hooks/commit_msg_test.sh
 
       - name: Test comment density hook
-        run: bash tool/check_comment_density_test.sh
+        run: bash tool/hooks/comment_density_test.sh
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
