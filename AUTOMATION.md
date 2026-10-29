@@ -111,6 +111,12 @@ Manual controls live in GitHub Actions:
 - upstream.yaml: watch / approvals / scheduler / reviews / all.
 - build.yaml: source_ref (exact approved SHA), reuse_run or cnb_fallback.
 
+`main.pull_request` also declares `Automation unit tests`: a PR that touches
+`.automation/`, `.cnb/`, `.cnb.yml`, `.github/` or `tool/` runs every `.automation`
+unittest on a one-CPU `python:3.12` runner within ten minutes; other PRs print
+`Skipped: no automation changes` and exit 0. `.automation/test_cnb_pipelines.py`
+locks that definition down so it cannot be dropped or narrowed unnoticed.
+
 Validation: `python -m unittest discover -s .automation -p 'test_*.py'` plus the
 existing mirror tests and CNB schema validator. Failure switching is tested with
 fixtures rather than deliberately duplicating a full build or exhausting quota.

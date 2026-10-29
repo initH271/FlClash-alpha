@@ -31,6 +31,17 @@ main:
           image: cnbcool/sca-vulnerability:latest
           settings:
             failOnSeverity: high
+    - name: Automation unit tests
+      runner: { cpus: 1 }
+      docker:
+        image: python:3.12
+      stages:
+        - name: Test automation changes
+          script: |
+            changed=$(git diff --name-only "$CNB_PULL_REQUEST_TARGET_SHA" HEAD || true)
+            printf '%s\n' "$changed" | grep -Eq '^(\.automation/|\.cnb/|\.cnb\.yml|\.github/|tool/)' || { echo 'Skipped: no automation changes'; exit 0; }
+            python3 -m unittest discover -s .automation -p 'test_*.py'
+          timeout: 10m
     - name: Go dependency regression tests
       runner: { cpus: 2 }
       docker:
