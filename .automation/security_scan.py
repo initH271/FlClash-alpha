@@ -4,30 +4,67 @@ import json
 import os
 import pathlib
 import re
+import socket
 import ssl
 import subprocess
+import sys
 import time
 import tomllib
 import urllib.error
 
-from control import api
+from control import HttpStatusError, api
+from env_failure import EXIT_CODE, EnvironmentFailure, line
 from security_groups import GROUPS, group_for
 
 LOCKS = ('services/helper/Cargo.lock', 'plugins/rust_api/rust/Cargo.lock')
 
+RETRY_DELAYS = (5, 20, 60, 180)
+RETRYABLE_STATUS = (429, 500, 502, 503, 504)
+TRANSIENT = (TimeoutError, ConnectionError, ssl.SSLEOFError, socket.gaierror)
+REQUEST_TIMEOUT = 20
+DEFAULT_BUDGET = 300
 
-def osv_query(url, method='GET', data=None):
+
+def deadline():
+    """Retries must end before the CI stage does, so the budget is handed down
+    through the environment and defaults to a fixed window."""
+    configured = os.getenv('FLCLASH_NETWORK_DEADLINE')
+    # Monotonic seconds cannot be compared with the Unix timestamp in the
+    # environment, so the budget is converted into the monotonic scale here.
+    remaining = DEFAULT_BUDGET if not configured else max(0, float(configured) - time.time())
+    return time.monotonic() + remaining
+
+
+def retryable(error):
+    if isinstance(error, HttpStatusError):
+        return error.code in RETRYABLE_STATUS
+    reason = error.reason if isinstance(error, urllib.error.URLError) else error
+    return isinstance(reason, TRANSIENT)
+
+
+def osv_query(url, method='GET', data=None, until=None):
     if not url.startswith('https://api.osv.dev/v1/') or method not in ('GET', 'POST'):
         raise ValueError('Only OSV read queries may be retried')
-    for attempt in range(3):
+    until = deadline() if until is None else until
+    attempts = 0
+    for delay in (0, *RETRY_DELAYS):
+        remaining = until - time.monotonic()
+        if delay and delay > max(0, remaining - 1):
+            break
+        if delay:
+            print(f'Transient OSV connection failure; retry after {delay}s')
+            time.sleep(delay)
+        attempts += 1
         try:
-            return api(url, method, data)
-        except (urllib.error.URLError, TimeoutError, ConnectionError, ssl.SSLEOFError) as error:
-            reason = error.reason if isinstance(error, urllib.error.URLError) else error
-            if not isinstance(reason, (TimeoutError, ConnectionError, ssl.SSLEOFError)) or attempt == 2:
+            return api(url, method, data, timeout=max(1, min(REQUEST_TIMEOUT, int(remaining))))
+        except (TRANSIENT + (urllib.error.URLError, HttpStatusError)) as error:
+            if not retryable(error):
                 raise
-            print(f'Transient OSV connection failure; retry {attempt + 1}/2')
-            time.sleep(2 ** (attempt + 1))
+            last = error
+    # An unreachable advisory source says nothing about the dependencies, so it
+    # must never leave a report behind that reads as a clean scan.
+    raise EnvironmentFailure('osv-unreachable',
+                             {'url': url, 'attempts': attempts, 'error': str(last)[:300]})
 
 
 def json_stream(text):
@@ -113,14 +150,15 @@ def key(item):
     return hashlib.sha256(json.dumps([item['file'], item['ecosystem'], item['name']]).encode()).hexdigest()
 
 
-def scan(root):
+def scan(root, until=None):
     packages, unscanned = inventory(root)
+    until = deadline() if until is None else until
     findings, details = [], {}
     for offset in range(0, len(packages), 100):
         batch = packages[offset:offset + 100]
         queries = [{'package': {'name': p['name'], 'ecosystem': p['ecosystem']},
                     'version': p['version']} for p in batch]
-        results = osv_query('https://api.osv.dev/v1/querybatch', 'POST', {'queries': queries})['results']
+        results = osv_query('https://api.osv.dev/v1/querybatch', 'POST', {'queries': queries}, until)['results']
         if len(results) != len(batch):
             raise ValueError('Incomplete vulnerability response')
         for package, result in zip(batch, results):
@@ -131,7 +169,7 @@ def scan(root):
             for entry in result.get('vulns', []):
                 identifier = entry['id']
                 if identifier not in details:
-                    details[identifier] = osv_query(f'https://api.osv.dev/v1/vulns/{identifier}')
+                    details[identifier] = osv_query(f'https://api.osv.dev/v1/vulns/{identifier}', until=until)
                 advisory = details[identifier]
                 if advisory.get('withdrawn'):
                     continue
@@ -217,14 +255,30 @@ def require_group_progress(base, head, group):
                          'move the Go toolchain forward')
 
 
-if __name__ == '__main__':
+def head_sha(root):
+    try:
+        return subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return ''
+
+
+def main(argv):
     parser = argparse.ArgumentParser()
     parser.add_argument('root', type=pathlib.Path)
     parser.add_argument('output', type=pathlib.Path)
     parser.add_argument('--baseline', type=pathlib.Path)
     parser.add_argument('--repair-branch', default='')
-    args = parser.parse_args()
-    report = scan(args.root.resolve())
+    args = parser.parse_args(argv)
+    root = args.root.resolve()
+    until = deadline()
+    try:
+        report = scan(root, until)
+    except EnvironmentFailure as error:
+        # Same non-zero shape as a finding for anything that only reads the exit
+        # code, but the marker keeps it from being recorded as one.
+        message = line(error.kind, sha=head_sha(root), **error.detail)
+        print(message, flush=True)
+        return EXIT_CODE
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
     print(f'Scanned {len(report["packages"])} resolved versions; {len(report["findings"])} advisory matches; '
           f'{len(report["unscanned"])} local/git dependencies require manual assessment')
@@ -239,4 +293,10 @@ if __name__ == '__main__':
     if args.baseline:
         additions = new_findings(json.loads(args.baseline.read_text(encoding='utf-8')), report)
         if additions:
-            raise SystemExit(f'New dependency vulnerabilities: {len(additions)}; see JSON report')
+            print(f'New dependency vulnerabilities: {len(additions)}; see JSON report')
+            return 1
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))

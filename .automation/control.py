@@ -22,7 +22,13 @@ CNB = 'https://api.cnb.cool/' + POLICY['cnb'] + '/-'
 CHECK_WAKER = 'Wake controller after checks'
 
 
-def api(url, method='GET', data=None, missing=False):
+class HttpStatusError(RuntimeError):
+    def __init__(self, message, code):
+        super().__init__(message)
+        self.code = code
+
+
+def api(url, method='GET', data=None, missing=False, timeout=60):
     headers = {'Accept': 'application/json', 'User-Agent': 'FlClash-alpha-automation'}
     host = urllib.parse.urlsplit(url).netloc
     token = os.getenv('GH_TOKEN') if host == 'api.github.com' else (
@@ -35,7 +41,7 @@ def api(url, method='GET', data=None, missing=False):
         headers['Content-Type'] = 'application/json'
     try:
         with urllib.request.urlopen(urllib.request.Request(
-                url, data=data, headers=headers, method=method), timeout=60) as response:
+                url, data=data, headers=headers, method=method), timeout=timeout) as response:
             body = response.read()
             return json.loads(body) if body else None
     except urllib.error.HTTPError as error:
@@ -48,7 +54,7 @@ def api(url, method='GET', data=None, missing=False):
             reason = ''
         if token:
             reason = reason.replace(token, '***')
-        raise RuntimeError(f'{method} {host} returned HTTP {error.code}: {reason}') from None
+        raise HttpStatusError(f'{method} {host} returned HTTP {error.code}: {reason}', error.code) from None
 
 
 def pages(url, page_key='page', size_key='page_size'):
