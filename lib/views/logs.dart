@@ -5,6 +5,7 @@ import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
+import 'package:fl_clash/ui/icons/icons.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -48,27 +49,33 @@ class LogsView extends ConsumerStatefulWidget {
   ConsumerState<LogsView> createState() => _LogsViewState();
 }
 
-class _LogsViewState extends ConsumerState<LogsView> {
+class _LogsViewState extends ConsumerState<LogsView>
+    with RouteMotionHoldMixin<LogsView> {
   final _listController = LogListController();
   late final ScrollController _scrollController;
-  bool _exportingHistory = false;
+  late final _physics = FollowEndScrollPhysics(
+    isFollowing: () => _listController.value.autoScrollToEnd,
+  );
 
   @override
   void initState() {
     super.initState();
-    _scrollController = ScrollController(initialScrollOffset: double.maxFinite);
+    _scrollController = sheetScrollController(
+      context,
+      initialScrollOffset: double.maxFinite,
+    );
     _listController.setLogs(ref.read(logsProvider).list);
     ref.listenManual(logsProvider.select((state) => state.revision), (_, _) {
       updateLogsThrottler();
     });
   }
 
-  List<Widget> _buildActions() {
+  List<IconButtonData> _buildActions() {
     return [
-      IconButton(
+      IconButtonData(
+        glyph: AppGlyphs.export,
         tooltip: context.appLocalizations.exportLogs,
-        onPressed: _exportingHistory ? null : _handleExportHistory,
-        icon: const Icon(Icons.save_as_outlined),
+        onPressed: _handleExport,
       ),
     ];
   }
@@ -80,25 +87,18 @@ class _LogsViewState extends ConsumerState<LogsView> {
     super.dispose();
   }
 
-  Future<void> _handleExportHistory() async {
-    if (_exportingHistory) return;
-    setState(() => _exportingHistory = true);
-    final l = context.appLocalizations;
-    try {
-      final result = await globalState.safeRun<bool>(() async {
-        return ref.read(logsProvider.notifier).exportLogs();
-      }, title: l.exportLogs);
-      if (result == true && mounted) {
-        unawaited(
-          dialogs.showMessage(
-            title: l.tip,
-            message: TextSpan(text: l.exportSuccess),
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _exportingHistory = false);
-    }
+  Future<void> _handleExport() async {
+    final appLocalizations = context.appLocalizations;
+    final res = await globalState.safeRun<bool>(() async {
+      return ref.read(logsProvider.notifier).exportLogs();
+    }, title: appLocalizations.exportLogs);
+    if (res != true) return;
+    unawaited(
+      dialogs.showAlert(
+        title: appLocalizations.tip,
+        message: TextSpan(text: appLocalizations.exportSuccess),
+      ),
+    );
   }
 
   void updateLogsThrottler() {
@@ -106,47 +106,27 @@ class _LogsViewState extends ConsumerState<LogsView> {
       if (!mounted) {
         return;
       }
-      _listController.setLogs(ref.read(logsProvider).list);
-    }, duration: commonDuration);
+      updateWhenRouteSettled(
+        () => _listController.setLogs(ref.read(logsProvider).list),
+      );
+    }, duration: renderThrottleDuration);
   }
 
   @override
   Widget build(BuildContext context) {
     final appLocalizations = context.appLocalizations;
     return CommonScaffold(
-      actions: _buildActions(),
+      iconActions: _buildActions(),
       onKeywordsUpdate: _listController.updateKeywords,
       searchState: AppBarSearchState(onSearch: _listController.search),
       title: appLocalizations.logs,
-      floatingActionButton: ValueListenableBuilder(
-        valueListenable: _listController,
-        builder: (_, state, _) {
-          final autoScrollToEnd = state.autoScrollToEnd;
-          return FadeRotationScaleBox(
-            child: FloatingActionButton(
-              key: ValueKey(autoScrollToEnd),
-              onPressed: () {
-                if (autoScrollToEnd) {
-                  _listController.setAutoScrollToEnd(false);
-                } else {
-                  _listController.resumeAutoScrollToEnd(
-                    ref.read(logsProvider).list,
-                  );
-                }
-              },
-              child: autoScrollToEnd
-                  ? const Icon(Icons.block)
-                  : const Icon(Icons.vertical_align_top),
-            ),
-          );
-        },
-      ),
       body: ValueListenableBuilder<LogsState>(
         valueListenable: _listController,
         builder: (context, state, _) {
           final logs = state.list;
           return NullStatusSwitcher(
             isEmpty: logs.isEmpty,
+            isSearching: state.isSearching,
             nullStatus: NullStatus(
               illustration: NullStatusIllustration.logs,
               label: appLocalizations.nullTip(appLocalizations.logs),
@@ -163,19 +143,26 @@ class _LogsViewState extends ConsumerState<LogsView> {
                   onCancelToEnd: () {
                     _listController.setAutoScrollToEnd(false);
                   },
+                  onResumeToEnd: () {
+                    _listController.resumeAutoScrollToEnd(
+                      ref.read(logsProvider).list,
+                    );
+                  },
                   controller: _scrollController,
                   enable: state.autoScrollToEnd,
-                  dataSource: logs,
                   child: SuperListView.separated(
-                    physics: const NextClampingScrollPhysics(),
+                    physics: _physics,
                     reverse: true,
                     shrinkWrap: true,
                     controller: _scrollController,
                     padding: EdgeInsets.only(
-                      bottom: 16 + BottomInsetScope.of(context),
+                      top: context.contentTopPadding,
+                      bottom: 16 + context.bottomInset,
                     ),
                     itemCount: logs.length,
-                    separatorBuilder: (_, _) => const Divider(height: 0),
+                    extentEstimation: recordListExtentEstimation,
+                    separatorBuilder: (_, _) =>
+                        const SizedBox(height: recordListGap),
                     itemBuilder: (_, index) {
                       final log = logs[index];
                       return LogItem(
@@ -204,42 +191,76 @@ class LogItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListItem(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 16,
-        vertical: 8,
-      ).copyWith(bottom: 12),
+    final tone = switch (log.logLevel) {
+      LogLevel.warning => RecordTone.warning,
+      LogLevel.error => RecordTone.error,
+      LogLevel.info || LogLevel.debug || LogLevel.silent => RecordTone.neutral,
+    };
+    final payload = LogPayload.parse(log.payload);
+    return RecordListItem(
       onTap: () {},
-      minVerticalPadding: 0,
-      title: SelectableText(
-        log.payload,
-        style: context.textTheme.bodyLarge?.copyWith(
-          color: log.logLevel.color(context),
-        ),
+      header: RecordHeader(
+        children: [
+          RecordTimestamp(log.dateTime),
+          RecordLabel(
+            label: log.logLevel.name,
+            tone: tone,
+            onPressed: () => onClick?.call(log.logLevel.name),
+          ),
+        ],
       ),
-      subtitle: Padding(
-        padding: const EdgeInsets.only(top: 4),
-        child: Row(
-          spacing: 8,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            CommonChip(
-              label: log.logLevel.name,
-              onPressed: () => onClick?.call(log.logLevel.name),
+      body: _LogBody(payload: payload, errorColor: tone.accentColor(context)),
+    );
+  }
+}
+
+class _LogBody extends StatelessWidget {
+  final LogPayload payload;
+  final Color? errorColor;
+
+  const _LogBody({required this.payload, this.errorColor});
+
+  String get _sourceText => [
+    payload.tag,
+    if (payload.route case final route?) ...[route.source, route.sourceDetail],
+  ].where((text) => text.isNotEmpty).join('  ·  ');
+
+  @override
+  Widget build(BuildContext context) {
+    final styles = RecordTextStyles.of(context);
+    final route = payload.route;
+    if (route == null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SelectableText(payload.message, style: styles.primary),
+          if (payload.tag.isNotEmpty)
+            Text(payload.tag, style: styles.secondary),
+        ],
+      );
+    }
+    return SelectableText.rich(
+      TextSpan(
+        children: [
+          TextSpan(text: route.destination, style: styles.title),
+          if (route.error.isNotEmpty)
+            TextSpan(
+              text: '\n${route.error}',
+              style: styles.secondary.copyWith(color: errorColor),
             ),
-            Flexible(
-              child: Text(
-                log.dateTime,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.end,
-                style: context.textTheme.bodySmall?.copyWith(
-                  color: context.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ),
+          const TextSpan(text: '\n'),
+          if (route.rule.isNotEmpty) ...[
+            TextSpan(text: route.rule, style: styles.secondary),
+            TextSpan(text: ' \u2192 ', style: styles.secondary.toJetBrainsMono),
           ],
-        ),
+          TextSpan(
+            text: route.proxy,
+            style: AppTextStyle.footnote
+                .of(context, emphasized: true)
+                .copyWith(color: context.colorScheme.primary),
+          ),
+          TextSpan(text: '\n$_sourceText', style: styles.secondary),
+        ],
       ),
     );
   }

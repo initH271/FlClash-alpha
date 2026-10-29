@@ -1,8 +1,5 @@
-import 'dart:async';
 import 'dart:io';
 
-import 'package:fl_clash/common/common.dart';
-import 'package:fl_clash/common/theme.dart';
 import 'package:fl_clash/core/core.dart';
 import 'package:fl_clash/core/interface.dart';
 import 'package:fl_clash/enum/enum.dart';
@@ -10,48 +7,37 @@ import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/manager/core_manager.dart';
 import 'package:fl_clash/manager/status_manager.dart';
 import 'package:fl_clash/models/models.dart';
+import 'package:fl_clash/providers/action.dart';
 import 'package:fl_clash/providers/app.dart';
 import 'package:fl_clash/providers/config.dart';
 import 'package:fl_clash/providers/core.dart';
 import 'package:fl_clash/providers/database.dart';
+import 'package:fl_clash/providers/route_state.dart';
 import 'package:fl_clash/providers/state.dart';
 import 'package:fl_clash/state.dart';
+import 'package:fl_clash/ui/ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
-import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../helpers/app_paths.dart';
+import '../helpers/test_database_providers.dart';
 import '../helpers/test_profiles.dart';
 
 class _MockCoreHandlerInterface extends Mock implements CoreHandlerInterface {}
 
-class _FakePathProvider extends PathProviderPlatform {
-  final String root;
-
-  _FakePathProvider(this.root);
-
-  @override
-  Future<String?> getTemporaryPath() async => root;
-
-  @override
-  Future<String?> getApplicationSupportPath() async => root;
-
-  @override
-  Future<String?> getApplicationCachePath() async => root;
-}
-
 const _nullProfileSetupState = SetupState(
   profileId: null,
   profileLastUpdateDate: null,
-  overwriteType: OverwriteType.standard,
+  profileType: ProfileType.file,
+  extendType: ExtendType.standard,
   rules: [],
   proxyGroups: [],
   addedRules: [],
   script: null,
-  overrideDns: false,
-  dns: Dns(),
+  overrides: ProfileOverrides(),
 );
 
 const _crash = CoreEvent(type: CoreEventType.crash, data: 'boom');
@@ -72,6 +58,27 @@ CoreEvent _geoUpdate({
   );
 }
 
+class _ApplyRecordingSetupAction extends SetupAction {
+  int updates = 0;
+  int applies = 0;
+  int globalRulesApplies = 0;
+  final List<bool> appliedForce = [];
+
+  @override
+  void applyIfGlobalRulesUsed() => globalRulesApplies++;
+
+  @override
+  Future<void> updateConfigDebounce() async {
+    updates++;
+  }
+
+  @override
+  void applyProfileDebounce({bool silence = false, bool force = false}) {
+    applies++;
+    appliedForce.add(force);
+  }
+}
+
 _MockCoreHandlerInterface _coreInterface() {
   final coreInterface = _MockCoreHandlerInterface();
   when(() => coreInterface.startLog()).thenAnswer((_) {});
@@ -83,7 +90,6 @@ Future<ProviderContainer> _pumpCoreManager(
   WidgetTester tester,
   CoreHandlerInterface coreInterface, {
   List<Override> overrides = const [],
-  CoreStatus initialCoreStatus = CoreStatus.disconnected,
 }) async {
   final container = ProviderContainer(
     overrides: [
@@ -94,7 +100,6 @@ Future<ProviderContainer> _pumpCoreManager(
     ],
   );
   addTearDown(container.dispose);
-  container.read(coreStatusProvider.notifier).value = initialCoreStatus;
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
@@ -104,7 +109,6 @@ Future<ProviderContainer> _pumpCoreManager(
         supportedLocales: AppLocalizations.delegate.supportedLocales,
         builder: (context, child) {
           globalState.measure = Measure.of(context, 1);
-          globalState.theme = CommonTheme.of(context, 1);
           return StatusManager(child: child!);
         },
         home: const CoreManager(child: SizedBox()),
@@ -147,9 +151,7 @@ void main() {
     profileSwitchTempDir = Directory.systemTemp.createTempSync(
       'core_manager_test',
     );
-    PathProviderPlatform.instance = _FakePathProvider(
-      profileSwitchTempDir.path,
-    );
+    await useAppPaths(profileSwitchTempDir);
   });
 
   tearDownAll(() {
@@ -241,11 +243,9 @@ void main() {
 
   testWidgets('the log stream follows the openLogs setting', (tester) async {
     final coreInterface = _coreInterface();
-    final container = await _pumpCoreManager(
-      tester,
-      coreInterface,
-      initialCoreStatus: CoreStatus.connected,
-    );
+    final container = await _pumpCoreManager(tester, coreInterface);
+    container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
+    await tester.pump();
 
     verify(() => coreInterface.stopLog()).called(1);
     verifyNever(() => coreInterface.startLog());
@@ -267,180 +267,131 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('log commands wait until the core is connected', (tester) async {
+  testWidgets('the log stream waits for the core and is restored on '
+      'every connection', (tester) async {
     final coreInterface = _coreInterface();
     final container = await _pumpCoreManager(tester, coreInterface);
-
-    await tester.pump(const Duration(seconds: 11));
-    verifyNever(() => coreInterface.startLog());
-    verifyNever(() => coreInterface.stopLog());
-
-    container.read(coreStatusProvider.notifier).value = CoreStatus.connecting;
+    container
+        .read(appSettingProvider.notifier)
+        .update((state) => state.copyWith(openLogs: true));
     await tester.pump();
+
     verifyNever(() => coreInterface.startLog());
     verifyNever(() => coreInterface.stopLog());
 
     container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
     await tester.pump();
-    verify(() => coreInterface.stopLog()).called(1);
-    verifyNever(() => coreInterface.startLog());
 
-    await tester.pumpWidget(const SizedBox.shrink());
-  });
-
-  testWidgets('connection applies only the latest pending log setting', (
-    tester,
-  ) async {
-    final coreInterface = _coreInterface();
-    final container = await _pumpCoreManager(tester, coreInterface);
-
-    for (final enabled in [true, false, true]) {
-      container
-          .read(appSettingProvider.notifier)
-          .update((state) => state.copyWith(openLogs: enabled));
-      await tester.pump();
-    }
-    verifyNever(() => coreInterface.startLog());
-    verifyNever(() => coreInterface.stopLog());
-
-    container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
-    await tester.pump();
     verify(() => coreInterface.startLog()).called(1);
-    verifyNever(() => coreInterface.stopLog());
 
     container.read(coreStatusProvider.notifier).value = CoreStatus.disconnected;
     await tester.pump();
-    container
-        .read(appSettingProvider.notifier)
-        .update((state) => state.copyWith(openLogs: false));
-    await tester.pump();
-    verifyNever(() => coreInterface.startLog());
-    verifyNever(() => coreInterface.stopLog());
-
-    container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
-    await tester.pump();
-    verify(() => coreInterface.stopLog()).called(1);
-
-    await tester.pumpWidget(const SizedBox.shrink());
-  });
-
-  testWidgets('reconnection restores an unchanged enabled log setting', (
-    tester,
-  ) async {
-    final coreInterface = _coreInterface();
-    final container = await _pumpCoreManager(tester, coreInterface);
-    container
-        .read(appSettingProvider.notifier)
-        .update((state) => state.copyWith(openLogs: true));
-    await tester.pump();
-    container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
-    await tester.pump();
-    verify(() => coreInterface.startLog()).called(1);
-    verifyNever(() => coreInterface.stopLog());
-
     container.read(coreStatusProvider.notifier).value = CoreStatus.connecting;
     await tester.pump();
+
     verifyNever(() => coreInterface.startLog());
+
     container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
     await tester.pump();
+
     verify(() => coreInterface.startLog()).called(1);
     verifyNever(() => coreInterface.stopLog());
 
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('disposed manager does not synchronize log settings', (
+  testWidgets('a setting the Core patches live is not re-applied', (
     tester,
   ) async {
-    final coreInterface = _coreInterface();
-    final container = await _pumpCoreManager(tester, coreInterface);
-    await tester.pumpWidget(const SizedBox.shrink());
+    final setupAction = _ApplyRecordingSetupAction();
+    final container = await _pumpCoreManager(
+      tester,
+      _coreInterface(),
+      overrides: [setupActionProvider.overrideWith(() => setupAction)],
+    );
+
     container
-        .read(appSettingProvider.notifier)
-        .update((state) => state.copyWith(openLogs: true));
-    container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
+        .read(patchClashConfigProvider.notifier)
+        .update((state) => state.copyWith(mode: Mode.global, mixedPort: 8899));
     await tester.pump();
 
-    verifyNever(() => coreInterface.startLog());
-    verifyNever(() => coreInterface.stopLog());
-  });
+    expect(setupAction.updates, 1);
+    expect(setupAction.applies, 0);
 
-  testWidgets(
-    'log retention waits for connection and applies latest saved period',
-    (tester) async {
-      final coreInterface = _coreInterface();
-      final container = await _pumpCoreManager(tester, coreInterface);
-      container
-          .read(appSettingProvider.notifier)
-          .update((value) => value.copyWith(logRetentionDays: 30));
-      await tester.pump();
-      verifyNever(() => coreInterface.setLogHistoryRetention(any()));
-      container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
-      await tester.pump();
-      verify(() => coreInterface.setLogHistoryRetention(30)).called(1);
-      container
-          .read(appSettingProvider.notifier)
-          .update((value) => value.copyWith(logRetentionDays: 7));
-      await tester.pump();
-      verify(() => coreInterface.setLogHistoryRetention(7)).called(1);
-      container.read(coreStatusProvider.notifier).value = CoreStatus.connecting;
-      container
-          .read(appSettingProvider.notifier)
-          .update((value) => value.copyWith(logRetentionDays: 21));
-      await tester.pump();
-      verifyNever(() => coreInterface.setLogHistoryRetention(21));
-      container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
-      await tester.pump();
-      verify(() => coreInterface.setLogHistoryRetention(21)).called(1);
-      await tester.pumpWidget(const SizedBox.shrink());
-    },
-  );
-
-  testWidgets('slow retention updates coalesce to the newest period', (
-    tester,
-  ) async {
-    final coreInterface = _coreInterface();
-    final pending = Completer<void>();
-    when(
-      () => coreInterface.setLogHistoryRetention(14),
-    ).thenAnswer((_) => pending.future);
-    final container = await _pumpCoreManager(tester, coreInterface);
-    container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
-    await tester.pump();
-    verify(() => coreInterface.setLogHistoryRetention(14)).called(1);
-    container
-        .read(appSettingProvider.notifier)
-        .update((value) => value.copyWith(logRetentionDays: 1));
-    await tester.pump();
-    container
-        .read(appSettingProvider.notifier)
-        .update((value) => value.copyWith(logRetentionDays: 30));
-    await tester.pump();
-    verifyNever(() => coreInterface.setLogHistoryRetention(1));
-    pending.complete();
-    await tester.pump();
-    verify(() => coreInterface.setLogHistoryRetention(30)).called(1);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('failed older retention update still applies the newest period', (
+  testWidgets('a setting only a setup carries re-applies the profile', (
     tester,
   ) async {
-    final coreInterface = _coreInterface();
-    final pending = Completer<void>();
-    when(
-      () => coreInterface.setLogHistoryRetention(14),
-    ).thenAnswer((_) => pending.future);
-    final container = await _pumpCoreManager(tester, coreInterface);
-    container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
+    final setupAction = _ApplyRecordingSetupAction();
+    final container = await _pumpCoreManager(
+      tester,
+      _coreInterface(),
+      overrides: [setupActionProvider.overrideWith(() => setupAction)],
+    );
+
+    container
+        .read(patchClashConfigProvider.notifier)
+        .update((state) => state.copyWith(hosts: const {'a.test': '1.1.1.1'}));
     await tester.pump();
     container
-        .read(appSettingProvider.notifier)
-        .update((value) => value.copyWith(logRetentionDays: 30));
+        .read(networkSettingProvider.notifier)
+        .update(
+          (state) => state.copyWith(appendSystemDns: !state.appendSystemDns),
+        );
     await tester.pump();
-    pending.completeError(StateError('old request failed'));
+
+    expect(setupAction.applies, 2);
+    expect(setupAction.updates, 0);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('a test URL change forces the apply, which alone hands it '
+      'over', (tester) async {
+    final setupAction = _ApplyRecordingSetupAction();
+    final container = await _pumpCoreManager(
+      tester,
+      _coreInterface(),
+      overrides: [setupActionProvider.overrideWith(() => setupAction)],
+    );
+
+    container
+        .read(patchClashConfigProvider.notifier)
+        .update((state) => state.copyWith(hosts: const {'a.test': '1.1.1.1'}));
     await tester.pump();
-    verify(() => coreInterface.setLogHistoryRetention(30)).called(1);
+    container
+        .read(patchClashConfigProvider.notifier)
+        .update((state) => state.copyWith(testUrl: 'https://probe.test/204'));
+    await tester.pump();
+
+    expect(setupAction.appliedForce, [false, true]);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('a change to the global added rules, not their first load, '
+      'asks for an apply', (tester) async {
+    final setupAction = _ApplyRecordingSetupAction();
+    final container = await _pumpCoreManager(
+      tester,
+      _coreInterface(),
+      overrides: [
+        setupActionProvider.overrideWith(() => setupAction),
+        globalRulesProvider.overrideWith(() => TestGlobalRules()),
+      ],
+    );
+    await tester.pump();
+    expect(setupAction.globalRulesApplies, 0);
+
+    container.read(globalRulesProvider.notifier).value = [
+      const Rule(id: 1, content: 'a.test', ruleTarget: 'DIRECT'),
+    ];
+    await tester.pump();
+
+    expect(setupAction.globalRulesApplies, 1);
+
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
@@ -460,6 +411,35 @@ void main() {
       container.read(logsProvider).list.map((log) => log.payload),
       contains('hello'),
     );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('core dns queries are recorded and counted', (tester) async {
+    final coreInterface = _coreInterface();
+    final container = await _pumpCoreManager(tester, coreInterface);
+
+    for (final domain in ['alpha.test', 'beta.test']) {
+      coreEventManager.sendEvent(
+        CoreEvent(
+          type: CoreEventType.dns,
+          data: {
+            'domain': domain,
+            'type': 'A',
+            'answers': ['1.1.1.1'],
+            'delay': 3,
+            'time': '2026-09-18T04:30:01Z',
+          },
+        ),
+      );
+    }
+    await tester.pump();
+
+    expect(
+      container.read(dnsQueriesProvider).list.map((query) => query.domain),
+      ['alpha.test', 'beta.test'],
+    );
+    expect(container.read(dnsQueryCountProvider), 2);
 
     await tester.pumpWidget(const SizedBox.shrink());
   });
@@ -486,6 +466,26 @@ void main() {
 
     expect(container.read(isUpdatingProvider(key)), isFalse);
     expect(find.text('background failure'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('route events reach the route tracker', (tester) async {
+    final coreInterface = _coreInterface();
+    final container = await _pumpCoreManager(tester, coreInterface);
+
+    coreEventManager.sendEvent(
+      const CoreEvent(
+        type: CoreEventType.routeChanged,
+        data: {'core-epoch': 7, 'route-version': 42},
+      ),
+    );
+    await tester.pump();
+
+    final route = container.read(routeTrackerProvider);
+    expect(route.coreEpoch, 7);
+    expect(route.routeVersion, 42);
+    expect(route.synced, isTrue);
 
     await tester.pumpWidget(const SizedBox.shrink());
   });

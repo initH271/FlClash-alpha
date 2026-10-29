@@ -1,400 +1,268 @@
 import 'package:fl_clash/common/common.dart';
-import 'package:fl_clash/enum/enum.dart';
+import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/models/common.dart';
 import 'package:fl_clash/providers/providers.dart';
-import 'package:fl_clash/widgets/dialog.dart';
-import 'package:fl_clash/widgets/inherited.dart';
-import 'package:fl_clash/widgets/null_status.dart';
-import 'package:fl_clash/widgets/pop_scope.dart';
-import 'package:fl_clash/widgets/scaffold.dart';
+import 'package:fl_clash/ui/icons/icons.dart';
+import 'package:fl_clash/ui/ui.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'effect.dart';
-import 'list.dart';
-import 'theme.dart';
-part 'input_pages.dart';
+part 'edit_view.dart';
 
-class OptionsDialog<T> extends StatelessWidget {
-  final String title;
-  final List<T> options;
-  final T value;
-  final String Function(T value) textBuilder;
+class BatchInput<T> {
+  static const maxShownIssues = 3;
 
-  const OptionsDialog({
-    super.key,
-    required this.title,
-    required this.options,
-    required this.textBuilder,
-    required this.value,
+  final String label;
+  final String formatTip;
+  final ParsedInput<T> Function(String text) parse;
+  final String Function(InputIssue issue) issueMessage;
+
+  const BatchInput({
+    required this.label,
+    required this.formatTip,
+    required this.parse,
+    required this.issueMessage,
   });
 
-  @override
-  Widget build(BuildContext context) {
-    return CommonDialog(
-      title: title,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
-      child: RadioGroup(
-        onChanged: (value) {
-          Navigator.of(context).pop(value);
-        },
-        groupValue: value,
-        child: Wrap(
-          children: [
-            for (final option in options)
-              Builder(
-                builder: (context) {
-                  if (value == option) {
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      Scrollable.ensureVisible(context);
-                    });
-                  }
-                  return ListItem.radio(
-                    value: option,
-                    onTap: () {
-                      Navigator.of(context).pop(option);
-                    },
-                    title: Text(textBuilder(option)),
-                  );
-                },
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class CommonCheckBox extends StatelessWidget {
-  final bool? value;
-  final ValueChanged<bool?>? onChanged;
-  final bool isCircle;
-
-  const CommonCheckBox({
-    required this.value,
-    required this.onChanged,
-    this.isCircle = false,
-    super.key,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Checkbox(
-      materialTapTargetSize: MaterialTapTargetSize.padded,
-      visualDensity: VisualDensity.standard,
-      shape: isCircle ? AppShape.circle : null,
-      value: value,
-      onChanged: onChanged,
-    );
-  }
-}
-
-class InputDialog extends StatefulWidget {
-  final String title;
-  final String value;
-  final String? suffixText;
-  final String? labelText;
-  final String? resetValue;
-  final String? hintText;
-  final FormFieldValidator<String>? validator;
-  final AutovalidateMode? autovalidateMode;
-  final bool? obscureText;
-  final int? maxLength;
-  final int? errorMaxLines;
-  final List<TextInputFormatter>? inputFormatters;
-  final TextInputType? keyboardType;
-
-  const InputDialog({
-    super.key,
-    required this.title,
-    required this.value,
-    this.suffixText,
-    this.resetValue,
-    this.hintText,
-    this.validator,
-    this.obscureText,
-    this.labelText,
-    this.maxLength,
-    this.errorMaxLines,
-    this.inputFormatters,
-    this.keyboardType,
-    this.autovalidateMode = AutovalidateMode.onUserInteraction,
-  });
-
-  @override
-  State<InputDialog> createState() => _InputDialogState();
-}
-
-class _InputDialogState extends State<InputDialog> {
-  final _formKey = GlobalKey<FormState>();
-
-  late TextEditingController _textController;
-
-  String get value => widget.value;
-
-  String get title => widget.title;
-
-  String? get suffixText => widget.suffixText;
-
-  @override
-  void initState() {
-    super.initState();
-    _textController = TextEditingController(text: value);
-  }
-
-  Future<void> _handleUpdate() async {
-    if (_formKey.currentState?.validate() == false) return;
-    final text = _textController.value.text;
-    Navigator.of(context).pop<String>(text);
-  }
-
-  Future<void> _handleReset() async {
-    if (widget.resetValue == null) {
-      return;
+  String? issuesOf(AppLocalizations appLocalizations, ParsedInput<T>? parsed) {
+    if (parsed == null || parsed.isValid) {
+      return null;
     }
-    Navigator.of(context).pop<String>(widget.resetValue);
+    return parsed.issues
+        .take(maxShownIssues)
+        .map(
+          (issue) =>
+              appLocalizations.lineIssueTip(issue.line, issueMessage(issue)),
+        )
+        .join('\n');
   }
 
-  @override
-  void dispose() {
-    _textController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final appLocalizations = context.appLocalizations;
-    return CommonDialog(
-      title: title,
-      actions: [
-        if (widget.resetValue != null &&
-            _textController.value.text != widget.resetValue) ...[
-          TextButton(
-            onPressed: _handleReset,
-            child: Text(appLocalizations.reset),
-          ),
-        ] else
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-            },
-            child: Text(appLocalizations.cancel),
-          ),
-        TextButton(
-          onPressed: _handleUpdate,
-          child: Text(appLocalizations.submit),
-        ),
-      ],
-      child: Form(
-        autovalidateMode: widget.autovalidateMode,
-        key: _formKey,
-        child: Wrap(
-          runSpacing: 16,
-          children: [
-            TextFormField(
-              maxLength: widget.maxLength,
-              inputFormatters: widget.inputFormatters,
-              obscureText: widget.obscureText ?? false,
-              keyboardType: widget.keyboardType ?? TextInputType.url,
-              maxLines: widget.obscureText == true ? 1 : 5,
-              minLines: 1,
-              controller: _textController,
-              onFieldSubmitted: (_) {
-                _handleUpdate();
-              },
-              decoration: InputDecoration(
-                suffixText: suffixText,
-                hintText: widget.hintText,
-                labelText: widget.labelText,
-                errorMaxLines: widget.errorMaxLines,
-              ),
-              validator: widget.validator,
-            ),
-          ],
-        ),
-      ),
-    );
+  /// [issuesOf], or once a save was [attempted], that nothing was entered.
+  String? errorOf(
+    AppLocalizations appLocalizations,
+    ParsedInput<T>? parsed, {
+    required bool attempted,
+  }) {
+    final issues = issuesOf(appLocalizations, parsed);
+    if (issues != null) {
+      return issues;
+    }
+    if (attempted && parsed?.entries.isNotEmpty != true) {
+      return appLocalizations.emptyTip(label);
+    }
+    return null;
   }
 }
 
-class AddDialog extends StatefulWidget {
+/// Pops a list so a single entry and a batch return through the same path.
+class EntryDialog<T> extends StatefulWidget {
   final String title;
-  final Field? keyField;
   final Field valueField;
-  final int? keyMaxLength;
   final int? valueMaxLength;
-  final String? valueHelperText;
+  final T Function(String value) toEntry;
+  final BatchInput<T>? batch;
 
-  const AddDialog({
+  const EntryDialog({
     super.key,
     required this.title,
-    this.keyField,
     required this.valueField,
-    this.keyMaxLength,
     this.valueMaxLength,
-    this.valueHelperText,
+    required this.toEntry,
+    this.batch,
   });
 
   @override
-  State<AddDialog> createState() => _AddDialogState();
+  State<EntryDialog<T>> createState() => _EntryDialogState<T>();
 }
 
-class _AddDialogState extends State<AddDialog> {
-  TextEditingController? _keyController;
-  late TextEditingController _valueController;
+class _EntryDialogState<T> extends State<EntryDialog<T>> {
+  late final TextEditingController _valueController;
+  final _batchController = TextEditingController();
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
-
-  Field? get keyField => widget.keyField;
+  bool _isBatch = false;
+  ParsedInput<T>? _parsed;
 
   Field get valueField => widget.valueField;
 
+  bool get _canSubmit {
+    if (!_isBatch) {
+      return true;
+    }
+    final parsed = _parsed;
+    return parsed != null && parsed.isValid && parsed.entries.isNotEmpty;
+  }
+
   @override
   void initState() {
     super.initState();
-    if (keyField != null) {
-      _keyController = TextEditingController(text: keyField!.value);
-    }
     _valueController = TextEditingController(text: valueField.value);
   }
 
+  void _toggleBatch() {
+    setState(() {
+      _isBatch = !_isBatch;
+      if (_isBatch && _batchController.text.isEmpty) {
+        _batchController.text = _valueController.text.trim();
+      }
+      if (_isBatch) {
+        _parsed = widget.batch!.parse(_batchController.text);
+      }
+    });
+  }
+
+  void _handleBatchChanged(String text) {
+    setState(() {
+      _parsed = widget.batch!.parse(text);
+    });
+  }
+
   void _submit() {
-    if (!_formKey.currentState!.validate()) return;
-    if (keyField != null) {
-      Navigator.of(context).pop<MapEntry<String, String>>(
-        MapEntry(_keyController!.text, _valueController.text),
-      );
-    } else {
-      Navigator.of(context).pop<String>(_valueController.text);
+    if (!_canSubmit) return;
+    if (_isBatch) {
+      Navigator.of(context).pop<List<T>>(_parsed!.entries);
+      return;
     }
+    if (!_formKey.currentState!.validate()) return;
+    Navigator.of(context).pop<List<T>>([widget.toEntry(_valueController.text)]);
   }
 
   @override
   void dispose() {
-    _keyController?.dispose();
     _valueController.dispose();
+    _batchController.dispose();
     super.dispose();
+  }
+
+  Widget _buildForm(AppLocalizations appLocalizations) {
+    return Form(
+      autovalidateMode: AutovalidateMode.onUserInteraction,
+      key: _formKey,
+      child: TextFormField(
+        maxLines: null,
+        minLines: 1,
+        inputFormatters: widget.valueMaxLength == null
+            ? null
+            : TextInputLimits.limit(widget.valueMaxLength!),
+        keyboardType: TextInputType.text,
+        controller: _valueController,
+        decoration: InputDecoration(hintText: valueField.label),
+        onFieldSubmitted: (_) {
+          _submit();
+        },
+        validator: (String? value) {
+          String? res;
+          if (valueField.validator != null) {
+            res = valueField.validator!(value);
+          }
+          if (res != null) {
+            return res;
+          }
+          if (value == null || value.isEmpty) {
+            return appLocalizations.emptyTip(appLocalizations.value);
+          }
+          return null;
+        },
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final appLocalizations = context.appLocalizations;
     return CommonDialog(
-      title: widget.title,
-      actions: [
-        TextButton(onPressed: _submit, child: Text(appLocalizations.confirm)),
-      ],
-      child: Form(
-        autovalidateMode: AutovalidateMode.onUserInteraction,
-        key: _formKey,
-        child: Wrap(
-          runSpacing: 16,
-          children: [
-            if (keyField != null)
-              TextFormField(
-                maxLines: 3,
-                minLines: 1,
-                inputFormatters: widget.keyMaxLength == null
-                    ? null
-                    : TextInputLimits.limit(widget.keyMaxLength!),
-                controller: _keyController,
-                textInputAction: TextInputAction.next,
-                decoration: InputDecoration(labelText: keyField!.label),
-                validator: (String? value) {
-                  String? res;
-                  if (keyField!.validator != null) {
-                    res = keyField!.validator!(value);
-                  }
-                  if (res != null) {
-                    return res;
-                  }
-                  if (value == null || value.isEmpty) {
-                    return appLocalizations.emptyTip(appLocalizations.key);
-                  }
-                  return null;
-                },
-              ),
-            TextFormField(
-              maxLines: 3,
-              minLines: 1,
-              inputFormatters: widget.valueMaxLength == null
-                  ? null
-                  : TextInputLimits.limit(widget.valueMaxLength!),
-              keyboardType: TextInputType.text,
-              controller: _valueController,
-              decoration: InputDecoration(
-                labelText: valueField.label,
-                helperText: widget.valueHelperText,
-              ),
-              onFieldSubmitted: (_) {
-                _submit();
-              },
-              validator: (String? value) {
-                String? res;
-                if (valueField.validator != null) {
-                  res = valueField.validator!(value);
-                }
-                if (res != null) {
-                  return res;
-                }
-                if (value == null || value.isEmpty) {
-                  return appLocalizations.emptyTip(appLocalizations.value);
-                }
-                return null;
-              },
+      title: _isBatch ? appLocalizations.batchAdd : widget.title,
+      hasFields: true,
+      trailing: widget.batch == null
+          ? null
+          : _BatchToggle(
+              isBatch: _isBatch,
+              tooltip: _isBatch
+                  ? appLocalizations.singleAdd
+                  : appLocalizations.batchAdd,
+              onPressed: _toggleBatch,
             ),
-          ],
+      actions: [
+        TextButton(
+          onPressed: _canSubmit ? _submit : null,
+          child: Text(appLocalizations.confirm),
         ),
+      ],
+      child: _isBatch
+          ? _BatchInputField(
+              batch: widget.batch!,
+              controller: _batchController,
+              parsed: _parsed,
+              onChanged: _handleBatchChanged,
+            )
+          : _buildForm(appLocalizations),
+    );
+  }
+}
+
+class _BatchToggle extends StatelessWidget {
+  final bool isBatch;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  const _BatchToggle({
+    required this.isBatch,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return CommonMinIconButtonTheme(
+      child: IconButton(
+        tooltip: tooltip,
+        onPressed: onPressed,
+        icon: GlyphIcon(isBatch ? AppGlyphs.textShort : AppGlyphs.listAdd),
       ),
     );
   }
 }
 
-class NoInputBorder extends InputBorder {
-  const NoInputBorder() : super(borderSide: BorderSide.none);
+class _BatchInputField<T> extends StatelessWidget {
+  final BatchInput<T> batch;
+  final TextEditingController controller;
+  final ParsedInput<T>? parsed;
+  final ValueChanged<String> onChanged;
 
-  @override
-  NoInputBorder copyWith({BorderSide? borderSide}) => const NoInputBorder();
+  const _BatchInputField({
+    required this.batch,
+    required this.controller,
+    required this.parsed,
+    required this.onChanged,
+  });
 
-  @override
-  bool get isOutline => false;
-
-  @override
-  EdgeInsetsGeometry get dimensions => EdgeInsets.zero;
-
-  @override
-  NoInputBorder scale(double t) => const NoInputBorder();
-
-  @override
-  Path getInnerPath(Rect rect, {TextDirection? textDirection}) {
-    return Path()..addRect(rect);
+  String _helperText(AppLocalizations appLocalizations) {
+    final parsed = this.parsed;
+    if (parsed == null || controller.text.trim().isEmpty) {
+      return batch.formatTip;
+    }
+    return appLocalizations.batchPreviewTip(
+      parsed.entries.length,
+      parsed.skippedExisting,
+    );
   }
 
   @override
-  Path getOuterPath(Rect rect, {TextDirection? textDirection}) {
-    return Path()..addRect(rect);
+  Widget build(BuildContext context) {
+    final appLocalizations = context.appLocalizations;
+    return TextField(
+      controller: controller,
+      autofocus: true,
+      minLines: 4,
+      maxLines: null,
+      keyboardType: TextInputType.multiline,
+      onChanged: onChanged,
+      decoration: InputDecoration(
+        hintText: batch.label,
+        helperText: _helperText(appLocalizations),
+        helperMaxLines: 2,
+        errorText: batch.issuesOf(appLocalizations, parsed),
+        errorMaxLines: BatchInput.maxShownIssues + 1,
+      ),
+    );
   }
-
-  @override
-  void paintInterior(
-    Canvas canvas,
-    Rect rect,
-    Paint paint, {
-    TextDirection? textDirection,
-  }) {
-    canvas.drawRect(rect, paint);
-  }
-
-  @override
-  bool get preferPaintInterior => true;
-
-  @override
-  void paint(
-    Canvas canvas,
-    Rect rect, {
-    double? gapStart,
-    double gapExtent = 0.0,
-    double gapPercentage = 0.0,
-    TextDirection? textDirection,
-  }) {}
 }

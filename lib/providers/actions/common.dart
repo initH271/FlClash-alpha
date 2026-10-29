@@ -4,25 +4,9 @@ part of '../action.dart';
 class CommonAction extends _$CommonAction {
   CoreController get _core => ref.read(coreHandlerProvider);
   bool _isUpdatingTraffic = false;
-  late UpdateCheckScheduler _updates;
-  bool _updatesStarted = false;
-  bool _updateForeground = true;
 
   @override
-  void build() {
-    _updates = UpdateCheckScheduler(
-      load: request.checkForUpdate,
-      notify: (data) => checkUpdateResultHandle(data: data),
-      onError: (error) => commonPrint.log('Update check failed: $error'),
-    )..setForeground(_updateForeground);
-    ref.onDispose(_updates.dispose);
-    ref.listen(appSettingProvider.select((state) => state.autoCheckUpdate), (
-      _,
-      enabled,
-    ) {
-      if (_updatesStarted) _updates.setEnabled(enabled);
-    }, fireImmediately: true);
-  }
+  void build() {}
 
   void toggleRunning() {
     final running = !ref.read(isStartProvider);
@@ -42,6 +26,15 @@ class CommonAction extends _$CommonAction {
     ref
         .read(appSettingProvider.notifier)
         .update((state) => state.copyWith(showTrayTitle: !state.showTrayTitle));
+  }
+
+  void updateMonochromeTrayIcon() {
+    ref
+        .read(appSettingProvider.notifier)
+        .update(
+          (state) =>
+              state.copyWith(monochromeTrayIcon: !state.monochromeTrayIcon),
+        );
   }
 
   void updateMode() {
@@ -90,28 +83,34 @@ class CommonAction extends _$CommonAction {
   }
 
   Future<bool> autoCheckUpdate() async {
-    if (!system.isAndroid) return false;
-    _updatesStarted = true;
-    _updates.setEnabled(ref.read(appSettingProvider).autoCheckUpdate);
-    return _updates.check();
-  }
-
-  void setUpdateCheckForeground(bool foreground) {
-    _updateForeground = foreground;
-    _updates.setForeground(foreground);
+    if (!ref.read(appSettingProvider).autoCheckUpdate) return false;
+    final Map<String, dynamic>? res;
+    try {
+      res = await request.checkForUpdate();
+    } catch (error) {
+      commonPrint.log(
+        'checkForUpdate failed: ${compactError(error)}',
+        logLevel: LogLevel.warning,
+      );
+      return false;
+    }
+    await checkUpdateResultHandle(data: res);
+    return res != null;
   }
 
   TextSpan _releaseSpan(BuildContext context, String tagName, String? body) {
-    final textTheme = context.textTheme;
     final version = parseReleaseChangelog(body);
     return TextSpan(
       text: '$tagName \n',
-      style: textTheme.headlineSmall,
+      style: AppTextStyle.title2.of(context),
       children: version == null
           ? [
-              TextSpan(text: '\n', style: textTheme.bodyMedium),
+              TextSpan(text: '\n', style: AppTextStyle.subheadline.of(context)),
               for (final submit in parseReleaseBody(body))
-                TextSpan(text: '- $submit \n', style: textTheme.bodyMedium),
+                TextSpan(
+                  text: '- $submit \n',
+                  style: AppTextStyle.subheadline.of(context),
+                ),
             ]
           : _changelogSpans(context, version),
     );
@@ -121,20 +120,24 @@ class CommonAction extends _$CommonAction {
     BuildContext context,
     ChangelogVersion version,
   ) {
-    final textTheme = context.textTheme;
     return [
       for (final group in version.visibleGroups) ...[
         TextSpan(
           text:
               '\n${changelogGroupTitle(currentAppLocalizations, group.type)}\n',
-          style: textTheme.labelLarge?.copyWith(
-            color: group.type == ChangelogType.breaking
-                ? context.colorScheme.error
-                : context.colorScheme.primary,
-          ),
+          style: AppTextStyle.subheadline
+              .of(context, emphasized: true)
+              .copyWith(
+                color: group.type == ChangelogType.breaking
+                    ? context.colorScheme.error
+                    : context.colorScheme.primary,
+              ),
         ),
         for (final entry in group.entries)
-          TextSpan(text: '• ${entry.text}\n', style: textTheme.bodyMedium),
+          TextSpan(
+            text: '• ${entry.text}\n',
+            style: AppTextStyle.subheadline.of(context),
+          ),
       ],
     ];
   }
@@ -145,22 +148,22 @@ class CommonAction extends _$CommonAction {
   }) async {
     if (data != null) {
       final context = globalState.navigatorKey.currentContext!;
-      if (Platform.isAndroid) {
-        await showAppUpdateDialog(context, data);
-        return;
-      }
       final res = await dialogs.showMessage(
         title: currentAppLocalizations.discoverNewVersion,
         message: _releaseSpan(
           context,
-          '${data['tag_name']} · ${data['source']}',
+          data['tag_name'] as String,
           data['body'] as String?,
         ),
         confirmText: currentAppLocalizations.goDownload,
         cancelText: isUser ? null : currentAppLocalizations.noLongerRemind,
       );
       if (res == true) {
-        unawaited(launchUrl(Uri.parse(data['download_url'] as String)));
+        unawaited(
+          launchUrl(
+            Uri.parse('https://github.com/$repository/releases/latest'),
+          ),
+        );
       } else if (!isUser && res == false) {
         ref
             .read(appSettingProvider.notifier)
@@ -168,7 +171,7 @@ class CommonAction extends _$CommonAction {
       }
     } else if (isUser) {
       unawaited(
-        dialogs.showMessage(
+        dialogs.showAlert(
           title: currentAppLocalizations.checkUpdate,
           message: TextSpan(text: currentAppLocalizations.checkUpdateError),
         ),

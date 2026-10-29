@@ -1,5 +1,3 @@
-import 'package:fl_clash/manager/network_automation_manager.dart';
-import 'package:fl_clash/manager/service_check_manager.dart';
 import 'dart:async';
 
 import 'package:fl_clash/common/common.dart';
@@ -10,6 +8,8 @@ import 'package:fl_clash/providers/action.dart';
 import 'package:fl_clash/providers/app.dart';
 import 'package:fl_clash/providers/config.dart';
 import 'package:fl_clash/providers/core.dart';
+import 'package:fl_clash/providers/database.dart';
+import 'package:fl_clash/providers/route_state.dart';
 import 'package:fl_clash/providers/state.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -24,17 +24,12 @@ class CoreManager extends ConsumerStatefulWidget {
 }
 
 class _CoreContainerState extends ConsumerState<CoreManager>
-    with
-        CoreEventListener,
-        WidgetsBindingObserver,
-        NetworkAutomationMixin<CoreManager> {
+    with CoreEventListener {
   CoreController get _core => ref.read(coreHandlerProvider);
-  int _logRetentionRevision = 0;
-  bool _syncingLogRetention = false;
 
   @override
   Widget build(BuildContext context) {
-    return ServiceCheckManager(child: widget.child);
+    return widget.child;
   }
 
   @override
@@ -42,19 +37,11 @@ class _CoreContainerState extends ConsumerState<CoreManager>
     super.initState();
     coreEventManager.addListener(this);
     ref.read(updatingActionProvider.notifier);
-    ref.listenManual(
-      networkFeaturesProvider.select((settings) => settings.profileOptions),
-      (previous, next) {
-        if (previous != next) {
-          unawaited(ref.read(setupActionProvider.notifier).fullSetup());
-        }
-      },
-    );
     // A rejected profile stays selected on purpose: silently reverting to
     // the previous one hides the error and looks like the switch was lost.
     ref.listenManual(currentProfileIdProvider, (prev, next) {
       if (prev == next) return;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
+      runAfterFrame(() {
         unawaited(ref.read(setupActionProvider.notifier).fullSetup());
       });
     });
@@ -63,25 +50,42 @@ class _CoreContainerState extends ConsumerState<CoreManager>
         ref.read(setupActionProvider.notifier).updateConfigDebounce();
       }
     });
-    ref.listenManual(
-      appSettingProvider.select((state) => state.openLogs),
-      (_, _) => _syncLogSubscription(),
-    );
-    ref.listenManual(coreStatusProvider, (_, next) {
-      if (next == CoreStatus.connected) {
-        _syncLogSubscription();
-        unawaited(_syncLogRetention());
+    ref.listenManual(setupPatchProvider, (prev, next) {
+      if (prev != next) {
+        ref
+            .read(setupActionProvider.notifier)
+            .applyProfileDebounce(
+              silence: true,
+              // The test URL changes no YAML, so only a forced apply hands
+              // it over.
+              force:
+                  prev != null &&
+                  prev.patchConfig.testUrl != next.patchConfig.testUrl,
+            );
+      }
+    });
+    ref.listenManual(globalRulesProvider, (prev, next) {
+      if (prev?.value != null && next.hasValue) {
+        ref.read(setupActionProvider.notifier).applyIfGlobalRulesUsed();
+      }
+    });
+    ref.listenManual(appSettingProvider.select((state) => state.openLogs), (
+      prev,
+      next,
+    ) {
+      if (prev != next) {
+        _syncLogStream();
+      }
+    });
+    // Every Core process starts without a log stream.
+    ref.listenManual(coreStatusProvider, (prev, next) {
+      if (next == CoreStatus.connected && prev != CoreStatus.connected) {
+        _syncLogStream();
       }
     }, fireImmediately: true);
-    ref.listenManual(
-      appSettingProvider.select((value) => value.logRetentionDays),
-      (_, _) {
-        unawaited(_syncLogRetention());
-      },
-    );
   }
 
-  void _syncLogSubscription() {
+  void _syncLogStream() {
     if (ref.read(coreStatusProvider) != CoreStatus.connected) {
       return;
     }
@@ -89,35 +93,6 @@ class _CoreContainerState extends ConsumerState<CoreManager>
       _core.startLog();
     } else {
       _core.stopLog();
-    }
-  }
-
-  Future<void> _syncLogRetention() async {
-    if (ref.read(coreStatusProvider) != CoreStatus.connected) return;
-    _logRetentionRevision++;
-    if (_syncingLogRetention) return;
-    _syncingLogRetention = true;
-    try {
-      int applied;
-      do {
-        applied = _logRetentionRevision;
-        try {
-          await Future<void>.sync(
-            () => _core.setLogHistoryRetention(
-              ref.read(appSettingProvider).logRetentionDays,
-            ),
-          );
-        } catch (error) {
-          commonPrint.log(
-            'Failed to update log retention: $error',
-            logLevel: LogLevel.warning,
-          );
-        }
-      } while (mounted &&
-          applied != _logRetentionRevision &&
-          ref.read(coreStatusProvider) == CoreStatus.connected);
-    } finally {
-      _syncingLogRetention = false;
     }
   }
 
@@ -152,9 +127,37 @@ class _CoreContainerState extends ConsumerState<CoreManager>
   }
 
   @override
+  void onDialerLoop(String proxyName) {
+    throttler.call(
+      FunctionTag.dialerLoopNotifier,
+      () => dialogs.showNotifier(
+        currentAppLocalizations.dialerProxyLoopStopped(proxyName),
+        level: MessageLevel.error,
+      ),
+      duration: const Duration(seconds: 3),
+      fire: true,
+    );
+    super.onDialerLoop(proxyName);
+  }
+
+  @override
   void onRequest(TrackerInfo trackerInfo) async {
     ref.read(requestsProvider.notifier).addRequest(trackerInfo);
+    ref.read(requestCountProvider.notifier).update((count) => count + 1);
     super.onRequest(trackerInfo);
+  }
+
+  @override
+  void onRequestTraffic(Map<String, RequestTraffic> traffic) {
+    ref.read(requestsProvider.notifier).updateTraffic(traffic);
+    super.onRequestTraffic(traffic);
+  }
+
+  @override
+  void onDns(DnsQuery dnsQuery) {
+    ref.read(dnsQueriesProvider.notifier).addQuery(dnsQuery);
+    ref.read(dnsQueryCountProvider.notifier).update((count) => count + 1);
+    super.onDns(dnsQuery);
   }
 
   @override
@@ -191,5 +194,11 @@ class _CoreContainerState extends ConsumerState<CoreManager>
         .read(geoResourceActionProvider.notifier)
         .handleCoreUpdate(geoType, updating, skipped, error);
     super.onGeoUpdate(geoType, updating, skipped, error);
+  }
+
+  @override
+  void onRouteChanged(RouteSnapshot snapshot) {
+    ref.read(routeTrackerProvider.notifier).applySnapshot(snapshot);
+    super.onRouteChanged(snapshot);
   }
 }

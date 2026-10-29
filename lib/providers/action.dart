@@ -1,10 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:fl_clash/common/app_data.dart';
 import 'package:fl_clash/common/boot_guard.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/system_dns.dart';
-import 'package:fl_clash/common/update_check_scheduler.dart';
 import 'package:fl_clash/core/core.dart';
 import 'package:fl_clash/database/database.dart';
 import 'package:fl_clash/enum/enum.dart';
@@ -14,10 +15,12 @@ import 'package:fl_clash/plugins/service.dart';
 import 'package:fl_clash/providers/actions/system_exit.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
-import 'package:fl_clash/widgets/app_update_dialog.dart';
+import 'package:fl_clash/ui/ui.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter/foundation.dart' show compute;
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path/path.dart' show basename;
+import 'package:path/path.dart' show basename, join;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -30,6 +33,10 @@ part 'actions/store.dart';
 part 'actions/theme.dart';
 part 'actions/proxies.dart';
 part 'actions/profiles.dart';
+part 'actions/scripts.dart';
+part 'actions/clash_providers.dart';
+part 'actions/icon_sets.dart';
 part 'actions/geo_resource.dart';
+part 'actions/resources.dart';
 part 'actions/updating.dart';
 part 'generated/action.g.dart';
