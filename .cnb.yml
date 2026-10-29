@@ -105,42 +105,25 @@ main:
             cp "$wrapper_dir/gradlew" android/gradlew
             chmod +x android/gradlew
             [ -f android/gradle/wrapper/gradle-wrapper.jar ] || cp "$wrapper_dir/gradle/wrapper/gradle-wrapper.jar" android/gradle/wrapper/gradle-wrapper.jar
-            cat > /tmp/flclash-mirror.init.gradle <<'EOF'
-            import org.gradle.api.artifacts.dsl.RepositoryHandler
-
-            def central = ['https://repo.maven.apache.org/maven2', 'https://repo1.maven.org/maven2']
-            def mirror = 'https://maven.aliyun.com/repository/public'
-            // Maven Central answers 429 to the shared CI egress, so every Central entry is
-            // rewritten to the Aliyun mirror. Rewriting instead of adding repositories keeps
-            // Flutter's included :gradle build working: it runs FAIL_ON_PROJECT_REPOS, reads its
-            // classpath from settings-level dependencyResolutionManagement, and its plugin
-            // handler holds PluginArtifactRepository, so a typed closure would be rejected.
-            // `handler.all` (not withType().configureEach) is what still reaches entries added
-            // after the hook, which is how both Flutter settings declare their repositories.
-            def redirect = { handler ->
-              if (!(handler instanceof RepositoryHandler)) { return }
-              handler.all { repo ->
-                if (repo.metaClass.hasProperty(repo, 'url')) {
-                  def current = repo.url.toString().replaceAll('/+$', '')
-                  if (central.contains(current)) { repo.url = mirror }
-                }
+            cat > /tmp/cnb-maven-mirror.gradle <<'EOF'
+            def central = 'https://repo.maven.apache.org/maven2'
+            def mirror = 'https://mirrors.cloud.tencent.com/nexus/repository/maven-public/'
+            def prefer = { repos ->
+              repos.configureEach { repo ->
+                if (repo instanceof MavenArtifactRepository && repo.url.toString().replaceAll('/$', '') == central) repo.url = mirror
               }
+              if (!repos.findByName('cnbMirror')) try {
+                def m = repos.maven { name = 'cnbMirror'; url = mirror }
+                repos.remove(m)
+                repos.add(0, m)
+              } catch (Exception ignored) {}
             }
-            beforeSettings { settings ->
-              redirect(settings.pluginManagement.repositories)
-              redirect(settings.dependencyResolutionManagement.repositories)
-              redirect(settings.buildscript.repositories)
-            }
-            allprojects {
-              redirect(buildscript.repositories)
-              redirect(repositories)
-            }
+            beforeSettings { prefer(it.pluginManagement.repositories); prefer(it.dependencyResolutionManagement.repositories) }
+            settingsEvaluated { if (it.pluginManagement.repositories.size() == 1) it.pluginManagement.repositories.gradlePluginPortal() }
+            allprojects { prefer(buildscript.repositories); prefer(repositories) }
             EOF
             cd android
-            ./gradlew --init-script /tmp/flclash-mirror.init.gradle \
-              -Dorg.gradle.internal.repository.max.retries=8 -Dorg.gradle.internal.repository.initial.backoff=1000 \
-              :common:testDebugUnitTest :service:testDebugUnitTest :app:testDebugUnitTest \
-              -Ptarget-platform=android-arm64 -x :app:compileFlutterBuildDebug -x :app:copyFlutterAssetsDebug
+            ./gradlew --init-script /tmp/cnb-maven-mirror.gradle :common:testDebugUnitTest :service:testDebugUnitTest :app:testDebugUnitTest -Ptarget-platform=android-arm64 -x :app:compileFlutterBuildDebug -x :app:copyFlutterAssetsDebug
         - name: Android Go vet
           image: $TOOLCHAIN_IMAGE
           timeout: 15m
