@@ -335,12 +335,26 @@ def merge_ready():
             return
 
 
+def scan_outcome(run):
+    if run['status'] != 'completed':
+        return 'running'
+    if run['conclusion'] in ('success', 'failure', 'timed_out'):
+        return 'success' if run['conclusion'] == 'success' else 'failure'
+    # The track job shares the controller's concurrency group, so a newer
+    # controller run can cancel it after the scan itself already passed.
+    jobs = api(f'{GH}/actions/runs/{run["id"]}/jobs').get('jobs') or []
+    scan = next((job for job in jobs if job.get('name') == 'Dependency vulnerability scan'), {})
+    if scan.get('conclusion') == 'success':
+        return 'success'
+    return 'failure' if scan.get('conclusion') in ('failure', 'timed_out') else 'cancelled'
+
+
 def ensure_scan(sha):
     runs = api(f'{GH}/actions/workflows/security.yaml/runs?head_sha={sha}&per_page=100')['workflow_runs']
-    current = [run for run in runs if run['head_sha'] == sha]
-    if any(run['status'] != 'completed' or run['conclusion'] == 'success' for run in current):
+    outcomes = [scan_outcome(run) for run in runs if run['head_sha'] == sha]
+    if 'running' in outcomes or 'success' in outcomes:
         return
-    if len(current) >= 2:
+    if outcomes.count('failure') >= 2 or len(outcomes) >= 5:
         raise RuntimeError('Security rescan failed twice for current main; manual diagnosis required')
     api(f'{GH}/actions/workflows/security.yaml/dispatches', 'POST', {'ref': 'main'})
 
