@@ -1,44 +1,150 @@
+import contextlib
+import io
 import json
 import os
+import pathlib
 import ssl
+import tempfile
 import unittest
 import urllib.error
-from unittest.mock import patch
+from unittest.mock import call, patch
 
+import control
+import env_failure
 import security_scan as scan
 import security_watch as watch
 from security_groups import payload_for
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+
+class Clock:
+    """Monotonic time the network retries can advance without waiting."""
+
+    def __init__(self, start=1000.0):
+        self.now = start
+        self.elapsed = 0
+
+    def __call__(self):
+        return self.now
+
+    def advance(self, seconds):
+        self.now += seconds
+        self.elapsed += seconds
 
 
 class SecurityTests(unittest.TestCase):
     def test_osv_tls_eof_retries_read_query_without_changing_payload(self):
         payload = {'queries': []}
         failure = urllib.error.URLError(ssl.SSLEOFError('connection closed'))
-        with patch.object(scan, 'api', side_effect=[failure, {'results': []}]) as api, patch.object(scan.time, 'sleep'):
+        with patch.object(scan, 'api', side_effect=[failure, {'results': []}]) as api, \
+                patch.object(scan.time, 'sleep') as sleep:
             self.assertEqual({'results': []}, scan.osv_query('https://api.osv.dev/v1/querybatch', 'POST', payload))
             self.assertEqual(2, api.call_count)
             self.assertEqual(api.call_args_list[0], api.call_args_list[1])
+            self.assertEqual([call(5)], sleep.call_args_list)
 
     def test_osv_exhausted_network_retries_fail_instead_of_reporting_clean(self):
-        with patch.object(scan, 'api', side_effect=TimeoutError) as api, patch.object(scan.time, 'sleep'):
-            with self.assertRaises(TimeoutError):
+        with patch.object(scan, 'api', side_effect=TimeoutError) as api, \
+                patch.object(scan.time, 'sleep') as sleep:
+            with self.assertRaises(scan.EnvironmentFailure) as raised:
                 scan.osv_query('https://api.osv.dev/v1/querybatch', 'POST', {})
-            self.assertEqual(3, api.call_count)
+            self.assertEqual(5, api.call_count)
+            self.assertEqual([call(5), call(20), call(60), call(180)], sleep.call_args_list)
+        self.assertEqual('osv-unreachable', raised.exception.kind)
+        self.assertEqual(5, raised.exception.detail['attempts'])
 
-    def test_osv_certificate_and_application_errors_are_not_retried(self):
+    def test_osv_gives_up_before_the_deadline_cannot_cover_the_next_wait(self):
+        clock = Clock()
+        with patch.object(scan, 'api', side_effect=TimeoutError) as api, \
+                patch.object(scan.time, 'monotonic', clock), patch.object(scan.time, 'sleep', clock.advance):
+            with self.assertRaises(scan.EnvironmentFailure):
+                scan.osv_query('https://api.osv.dev/v1/querybatch', 'POST', {}, until=1006)
+        # The 5s wait fits; the 20s one would leave no room for a request.
+        self.assertEqual(2, api.call_count)
+        self.assertEqual(5, clock.elapsed)
+
+    def test_osv_retries_server_errors_but_not_other_http_or_application_errors(self):
+        failure = scan.HttpStatusError('POST api.osv.dev returned HTTP 503: unavailable', 503)
+        with patch.object(scan, 'api', side_effect=[failure, {'results': []}]) as api, \
+                patch.object(scan.time, 'sleep'):
+            self.assertEqual({'results': []}, scan.osv_query('https://api.osv.dev/v1/querybatch', 'POST', {}))
+            self.assertEqual(2, api.call_count)
         for error in (urllib.error.URLError(ssl.SSLCertVerificationError('invalid certificate')),
-                      RuntimeError('HTTP 403'), ValueError('invalid JSON')):
-            with patch.object(scan, 'api', side_effect=error) as api, patch.object(scan.time, 'sleep') as sleep:
-                with self.assertRaises(type(error)):
+                      scan.HttpStatusError('GET api.osv.dev returned HTTP 403: forbidden', 403),
+                      ValueError('invalid JSON')):
+            with patch.object(scan, 'api', side_effect=error) as api, \
+                    patch.object(scan.time, 'sleep') as sleep:
+                with self.assertRaises(type(error)) as raised:
                     scan.osv_query('https://api.osv.dev/v1/vulns/GO-1')
                 self.assertEqual(1, api.call_count)
                 sleep.assert_not_called()
+                self.assertNotIsInstance(raised.exception, scan.EnvironmentFailure)
 
     def test_osv_retries_cannot_be_used_for_platform_writes(self):
         with patch.object(scan, 'api') as api:
             with self.assertRaises(ValueError):
                 scan.osv_query('https://api.cnb.cool/repo/-/issues', 'POST', {})
             api.assert_not_called()
+
+    def test_osv_unreachable_scan_marks_the_environment_and_exits_with_75(self):
+        report = pathlib.Path(tempfile.mkdtemp()) / 'report.json'
+        with patch.object(scan, 'api', side_effect=TimeoutError), \
+                patch.object(scan.time, 'sleep'), \
+                patch.object(scan.time, 'monotonic', Clock()), \
+                patch.object(scan, 'inventory', return_value=([{'file': 'core/go.mod', 'ecosystem': 'Go',
+                                                               'name': 'example.org/module', 'version': 'v1.0.0'}],
+                                                              [])), \
+                patch.object(scan, 'head_sha', return_value='a' * 40), \
+                patch.dict(os.environ, {'FLCLASH_NETWORK_DEADLINE': '0'}), \
+                contextlib.redirect_stdout(io.StringIO()) as stdout:
+            code = scan.main([str(ROOT), str(report)])
+        self.assertEqual(75, code)
+        self.assertNotEqual(0, code)
+        self.assertEqual(1, stdout.getvalue().count(env_failure.MARKER))
+        [marker] = env_failure.parse(stdout.getvalue())
+        self.assertEqual('osv-unreachable', marker['kind'])
+        self.assertEqual('a' * 40, marker['sha'])
+        self.assertFalse(report.exists())
+
+    def test_new_findings_still_fail_without_an_environment_marker(self):
+        reports = pathlib.Path(tempfile.mkdtemp())
+        baseline, output = reports / 'baseline.json', reports / 'head.json'
+        baseline.write_text(json.dumps({'findings': [], 'packages': [], 'unscanned': [], 'toolchain': {}}))
+        report = {'findings': [self.finding()], 'packages': [self.finding()], 'unscanned': [], 'toolchain': {}}
+        with patch.object(scan, 'scan', return_value=report), contextlib.redirect_stdout(io.StringIO()) as stdout:
+            code = scan.main([str(ROOT), str(output), '--baseline', str(baseline)])
+        self.assertNotIn(code, (0, 75))
+        self.assertNotIn(env_failure.MARKER, stdout.getvalue())
+        self.assertTrue(output.exists())
+
+    def test_environment_marker_parsing_ignores_anything_but_its_own_line(self):
+        text = json.dumps({'kind': 'osv-unreachable'})
+        self.assertEqual([], env_failure.parse(f'log {env_failure.MARKER} {text}'))
+        self.assertEqual([], env_failure.parse(f'{env_failure.MARKER} {{not json'))
+        self.assertEqual([], env_failure.parse(f'{env_failure.MARKER} {{"attempts": 5}}'))
+        self.assertEqual([{'kind': 'osv-unreachable'}], env_failure.parse(f'{env_failure.MARKER} {text}'))
+        self.assertEqual(75, env_failure.EXIT_CODE)
+        self.assertNotIn('\n', env_failure.line('osv-unreachable', url='u', attempts=5))
+
+    def test_control_reports_http_status_as_a_typed_error(self):
+        error = urllib.error.HTTPError('https://api.github.com/x', 502, 'bad gateway', None,
+                                       io.BytesIO(b'{"message": "bad gateway"}'))
+        with patch.object(control.urllib.request, 'urlopen', side_effect=error):
+            with self.assertRaises(control.HttpStatusError) as raised:
+                control.api('https://api.github.com/repos/x/y')
+        self.assertIsInstance(raised.exception, RuntimeError)
+        self.assertEqual(502, raised.exception.code)
+        self.assertEqual('GET api.github.com returned HTTP 502: bad gateway', str(raised.exception))
+
+    def test_rescan_stage_shares_one_deadline_and_keeps_failures_visible(self):
+        stage = (ROOT / '.cnb.yml').read_text(encoding='utf-8').split(
+            'Rescan actual versions and verify repaired dependency', 1)[1].split('- name:', 1)[0]
+        self.assertIn('export FLCLASH_NETWORK_DEADLINE=$(( $(date +%s) + 780 ))', stage)
+        scans = [row for row in stage.splitlines() if 'security_scan.py' in row]
+        self.assertEqual(3, len(scans))
+        self.assertTrue(all('|| exit $?' in row for row in scans))
+        self.assertIn('timeout: 20m', stage)
 
     def finding(self, identifier='GO-1', aliases=None, version='v1.0.0'):
         return {'file': 'core/go.mod', 'ecosystem': 'Go', 'name': 'example.org/module',
