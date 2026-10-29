@@ -314,5 +314,13 @@ $:
             contextWindow: 1m
             thinkingLevel: 'off'
             supportImage: true
+          timeout: 60m
   pull_request.comment@npc:
-    - *developer-npc
+    - name: Developer NPC notes PR comments instead of a dispatch
+      runner: { cpus: 1 }
+      docker:
+        image: python:3.12-slim
+      stages:
+        - name: Explain the dispatch entry
+          script: echo 开发助手不接受 PR 评论派发，请在需求 Issue 里由控制器派发
+          timeout: 2m

@@ -76,6 +76,8 @@ def markers(comments):
 def attempts(items):
     found = []
     for item in items:
+        # A dispatch the controller did not sign is somebody else's run; it must not move the ladder.
+        signed = bool(markers([item]))
         for entry in (item.get('statuses') or {}).get('npc', []):
             context = entry.get('context') or {}
             states = entry.get('statuses') or []
@@ -84,7 +86,7 @@ def attempts(items):
             last = states[-1]
             found.append({'at': item.get('created_at', ''), 'state': last.get('state', ''),
                           'detail': last.get('description', ''), 'sn': context.get('sn', ''),
-                          'role': context.get('npc.name', '')})
+                          'role': context.get('npc.name', ''), 'signed': signed})
     return found
 
 
@@ -100,6 +102,22 @@ def next_rung(current):
 
 def running(rows):
     return any(row['state'] not in TERMINAL and row['role'] in ROLES for row in rows)
+
+
+OVERRUN = '<!-- flclash-requirement-overrun {} -->'
+OVERRUN_MINUTES = 75
+
+
+def overrun(rows, comments, now):
+    for row in rows:
+        if row['role'] != '开发助手' or row['state'] in TERMINAL:
+            continue
+        minutes = int((now - _stamp(row['at'])).total_seconds() // 60)
+        if minutes <= OVERRUN_MINUTES or OVERRUN.format(row['sn']) in ' '.join(
+                item.get('body') or '' for item in comments):
+            continue
+        return {'kind': 'overrun', 'sn': row['sn'], 'minutes': minutes}
+    return None
 
 
 def after(rows, stamp, role):
@@ -126,12 +144,19 @@ def envelope(payload):
 
 def instruction(parsed, rung, phase, tree, log, note, previous, sha=''):
     reserve = max(1, rung * 3 // 4)
+    number = parsed.get('number', '')
+    head = f'`{sha or tree}`' if sha or tree else '不存在（首次派发）'
     lines = [
         f'本轮只用 {rung} 轮。约第 {reserve} 轮起停止扩大调查。',
-        '把已改文件提交到指定分支，允许提交尚未完成的进度。',
-        '阶段评论必须写提交 SHA、已核实的事实、已改文件、未完成项。还没改到文件时也要写这四项。',
-        '环境里已有 Flutter 3.47.6、Go 和 Rust，可以本轮跑 flutter analyze、flutter test 和 intl 生成；没有 Android SDK，不构建 APK。不要现装这些工具。',
-        '提交后立刻开 CNB PR，head 是指定分支，base 是 main。',
+        '本条末尾的「不做什么」优先于你的角色设定和一般习惯。',
+        f'派发时远端分支头：{head}。开工前 git fetch；分支上已有提交时，先逐条核对验收标准，全部满足就不改代码，直接开 PR。已核实的事实不要重头搜索。',
+        '把已改文件提交到指定分支，允许提交尚未完成的进度。每个提交信息末尾单独一段写 `FlClash-Actor: npc/开发助手`。',
+        '本地检查只跑与改动相关的；flutter test 全量最多跑一次，失败后只重跑失败的文件。跑 flutter test 时在命令前加 `GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=commit.gpgsign GIT_CONFIG_VALUE_0=false GIT_CONFIG_KEY_1=tag.gpgsign GIT_CONFIG_VALUE_1=false`，不要改全局 git 配置。',
+        '环境里已有 Flutter 3.47.6、Go 和 Rust；没有 Android SDK 和 Gradle，不构建 APK，不要现装这些工具。改到 Gradle、Android 构建或 CI 脚本时，在阶段评论的「未实跑」里写明由哪个 CI 阶段覆盖；不能用桩或 mock 代替真实工具后写成已验证。',
+        '提交前对改动文件跑 `bash tool/hooks/comment_density.sh <文件…>`，并用 `bash tool/hooks/commit_msg.sh <提交信息文件>` 检查提交信息；不通过就改到通过。',
+        '推送前再 git fetch：远端分支头必须仍是上面写的提交或你本轮推的提交，否则不推送，在阶段评论列出远端多出的提交（SHA、作者、标题）后结束。',
+        '推送后开 CNB PR（已有就不重开），head 是指定分支，base 是 main。',
+        f'然后在需求 Issue #{number} 发阶段评论并结束本轮：写提交 SHA、已核实的事实、已改文件、未完成项、未实跑项。「未实跑」不等于未完成。不要 sleep、等待或轮询 CI，CI 和审核结果由控制器下一轮带给你。',
         '不推 main，不合并，不发版。和 main 冲突时拉取后合并，不强推。',
     ]
     if parsed['allowed']:
@@ -143,8 +168,6 @@ def instruction(parsed, rung, phase, tree, log, note, previous, sha=''):
     lines.append(f'不做什么：{parsed["limits"]}')
     if parsed['files']:
         lines.append(f'相关文件或界面：{parsed["files"]}')
-    if sha or tree:
-        lines.append(f'从已有提交 `{sha or tree}` 继续，先 git fetch。已核实的事实不要重头搜索。')
     if previous:
         lines.append('上一轮阶段评论：\n' + previous[:1500])
     if log:
@@ -170,6 +193,7 @@ def dispatch_action(parsed, phase, rung, tree, log, note, previous, role, sha=''
 def decide(issue, comments, rows, tree, contained, checks_green, review_failed, review_text, now,
            has_pull=False, sha='', behind=False, review_only=False):
     parsed = parse(issue.get('body', ''))
+    parsed['number'] = str(issue['number'])
     known = [item for item in markers(comments) if item.get('issue') == str(issue['number'])]
     form = [item for item in known if item.get('phase') == 'invalid']
     if parsed['missing']:
@@ -190,7 +214,8 @@ def decide(issue, comments, rows, tree, contained, checks_green, review_failed, 
     if stuck or any(item.get('phase') == 'quota' for item in scoped):
         return {'kind': 'wait'}
     if running(rows):
-        return {'kind': 'wait'}
+        return overrun(rows, comments, now) or {'kind': 'wait'}
+    rows = [row for row in rows if row.get('signed', True)]
     last = scoped[-1] if scoped else None
     if last and quota(last.get('detail', '')):
         return {'kind': 'wait'}
@@ -200,7 +225,7 @@ def decide(issue, comments, rows, tree, contained, checks_green, review_failed, 
         return {'kind': 'stop', 'phase': 'quota', 'rung': last['rung'], 'tree': tree or '',
                 'body': '账户额度用尽，不再加轮次。' + later[-1]['detail'][:300]}
     if not last:
-        return dispatch_action(parsed, 'dev', RUNGS[0], tree, '', '', '', '开发助手')
+        return dispatch_action(parsed, 'dev', RUNGS[0], tree, '', '', '', '开发助手', sha)
     if not later and not review_rows:
         age = now - _stamp(last['at'])
         if age.total_seconds() > 1800:
@@ -329,6 +354,11 @@ def act(issue, action, sha):
     if action['kind'] == 'sync-main':
         sync_main(number, sha)
         return
+    if action['kind'] == 'overrun':
+        comment(number, OVERRUN.format(action['sn']) + '\n\n'
+                + f'开发助手构建 `{action["sn"]}` 已运行约 {action["minutes"]} 分钟，还没结束。'
+                '控制器不重复派发；开发阶段的 60 分钟超时没有生效，请 owner 查看构建。')
+        return
     payload = {'issue': number, 'scope': parse(issue.get('body', ''))['scope'] if action['phase'] != 'invalid' else 'form',
                'phase': action['phase'], 'rung': action['rung'], 'tree': action.get('tree') or sha or ''}
     if action['kind'] == 'note':
@@ -447,7 +477,7 @@ def sync_main(number, sha):
     if merged.returncode != 0:
         return
     commit = git('commit-tree', merged.stdout.splitlines()[0], '-p', sha, '-p', main,
-                 '-m', f'Merge main into {branch}')
+                 '-m', f'Merge main into {branch}', '-m', 'FlClash-Actor: controller')
     from control import sync_branch
     sync_branch(branch, commit)
     comment(number, f'分支落后 main，已把 main（`{main[:12]}`）合入 `{branch}`，新提交 `{commit[:12]}`。'
