@@ -135,6 +135,33 @@ class LifecycleTests(unittest.TestCase):
                                          {'author': {'username': 'OCI', 'is_npc': True},
                                           'body': f'{wake.WAKE_MARKER} silent-cnb-a-1 -->'}))
 
+    def test_owner_hold_and_release_wake_but_only_the_bare_word_does(self):
+        issue = {'state': 'open', 'title': '[需求] 导出', 'body': ''}
+        owner = {'username': 'Aharon', 'is_npc': False}
+        for body, expected in (('HOLD', True), ('RELEASE', True), ('\nHOLD\n', True),
+                               ('HOLD 一下', False), ('hold', False)):
+            self.assertEqual(expected, wake.should_wake(issue, {'author': owner, 'body': body}), body)
+        for author in ({'username': 'Aharon', 'is_npc': True}, {'username': 'visitor', 'is_npc': False}):
+            self.assertFalse(wake.should_wake(issue, {'author': author, 'body': 'HOLD'}))
+
+    def test_a_held_requirement_raises_no_watchdog_wake(self):
+        now = 1_790_200_000
+        stamp = lambda minutes: time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(now - minutes * 60))
+        issue = {'created_at': stamp(60)}
+        payload = json.dumps({'payload': {'phase': 'dev'}, 'signature': 'x'})
+        signed = {'id': 'm50', 'created_at': stamp(50), 'body': f'<!-- flclash-requirement {payload} -->',
+                  'statuses': {'npc': [{'context': {'npc.name': '开发助手', 'sn': 'cnb-a-1'},
+                                        'statuses': [{'state': 'error'}]}]}}
+        hold = {'created_at': stamp(40), 'body': 'HOLD', 'author': {'username': 'Aharon', 'is_npc': False}}
+        release = {'created_at': stamp(30), 'body': 'RELEASE', 'author': {'username': 'Aharon', 'is_npc': False}}
+        green = [{'context': 'x(Flutter and Android requirement tests)', 'state': 'success'}]
+        pull = {'head': {'sha': 'abc'}}
+        forwarded = {'created_at': stamp(45), 'body': '需求已送至 GitHub：https://github.com/x/pull/1'}
+        self.assertEqual('silent-cnb-a-1', wake.stalled(issue, [signed], None, [], now))
+        self.assertEqual('', wake.stalled(issue, [signed, hold], None, [], now))
+        self.assertEqual('', wake.stalled(issue, [signed, forwarded, hold], pull, green, now))
+        self.assertNotEqual('', wake.stalled(issue, [signed, forwarded, hold, release], pull, green, now))
+
     def test_waker_dispatches_only_after_every_other_check_passes(self):
         pull = {'state': 'open', 'number': '5', 'base': {'sha': 'b'}, 'head': {'sha': 'h'}}
 

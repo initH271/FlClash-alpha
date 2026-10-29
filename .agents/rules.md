@@ -579,6 +579,26 @@ Do not push a `fix/` branch for one of these changes and merge it by hand. Only
 (`merge_ready` in `.automation/security_finish.py`), so a hand-pushed branch stays outside that gate entirely. Plain
 edits are not the escape hatch either: the paths are protected by the rule, not by a hook that would catch them.
 
+### Taking a requirement branch by hand
+
+The owner may add commits to `automation/req-<n>` directly, but only through the HOLD/RELEASE handshake. First post a
+comment on the requirement issue whose body is exactly `HOLD` and nothing else; push the commits; then post a second
+comment whose body is exactly `RELEASE`. While the branch is held the controller dispatches nobody, folds no `main`
+into the branch and forwards nothing, so it cannot overwrite work in progress. The controller recognises the pair by the
+body alone, since it comments with the owner's account, and it treats the last of the two as current. `HOLD` cannot stop
+a development NPC that is already running: wait for it to finish, or cancel it on CNB, before pushing. Every appended
+commit passes CNB checks and paired review like any other, and the controller forwards the result to GitHub once
+`RELEASE` lifts the hold. An owner commit carries no `FlClash-Actor` trailer, and the controller names those commits in
+the next dispatch and in the mirrored GitHub pull request so the next agent reads them instead of reverting them. An
+agent may push on the owner's behalf only when the owner asked for it explicitly in that session; it never decides to
+push there on its own.
+
+Temporary (remove when the release lock lands): until the release lock (requirement 1C) merges, the owner freezes every
+pull request that would move `main` before approving a release. On CNB, prefix the title of a security fix PR with
+`WIP: ` (`merge_one` skips `is_wip`); on GitHub, convert an already forwarded req or security-sync PR to a draft
+(`merge_ready` skips drafts). Restore both after the release. Delete this paragraph when 1C merges; do not edit the rest
+of the section instead.
+
 ## Commit Messages
 
 Subjects follow Conventional Commits and are enforced by the `commit-msg` hook in `.pre-commit-config.yaml`, which runs
