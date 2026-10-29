@@ -206,6 +206,14 @@ What those suites own:
 - `test/widgets/core_status_button_test.dart`: 600-millisecond connecting presentation hold, immediate failure display,
   long-running connecting state, and disconnected restart.
 
+`.automation/` holds the controller's Python, and its unit tests need Python 3.11 or newer because the security scan
+modules read `Cargo.toml` files through `tomllib`; the CNB `Automation unit tests` pipeline runs the same command
+under `python:3.12` and only when a pull request touches `.automation/`, `.cnb/`, `.cnb.yml`, `.github/` or `tool/`:
+
+```bash
+python3 -m unittest discover -s .automation -p 'test_*.py'
+```
+
 ## Native Component Verification
 
 The CI Go-wrapper checks can be reproduced without CGO, the Android files included:
