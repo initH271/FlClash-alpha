@@ -5,8 +5,8 @@ import time
 
 import env_failure
 import pause
-from control import (CNB, GH, POLICY, api, check_name, comment, gating_statuses, git, pages, sign, sync_branch,
-                     verify)
+import control
+from control import CNB, GH, POLICY
 from reviews import find_request, reconcile as review_reconcile, scope, state
 from security_finish import ensure_branch_scan, merge_ready, push_github
 
@@ -23,7 +23,7 @@ ROLES = ('开发助手', '审查助手')
 QUOTA = ('额度', '配额', '余额不足')
 REVIEW_GATE = 'Paired review gate'
 DEPENDENCY_GATE = 'Go dependency regression tests'
-RESCAN_STAGE = 'Rescan actual versions'
+RESCAN_STAGE = re.compile(r'^Rescan actual versions')
 BUILD_SN = re.compile(r'cnb-[a-z0-9-]+')
 
 
@@ -71,7 +71,7 @@ def markers(comments):
         if not match:
             continue
         try:
-            data = dict(verify(json.loads(match[1])))
+            data = dict(control.verify(json.loads(match[1])))
         except (ValueError, KeyError, TypeError):
             continue
         data['at'] = item.get('created_at', '')
@@ -146,7 +146,7 @@ def reported(comments, stamp, role):
 
 
 def envelope(payload):
-    return '<!-- flclash-requirement ' + json.dumps(sign(payload)) + ' -->'
+    return '<!-- flclash-requirement ' + json.dumps(control.sign(payload)) + ' -->'
 
 
 def instruction(parsed, rung, phase, tree, log, note, previous, sha=''):
@@ -227,18 +227,18 @@ def decide(issue, comments, rows, tree, contained, checks_green, review_failed, 
         return {'kind': 'wait'}
     if running(rows):
         return overrun(rows, comments, now) or {'kind': 'wait'}
-    # A scan that never reached its advisory source already produced two empty
-    # commits; another dispatch would only report the same unreachable network.
+    # A scan that never reached its advisory source already produced an empty
+    # commit; another dispatch could only report the same unreachable network.
     if env_failure and not review_failed:
-        head = env_failure['sha']
+        head, number = env_failure['sha'], str(issue['number'])
         env_marks = [item for item in known if item.get('phase') in (ENV_RETRY, ENV_BLOCKED)]
         if any(item.get('head') == head for item in env_marks):
             return {'kind': 'wait'}
-        count = len([item for item in env_marks if item.get('phase') == ENV_RETRY]) + 1
-        if count <= ENV_LIMIT:
-            return {'kind': 'env-retry', 'head': head, 'sn': env_failure['sn'], 'count': count}
+        retries = [item for item in env_marks if item.get('phase') == ENV_RETRY]
+        if len(retries) < ENV_LIMIT:
+            return {'kind': 'env-retry', 'head': head, 'sn': env_failure['sn'], 'count': len(retries) + 1}
         if not any(item.get('phase') == ENV_BLOCKED for item in env_marks):
-            env_notice(str(issue['number']), ENV_BLOCKED, env_failure['sn'], ENV_LIMIT, head)
+            env_notice(number, ENV_BLOCKED, env_failure['sn'], ENV_LIMIT, head)
         return {'kind': 'wait'}
     rows = [row for row in rows if row.get('signed', True)]
     last = scoped[-1] if scoped else None
@@ -305,19 +305,19 @@ def branch_name(number):
 
 
 def branch_sha(number):
-    fetched = git('fetch', '--no-tags', f'https://cnb.cool/{POLICY["cnb"]}.git',
-                  f'refs/heads/{branch_name(number)}', check=False)
+    fetched = control.git('fetch', '--no-tags', f'https://cnb.cool/{POLICY["cnb"]}.git',
+                          f'refs/heads/{branch_name(number)}', check=False)
     if fetched.returncode != 0:
         return ''
-    return git('rev-parse', 'FETCH_HEAD')
+    return control.git('rev-parse', 'FETCH_HEAD')
 
 
 def contained(sha):
     if not re.fullmatch(r'[a-f0-9]{40}', sha or ''):
         return False
-    main = api(f'{GH}/git/ref/heads/main')['object']['sha']
-    git('fetch', '--no-tags', f'https://github.com/{POLICY["github"]}.git', main, sha)
-    return git('merge-base', '--is-ancestor', sha, main, check=False).returncode == 0
+    main = control.api(f'{GH}/git/ref/heads/main')['object']['sha']
+    control.git('fetch', '--no-tags', f'https://github.com/{POLICY["github"]}.git', main, sha)
+    return control.git('merge-base', '--is-ancestor', sha, main, check=False).returncode == 0
 
 
 def pull_for(number, pulls):
@@ -328,24 +328,24 @@ def pull_for(number, pulls):
 
 
 def pull_statuses(number):
-    return gating_statuses(api(f'{CNB}/pulls/{number}/commit-statuses')) if number else []
+    return control.gating_statuses(control.api(f'{CNB}/pulls/{number}/commit-statuses')) if number else []
 
 
 def check_state(number, pull=None):
     if not number:
         return False, False
     statuses = pull_statuses(number)
-    if pull and any(check_name(item) == REVIEW_GATE and item['state'] != 'success' for item in statuses):
+    if pull and any(control.check_name(item) == REVIEW_GATE and item['state'] != 'success' for item in statuses):
         # The gate only polls for 32 minutes; a review that finishes later must still count.
         if state(scope('cnb', pull)) == 'success':
-            statuses = [item for item in statuses if check_name(item) != REVIEW_GATE]
+            statuses = [item for item in statuses if control.check_name(item) != REVIEW_GATE]
     failed = any(item['state'] in {'error', 'failure'} for item in statuses)
     green = bool(statuses) and all(item['state'] == 'success' for item in statuses)
     return green, failed
 
 
 def ci_passed(number):
-    statuses = [item for item in pull_statuses(number) if check_name(item) != REVIEW_GATE]
+    statuses = [item for item in pull_statuses(number) if control.check_name(item) != REVIEW_GATE]
     return bool(statuses) and all(item['state'] == 'success' for item in statuses)
 
 
@@ -355,11 +355,11 @@ def build_log(sn):
     The pull request status only names the build, so the stage that ran the
     rescan has to be located first. A build without it is not a scan failure.
     """
-    for pipeline in (api(f'{CNB}/build/status/{sn}', missing=True) or {}).get('pipelines', {}).values():
+    for pipeline in (control.api(f'{CNB}/build/status/{sn}', missing=True) or {}).get('pipelines', {}).values():
         for stage in pipeline['stages']:
-            if stage['name'] != RESCAN_STAGE:
+            if not RESCAN_STAGE.match(stage['name']):
                 continue
-            return api(f'{CNB}/build/logs/stage/{sn}/{pipeline["id"]}/{stage["id"]}', missing=True) or ''
+            return control.api(f'{CNB}/build/logs/stage/{sn}/{pipeline["id"]}/{stage["id"]}', missing=True) or ''
     return ''
 
 
@@ -372,7 +372,7 @@ def unreachable(pull, statuses):
     """
     try:
         failed = [item for item in statuses or [] if item.get('state') in {'error', 'failure'}]
-        if len(failed) != 1 or check_name(failed[0]) != DEPENDENCY_GATE:
+        if len(failed) != 1 or control.check_name(failed[0]) != DEPENDENCY_GATE:
             return None
         found = BUILD_SN.search(str(failed[0].get('target_url') or ''))
         head = ((pull or {}).get('head') or {}).get('sha') or ''
@@ -401,20 +401,25 @@ def env_notice(number, phase, sn, count, sha):
     else:
         body = (f'依赖复扫已自动重跑 {ENV_LIMIT} 次，仍然访问不到 OSV（api.osv.dev），停止自动重跑，没有放行。'
                 f'请确认 OSV 恢复后，向 `{branch_name(number)}` 推一个新提交重新触发。')
-    comment(number, envelope({'issue': number, 'phase': phase, 'head': sha, 'sn': sn}) + '\n\n'
-            + body + f'\n\n最近一次日志：{log}')
+    control.comment(number, envelope({'issue': number, 'phase': phase, 'head': sha, 'sn': sn}) + '\n\n'
+                    + body + f'\n\n最近一次日志：{log}')
 
 
 def env_retry(number, action):
     """Re-run the checks with an empty commit: CNB cannot re-trigger a pull_request pipeline."""
     head = action['head']
-    commit = git('commit-tree', f'{head}^{{tree}}', '-p', head,
-                 '-m', 'Retry dependency rescan after environment failure',
-                 '-m', 'FlClash-Actor: controller')
-    if not re.fullmatch(r'[a-f0-9]{40}', commit):
-        print(f'cannot build an empty retry commit on {head[:12]}')
+    commit = control.git('commit-tree', f'{head}^{{tree}}', '-p', head,
+                         '-m', 'Retry dependency rescan after environment failure',
+                         '-m', 'FlClash-Actor: controller', check=False).stdout.strip()
+    if not re.fullmatch(r'[a-f0-9]{40}', commit) or control.sync_branch(branch_name(number), commit):
+        # A retry that never reached the branch must hand the next decision back
+        # to the owner instead of spending another commit on the same network.
+        print(f'cannot push an empty retry commit on {head[:12]}')
+        control.comment(number, envelope({'issue': number, 'phase': ENV_BLOCKED, 'head': head, 'sn': action['sn']})
+                        + '\n\n依赖复扫访问 OSV 失败，但空提交没能推到 `' + branch_name(number)
+                        + '`，自动重跑停下，没有放行。请确认 OSV 恢复后，向该分支推一个新提交重新触发。'
+                        + f'\n\n最近一次日志：https://cnb.cool/{POLICY["cnb"]}/-/build/logs/{action["sn"]}')
         return
-    sync_branch(branch_name(number), commit)
     env_notice(number, ENV_RETRY, action['sn'], action.get('count', 1), head)
 
 
@@ -427,7 +432,7 @@ def review_block(pull):
     issue = find_request(request)
     if not issue:
         return True, '结对审核未通过。按阻断项修改后推同一分支。'
-    comments = list(pages(f'{CNB}/issues/{issue["number"]}/comments'))
+    comments = list(control.pages(f'{CNB}/issues/{issue["number"]}/comments'))
     text = ''
     for item in comments:
         if 'FLCLASH_REVIEW' in item.get('body', '') and '"verdict":"block"' in item.get('body', '').replace(' ', ''):
@@ -458,23 +463,23 @@ def act(issue, action, sha):
         env_retry(number, action)
         return
     if action['kind'] == 'overrun':
-        comment(number, OVERRUN.format(action['sn']) + '\n\n'
-                + f'开发助手构建 `{action["sn"]}` 已运行约 {action["minutes"]} 分钟，还没结束。'
-                '控制器不重复派发；开发阶段的 60 分钟超时没有生效，请 owner 查看构建。')
+        control.comment(number, OVERRUN.format(action['sn']) + '\n\n'
+                        + f'开发助手构建 `{action["sn"]}` 已运行约 {action["minutes"]} 分钟，还没结束。'
+                        '控制器不重复派发；开发阶段的 60 分钟超时没有生效，请 owner 查看构建。')
         return
     payload = {'issue': number, 'scope': parse(issue.get('body', ''))['scope'] if action['phase'] != 'invalid' else 'form',
                'phase': action['phase'], 'rung': action['rung'], 'tree': action.get('tree') or sha or '',
                'head': sha}
     if action['kind'] == 'note':
-        comment(number, envelope(payload) + '\n\n' + action['body'])
+        control.comment(number, envelope(payload) + '\n\n' + action['body'])
         return
     if action['kind'] == 'stop':
-        comment(number, envelope(payload) + '\n\n' + action['body'])
+        control.comment(number, envelope(payload) + '\n\n' + action['body'])
         return
     role = action['role']
     body = (envelope(payload) + '\n\n'
             f'@{POLICY["cnb"]}({role}) 分支 `{branch_name(number)}`。\n' + action['instruction'])
-    comment(number, body, action['work_mode'])
+    control.comment(number, body, action['work_mode'])
 
 
 HOLD_NOTICE = ('owner 已占用分支 `{branch}`：控制器暂停派发、开 PR、同步 main、转发和合并。'
@@ -487,22 +492,22 @@ def hold_notice(number, action):
     body = HOLD_MARKER.format(action['ref']) + '\n\n' + HOLD_NOTICE.format(branch=branch_name(number))
     if action.get('sn'):
         body += '\n\n' + HOLD_RUNNING.format(sn=action['sn'])
-    comment(number, body)
+    control.comment(number, body)
 
 
 def close_done(issue, number):
-    pulls = list(pages(f'{CNB}/pulls?state=open'))
+    pulls = list(control.pages(f'{CNB}/pulls?state=open'))
     pull = pull_for(number, pulls)
     if pull and pull['state'] == 'open':
-        api(f'{CNB}/pulls/{pull["number"]}', 'PATCH', {'state': 'closed'})
+        control.api(f'{CNB}/pulls/{pull["number"]}', 'PATCH', {'state': 'closed'})
     if issue.get('state') == 'open':
-        api(f'{CNB}/issues/{number}', 'PATCH', {'state': 'closed', 'state_reason': 'completed'})
+        control.api(f'{CNB}/issues/{number}', 'PATCH', {'state': 'closed', 'state_reason': 'completed'})
 
 
 def open_cnb_pr(issue, number, sha):
-    if pull_for(number, list(pages(f'{CNB}/pulls?state=open'))):
+    if pull_for(number, list(control.pages(f'{CNB}/pulls?state=open'))):
         return
-    api(f'{CNB}/pulls', 'POST', {
+    control.api(f'{CNB}/pulls', 'POST', {
         'base': 'main', 'head': branch_name(number),
         'title': issue.get('title', f'[需求] {number}'),
         'body': f'需求 #{number}，提交 `{sha}`。检查由流水线跑，控制器不在这里合并。'})
@@ -512,7 +517,7 @@ def mirror_body(payload, origins=()):
     lines = ('**提交归属**\n\n' + '\n'.join(origins) + '\n\n') if origins else ''
     return ('承接 CNB 需求分支。GitHub 是唯一合并入口。检查成功后由控制器合并。\n\n'
             + lines
-            + '<!-- flclash-security-mirror ' + json.dumps(sign(payload)) + ' -->')
+            + '<!-- flclash-security-mirror ' + json.dumps(control.sign(payload)) + ' -->')
 
 
 def commit_rows(since, sha, limit, skip_actor=False):
@@ -523,10 +528,10 @@ def commit_rows(since, sha, limit, skip_actor=False):
     """
     if not (re.fullmatch(r'[a-f0-9]{40}', since or '') and re.fullmatch(r'[a-f0-9]{40}', sha or '')):
         return []
-    git('fetch', '--no-tags', f'https://github.com/{POLICY["github"]}.git', since, check=False)
-    log = git('log', '--first-parent', f'--max-count={limit}',
-              '--format=%H%x1f%an%x1f%s%x1f%(trailers:key=FlClash-Actor,valueonly,separator=%x2c)%x1e',
-              f'{since}..{sha}', check=False)
+    control.git('fetch', '--no-tags', f'https://github.com/{POLICY["github"]}.git', since, check=False)
+    log = control.git('log', '--first-parent', f'--max-count={limit}',
+                      '--format=%H%x1f%an%x1f%s%x1f%(trailers:key=FlClash-Actor,valueonly,separator=%x2c)%x1e',
+                      f'{since}..{sha}', check=False)
     if log.returncode:
         print(f'cannot list commits {since[:12]}..{sha[:12]}; origin report skipped')
         return []
@@ -567,33 +572,33 @@ def foreign_commits(since, sha, limit=10):
 def forward(issue, number, sha):
     branch = branch_name(number)
     owner_name = POLICY['github'].split('/')[0]
-    opened = api(f'{GH}/pulls?state=open&head={owner_name}:{branch}')
+    opened = control.api(f'{GH}/pulls?state=open&head={owner_name}:{branch}')
     if opened:
         advance(issue, number, sha, opened[0])
         return
-    closed = api(f'{GH}/pulls?state=closed&head={owner_name}:{branch}')
+    closed = control.api(f'{GH}/pulls?state=closed&head={owner_name}:{branch}')
     if closed:
-        previous = list(pages(f'{CNB}/issues/{number}/comments'))
+        previous = list(control.pages(f'{CNB}/issues/{number}/comments'))
         if not any('保持暂停' in (item.get('body') or '') for item in previous):
-            comment(number, f'GitHub PR `{branch}` 已关闭，保持暂停，不重复创建。')
+            control.comment(number, f'GitHub PR `{branch}` 已关闭，保持暂停，不重复创建。')
         return
-    base = api(f'{GH}/git/ref/heads/main')['object']['sha']
-    existing = api(f'{GH}/git/ref/heads/{branch}', missing=True)
+    base = control.api(f'{GH}/git/ref/heads/main')['object']['sha']
+    existing = control.api(f'{GH}/git/ref/heads/{branch}', missing=True)
     if existing and existing['object']['sha'] != sha:
         print(f'{branch} points at a different commit; not overwriting it')
         return
     if not existing:
         push_github(sha, branch)
-    pull = pull_for(number, list(pages(f'{CNB}/pulls?state=open')))
+    pull = pull_for(number, list(control.pages(f'{CNB}/pulls?state=open')))
     if not pull:
         return
-    payload = {'base': base, 'head': sha, 'tree': git('rev-parse', sha + '^{tree}'),
+    payload = {'base': base, 'head': sha, 'tree': control.git('rev-parse', sha + '^{tree}'),
                'cnb_number': str(pull['number']), 'branch': branch}
-    created = api(f'{GH}/pulls', 'POST', {
+    created = control.api(f'{GH}/pulls', 'POST', {
         'base': 'main', 'head': branch,
         'title': issue.get('title', f'[需求] {number}'),
         'body': mirror_body(payload, origin_rows(base, sha))})
-    comment(number, '需求已送至 GitHub：' + created['html_url'])
+    control.comment(number, '需求已送至 GitHub：' + created['html_url'])
     settle(issue, number, sha, created['number'])
 
 
@@ -602,20 +607,20 @@ def advance(issue, number, sha, pull):
     old = pull['head']['sha']
     if old == sha:
         return
-    git('fetch', '--no-tags', f'https://github.com/{POLICY["github"]}.git', old)
-    if git('merge-base', '--is-ancestor', old, sha, check=False).returncode != 0:
+    control.git('fetch', '--no-tags', f'https://github.com/{POLICY["github"]}.git', old)
+    if control.git('merge-base', '--is-ancestor', old, sha, check=False).returncode != 0:
         print(f'{branch_name(number)} on GitHub is not an ancestor of {sha}; not overwriting it')
         return
-    source = pull_for(number, list(pages(f'{CNB}/pulls?state=open')))
+    source = pull_for(number, list(control.pages(f'{CNB}/pulls?state=open')))
     if not source:
         return
     push_github(sha, branch_name(number))
-    base = api(f'{GH}/git/ref/heads/main')['object']['sha']
+    base = control.api(f'{GH}/git/ref/heads/main')['object']['sha']
     payload = {'base': base, 'head': sha,
-               'tree': git('rev-parse', sha + '^{tree}'), 'cnb_number': str(source['number']),
+               'tree': control.git('rev-parse', sha + '^{tree}'), 'cnb_number': str(source['number']),
                'branch': branch_name(number)}
-    api(f'{GH}/pulls/{pull["number"]}', 'PATCH', {'body': mirror_body(payload, origin_rows(base, sha))})
-    comment(number, f'GitHub PR 已跟进到 `{sha[:12]}`：' + pull['html_url'])
+    control.api(f'{GH}/pulls/{pull["number"]}', 'PATCH', {'body': mirror_body(payload, origin_rows(base, sha))})
+    control.comment(number, f'GitHub PR 已跟进到 `{sha[:12]}`：' + pull['html_url'])
     settle(issue, number, sha, pull['number'])
 
 
@@ -630,62 +635,62 @@ def settle(issue, number, sha, pull_number):
 
 def main_drift(sha):
     """Return (behind, conflict) for the requirement commit against GitHub main."""
-    main = api(f'{GH}/git/ref/heads/main')['object']['sha']
-    git('fetch', '--no-tags', f'https://github.com/{POLICY["github"]}.git', main)
-    if git('merge-base', '--is-ancestor', main, sha, check=False).returncode == 0:
+    main = control.api(f'{GH}/git/ref/heads/main')['object']['sha']
+    control.git('fetch', '--no-tags', f'https://github.com/{POLICY["github"]}.git', main)
+    if control.git('merge-base', '--is-ancestor', main, sha, check=False).returncode == 0:
         return False, False
-    merged = git('merge-tree', '--write-tree', sha, main, check=False)
+    merged = control.git('merge-tree', '--write-tree', sha, main, check=False)
     return True, merged.returncode != 0
 
 
 def sync_main(number, sha):
     branch = branch_name(number)
-    main = api(f'{GH}/git/ref/heads/main')['object']['sha']
-    git('fetch', '--no-tags', f'https://github.com/{POLICY["github"]}.git', main)
-    merged = git('merge-tree', '--write-tree', sha, main, check=False)
+    main = control.api(f'{GH}/git/ref/heads/main')['object']['sha']
+    control.git('fetch', '--no-tags', f'https://github.com/{POLICY["github"]}.git', main)
+    merged = control.git('merge-tree', '--write-tree', sha, main, check=False)
     if merged.returncode != 0:
         return
-    commit = git('commit-tree', merged.stdout.splitlines()[0], '-p', sha, '-p', main,
-                 '-m', f'Merge main into {branch}', '-m', 'FlClash-Actor: controller')
-    sync_branch(branch, commit)
-    comment(number, f'分支落后 main，已把 main（`{main[:12]}`）合入 `{branch}`，新提交 `{commit[:12]}`。'
-            '检查和结对审核会在新提交上重跑。')
+    commit = control.git('commit-tree', merged.stdout.splitlines()[0], '-p', sha, '-p', main,
+                         '-m', f'Merge main into {branch}', '-m', 'FlClash-Actor: controller').stdout.strip()
+    control.sync_branch(branch, commit)
+    control.comment(number, f'分支落后 main，已把 main（`{main[:12]}`）合入 `{branch}`，新提交 `{commit[:12]}`。'
+                    '检查和结对审核会在新提交上重跑。')
 
 
 def merge_when_settled(number, attempts=12, pause=10):
     # Nothing else wakes the controller after this run, so merge here once GitHub settles.
     for _ in range(attempts):
-        if api(f'{GH}/pulls/{number}').get('mergeable_state') in {'clean', 'unstable'}:
+        if control.api(f'{GH}/pulls/{number}').get('mergeable_state') in {'clean', 'unstable'}:
             break
         time.sleep(pause)
     merge_ready()
-    return bool(api(f'{GH}/pulls/{number}').get('merged'))
+    return bool(control.api(f'{GH}/pulls/{number}').get('merged'))
 
 
 def reconcile():
     import datetime
     now = datetime.datetime.now(datetime.timezone.utc)
-    pulls = list(pages(f'{CNB}/pulls?state=all'))
-    for summary in pages(f'{CNB}/issues?state=open'):
-        issue = api(f'{CNB}/issues/{summary["number"]}')
+    pulls = list(control.pages(f'{CNB}/pulls?state=all'))
+    for summary in control.pages(f'{CNB}/issues?state=open'):
+        issue = control.api(f'{CNB}/issues/{summary["number"]}')
         if issue.get('state') != 'open' or not str(issue.get('title', '')).startswith('[需求]') or not owner(issue):
             continue
         number = str(issue['number'])
-        issue_comments = list(pages(f'{CNB}/issues/{number}/comments'))
+        issue_comments = list(control.pages(f'{CNB}/issues/{number}/comments'))
         comments = list(issue_comments)
         pull = pull_for(number, pulls)
         if pull:
-            pull = api(f'{CNB}/pulls/{pull["number"]}')
-            comments += list(pages(f'{CNB}/pulls/{pull["number"]}/comments'))
+            pull = control.api(f'{CNB}/pulls/{pull["number"]}')
+            comments += list(control.pages(f'{CNB}/pulls/{pull["number"]}/comments'))
         sha = branch_sha(number)
-        tree = git('rev-parse', sha + '^{tree}') if sha else ''
+        tree = control.git('rev-parse', sha + '^{tree}') if sha else ''
         rows = attempts([issue] + comments)
         for row in rows:
             if re.fullmatch(r'cnb-[a-z0-9-]+', row['sn'] or ''):
-                status = api(f'{CNB}/build/status/{row["sn"]}', missing=True) or {}
+                status = control.api(f'{CNB}/build/status/{row["sn"]}', missing=True) or {}
                 row['detail'] = (row['detail'] + '\n' + json.dumps(status, ensure_ascii=False))[:500]
         green, failed = check_state(pull['number'] if pull else '', pull)
-        scan_failed = unreachable(pull, pull_statuses(pull)) if failed and not green and pull else None
+        scan_failed = unreachable(pull, pull_statuses(pull['number'])) if failed and not green and pull else None
         blocked, text = review_block(pull) if failed or (pull and not green) else (False, '')
         if failed and not text:
             text = 'CI 未通过。先读失败日志，再推同一分支。'
@@ -728,7 +733,7 @@ def dispatch_start(marks, sha):
         head = item.get('head')
         if re.fullmatch(r'[a-f0-9]{40}', head or ''):
             return head
-    main = api(f'{GH}/git/ref/heads/main')['object']['sha']
+    main = control.api(f'{GH}/git/ref/heads/main')['object']['sha']
     return main if re.fullmatch(r'[a-f0-9]{40}', main or '') else ''
 
 

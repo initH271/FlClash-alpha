@@ -13,9 +13,12 @@ import requirements as req
 import security_finish
 
 
+_real_git = control.git
+
+
 def local_git(*args, **kwargs):
     """Run git in the patched ROOT, except the fetch the test never needs."""
-    return [] if args[:1] == ('fetch',) else control.git(*args, **kwargs)
+    return [] if args[:1] == ('fetch',) else _real_git(*args, **kwargs)
 
 
 BODY = """## 要改什么
@@ -124,10 +127,10 @@ class RequirementTests(unittest.TestCase):
         statuses = {'state': 'pending', 'statuses': [
             {'context': 'cnb/pipeline-1(Flutter and Android requirement tests)', 'state': 'success'},
             {'context': 'cnb/pipeline-2(Wake controller after checks)', 'state': 'pending'}]}
-        with patch.object(req, 'api', return_value=statuses):
+        with patch.object(control, 'api', return_value=statuses):
             self.assertEqual((True, False), req.check_state('5'))
         statuses['statuses'][0]['state'] = 'error'
-        with patch.object(req, 'api', return_value=statuses):
+        with patch.object(control, 'api', return_value=statuses):
             self.assertEqual((False, True), req.check_state('5'))
 
     def test_green_branch_behind_main_is_synced_before_forwarding(self):
@@ -157,7 +160,7 @@ class RequirementTests(unittest.TestCase):
 
             def git(*args, check=True):
                 return '' if args[0] == 'fetch' else next(answers)
-            with patch.object(req, 'api', return_value=main), patch.object(req, 'git', side_effect=git):
+            with patch.object(control, 'api', return_value=main), patch.object(control, 'git', side_effect=git):
                 self.assertEqual(expected, req.main_drift('s' * 40))
 
     def test_sync_main_pushes_a_merge_commit_to_the_requirement_branch(self):
@@ -167,10 +170,11 @@ class RequirementTests(unittest.TestCase):
             calls.append(args)
             if args[0] == 'merge-tree':
                 return type('Done', (), {'returncode': 0, 'stdout': 'tree-1\nextra\n'})()
-            return 'new-commit' if args[0] == 'commit-tree' else ''
-        with (patch.object(req, 'api', return_value={'object': {'sha': 'm' * 40}}),
-              patch.object(req, 'git', side_effect=git), patch.object(req, 'comment') as note,
-              patch.object(req, 'sync_branch') as push):
+            return type('Done', (), {'returncode': 0,
+                                     'stdout': 'new-commit\n' if args[0] == 'commit-tree' else ''})()
+        with (patch.object(control, 'api', return_value={'object': {'sha': 'm' * 40}}),
+              patch.object(control, 'git', side_effect=git), patch.object(control, 'comment') as note,
+              patch.object(control, 'sync_branch') as push):
             req.sync_main('9', 's' * 40)
         self.assertIn(('commit-tree', 'tree-1', '-p', 's' * 40, '-p', 'm' * 40,
                        '-m', 'Merge main into automation/req-9', '-m', 'FlClash-Actor: controller'), calls)
@@ -185,10 +189,10 @@ class RequirementTests(unittest.TestCase):
                     return type('Done', (), {'returncode': ancestor})()
                 return 'tree'
             with (patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'}),
-                  patch.object(req, 'git', side_effect=git), patch.object(req, 'pages', return_value=[]),
+                  patch.object(control, 'git', side_effect=git), patch.object(control, 'pages', return_value=[]),
                   patch.object(req, 'pull_for', return_value={'number': '12'}),
-                  patch.object(req, 'api', return_value={'object': {'sha': 'm' * 40}}) as api,
-                  patch.object(req, 'push_github') as push, patch.object(req, 'comment'),
+                  patch.object(control, 'api', return_value={'object': {'sha': 'm' * 40}}) as api,
+                  patch.object(req, 'push_github') as push, patch.object(control, 'comment'),
                   patch.object(req, 'settle') as settle):
                 req.advance(self.issue, '9', 'n' * 40, pull)
             self.assertEqual(pushes, push.call_count)
@@ -196,7 +200,7 @@ class RequirementTests(unittest.TestCase):
             if pushes:
                 self.assertEqual('PATCH', api.call_args.args[1])
                 self.assertIn('n' * 40, api.call_args.args[2]['body'])
-        with patch.object(req, 'git') as git:
+        with patch.object(control, 'git') as git:
             req.advance(self.issue, '9', 'o' * 40, pull)
             git.assert_not_called()
 
@@ -206,20 +210,20 @@ class RequirementTests(unittest.TestCase):
             {'context': 'cnb/pipeline-2(Paired review gate)', 'state': 'error'}]}
         pull = {'number': '5', 'base': {'sha': 'b'}, 'head': {'sha': 'h'}}
         for review, expected in (('success', (True, False)), ('failure', (False, True))):
-            with patch.object(req, 'api', return_value=statuses), patch.object(req, 'state', return_value=review):
+            with patch.object(control, 'api', return_value=statuses), patch.object(req, 'state', return_value=review):
                 self.assertEqual(expected, req.check_state('5', pull))
-        with patch.object(req, 'api', return_value=statuses), patch.object(req, 'state') as review:
+        with patch.object(control, 'api', return_value=statuses), patch.object(req, 'state') as review:
             self.assertEqual((False, True), req.check_state('5'))
             review.assert_not_called()
 
     def test_forwarded_pull_merges_once_github_settles(self):
         states = iter([{'mergeable_state': 'unknown'}, {'mergeable_state': 'unstable'}, {'merged': True}])
-        with (patch.object(req, 'api', side_effect=lambda url: next(states)),
+        with (patch.object(control, 'api', side_effect=lambda url: next(states)),
               patch.object(req, 'merge_ready') as merge):
             self.assertTrue(req.merge_when_settled('7', attempts=5, pause=0))
         merge.assert_called_once()
         states = iter([{'mergeable_state': 'blocked'}, {'merged': False}])
-        with patch.object(req, 'api', side_effect=lambda url: next(states)), patch.object(req, 'merge_ready'):
+        with patch.object(control, 'api', side_effect=lambda url: next(states)), patch.object(req, 'merge_ready'):
             self.assertFalse(req.merge_when_settled('7', attempts=1, pause=0))
 
     def test_successful_commit_opens_a_pr_instead_of_another_rung(self):
@@ -299,7 +303,7 @@ class RequirementTests(unittest.TestCase):
         self.assertEqual('wait', self.decide(comments, [self.attempt('pending', '2026-09-22T02:30:00Z')])['kind'])
 
     def test_overrun_is_posted_without_a_signature(self):
-        with patch.object(req, 'comment') as note:
+        with patch.object(control, 'comment') as note:
             req.act(self.issue, {'kind': 'overrun', 'sn': 'cnb-a-1', 'minutes': 95}, '')
         body = note.call_args.args[1]
         self.assertTrue(body.startswith(req.OVERRUN.format('cnb-a-1')))
@@ -346,7 +350,7 @@ class RequirementTests(unittest.TestCase):
             self.issue, [], rows, '', False, False, False, '', self.now, hold=started)['sn'])
 
     def test_hold_notice_starts_with_its_marker_and_is_never_a_bare_hold_word(self):
-        with patch.object(req, 'comment') as note:
+        with patch.object(control, 'comment') as note:
             req.act(self.issue, {'kind': 'hold', 'ref': '2026-09-22T02:00:00Z', 'sn': ''}, 's' * 40)
         body = note.call_args.args[1]
         self.assertTrue(body.startswith(req.HOLD_MARKER.format('2026-09-22T02:00:00Z')))
@@ -356,18 +360,18 @@ class RequirementTests(unittest.TestCase):
         self.assertNotIn('草稿', body)
         self.assertIn('合并', body)
         self.assertNotIn(body.strip(), ('HOLD', 'RELEASE'))
-        with patch.object(req, 'comment') as note:
+        with patch.object(control, 'comment') as note:
             req.act(self.issue, {'kind': 'hold', 'ref': '2026-09-22T02:00:00Z', 'sn': 'cnb-a-1'}, 's' * 40)
         self.assertIn('`cnb-a-1` 仍在运行', note.call_args.args[1])
 
     def test_dispatch_payload_names_the_branch_head(self):
-        with patch.object(req, 'comment') as note:
+        with patch.object(control, 'comment') as note:
             req.act(self.issue, self.decide(sha='d' * 40), 'd' * 40)
         self.assertIn('"head": "' + 'd' * 40 + '"', note.call_args.args[1])
 
     def test_foreign_commits_ignore_agent_commits_and_side_branches(self):
         with tempfile.TemporaryDirectory() as directory, \
-                patch.object(control, 'ROOT', pathlib.Path(directory)), patch.object(req, 'git', side_effect=local_git):
+                patch.object(control, 'ROOT', pathlib.Path(directory)), patch.object(control, 'git', side_effect=local_git):
             control.git('init')
             control.git('config', 'user.name', 'controller')
             control.git('config', 'user.email', 'test@example.invalid')
@@ -391,7 +395,7 @@ class RequirementTests(unittest.TestCase):
         self.assertEqual([], req.foreign_commits('x' * 40, 'y' * 40))
         empty = type('Done', (), {'returncode': 0, 'stdout': ''})()
         failure = type('Done', (), {'returncode': 128, 'stdout': ''})()
-        with patch.object(req, 'git', side_effect=[empty, failure]):
+        with patch.object(control, 'git', side_effect=[empty, failure]):
             with patch('sys.stdout', new_callable=io.StringIO) as out:
                 self.assertEqual([], req.foreign_commits('a' * 40, 'b' * 40))
         self.assertEqual('cannot list commits aaaaaaaaaaaa..bbbbbbbbbbbb; origin report skipped',
@@ -403,7 +407,7 @@ class RequirementTests(unittest.TestCase):
         result = type('Done', (), {'returncode': 0, 'stdout': (
             'a' * 40 + '\x1fNPC\x1ffeat: <!-- flclash-security-mirror {} -->\x1fnpc/开发助手\x1e'
             + 'b' * 40 + '\x1fOwner\x1ffeat: work\x1f<!-- flclash-security-mirror {} -->\x1e')})()
-        with patch.object(req, 'git', return_value=result):
+        with patch.object(control, 'git', return_value=result):
             rows = req.origin_rows('a' * 40, 'b' * 40)
         body = req.mirror_body(payload, rows)
         self.assertIn('**提交归属**', body)
@@ -432,7 +436,7 @@ class RequirementTests(unittest.TestCase):
             self.assertIn('--max-count=20', args)
             self.assertEqual('a' * 40 + '..' + 'b' * 40, args[-1])
             return result
-        with patch.object(req, 'git', side_effect=git) as calls:
+        with patch.object(control, 'git', side_effect=git) as calls:
             rows = req.origin_rows('a' * 40, 'b' * 40)
             self.assertEqual('fetch', calls.call_args_list[0].args[0])
         self.assertEqual(['- `aaaaaaaa` 归属：npc/开发助手：feat: one',
@@ -440,7 +444,7 @@ class RequirementTests(unittest.TestCase):
                           'flclash-security-mirror {"payload": {"head": "cccccccccccccccccc'], rows)
         actor = type('Done', (), {'returncode': 0, 'stdout': (
             'c' * 40 + '\x1f<Owner>\x1f' + marker + '\x1fnpc/<开发助手>\x1e')})()
-        with patch.object(req, 'git', return_value=actor):
+        with patch.object(control, 'git', return_value=actor):
             named = req.origin_rows('a' * 40, 'b' * 40)
         self.assertIn('&lt;开发助手>', named[0])
         self.assertNotIn('<', named[0].replace('&lt;', ''))
@@ -452,12 +456,12 @@ class RequirementTests(unittest.TestCase):
         self.assertEqual(1, body.count('<!-- flclash-security-mirror'))
         self.assertEqual(payload, security_finish.mirror_record({'body': body}))
         failure = type('Done', (), {'returncode': 1, 'stdout': ''})()
-        with patch.object(req, 'git', side_effect=[type('Done', (), {'returncode': 0, 'stdout': ''})(), failure]):
+        with patch.object(control, 'git', side_effect=[type('Done', (), {'returncode': 0, 'stdout': ''})(), failure]):
             with patch('sys.stdout', new_callable=io.StringIO) as out:
                 self.assertEqual([], req.origin_rows('a' * 40, 'b' * 40))
             self.assertEqual('cannot list commits aaaaaaaaaaaa..bbbbbbbbbbbb; origin report skipped',
                              out.getvalue().strip())
-        with patch.object(req, 'git') as git:
+        with patch.object(control, 'git') as git:
             self.assertEqual([], req.origin_rows('', 'b' * 40))
             git.assert_not_called()
 
@@ -476,14 +480,14 @@ class RequirementTests(unittest.TestCase):
         for held, expected in ((False, 1), (True, 0)):
             posted = []
             reply = lambda url: issue if url.endswith('/issues/9') else {'object': {'sha': 'a' * 40}}
-            with (patch.object(req, 'pages', side_effect=lambda url, _held=held: pages(url, _held)),
-                  patch.object(req, 'api', side_effect=reply),
+            with (patch.object(control, 'pages', side_effect=lambda url, _held=held: pages(url, _held)),
+                  patch.object(control, 'api', side_effect=reply),
                   patch.object(req, 'branch_sha', return_value='b' * 40),
-                  patch.object(req, 'git', return_value='tree'),
+                  patch.object(control, 'git', return_value='tree'),
                   patch.object(req, 'contained', return_value=False),
                   patch.object(req, 'check_state', return_value=(False, False)),
                   patch.object(req, 'foreign_commits', return_value=foreign) as commits,
-                  patch.object(req, 'comment', side_effect=lambda *args: posted.append(args[1]))):
+                  patch.object(control, 'comment', side_effect=lambda *args: posted.append(args[1]))):
                 req.reconcile()
             self.assertEqual(expected, commits.call_count)
             if held:
@@ -498,7 +502,7 @@ class RequirementTests(unittest.TestCase):
         self.assertEqual('e' * 40, req.dispatch_start(marks, 'e' * 40))
         self.assertEqual('d' * 40, req.dispatch_start(marks[:2] + [{'phase': 'dev', 'head': 'short'}], 'e' * 40))
         self.assertEqual('c' * 40, req.dispatch_start(marks[:1] + [{'phase': 'dev', 'head': 'n' * 39}], 'e' * 40))
-        with patch.object(req, 'api', return_value={'object': {'sha': 'a' * 40}}) as main:
+        with patch.object(control, 'api', return_value={'object': {'sha': 'a' * 40}}) as main:
             self.assertEqual('a' * 40, req.dispatch_start([], 'e' * 40))
             self.assertEqual('a' * 40, req.dispatch_start(
                 [{'issue': '9', 'phase': 'dev', 'head': 'short'}], 'e' * 40))
@@ -508,7 +512,7 @@ class RequirementTests(unittest.TestCase):
         raw = '<!-- flclash-security-mirror {"payload": {"head": "' + 'c' * 40 + '"}, "signature": "x"} -->'
         result = type('Done', (), {'returncode': 0, 'stdout': (
             'b' * 40 + '\x1fOwner ' + raw + '\x1fgit log --format=%an \x1f\x1e')})()
-        with patch.object(req, 'git', return_value=result):
+        with patch.object(control, 'git', return_value=result):
             rows = req.origin_rows('a' * 40, 'b' * 40)
         payload = {'base': 'a' * 40, 'head': 'b' * 40, 'tree': 'd' * 40, 'cnb_number': '3',
                    'branch': 'automation/req-9'}
@@ -528,7 +532,7 @@ class RequirementTests(unittest.TestCase):
                                              hold=started)['kind'])
         self.assertEqual('hold', self.decide(comments, rows, tree='abc', checks_green=True, hold=started)['kind'])
         self.assertEqual('forward', self.decide(comments, rows, tree='abc', checks_green=True)['kind'])
-        with patch.object(req, 'comment') as note:
+        with patch.object(control, 'comment') as note:
             req.act(self.issue, {'kind': 'hold', 'ref': started, 'sn': 'cnb-test-1'}, 'abc')
         self.assertIn('`cnb-test-1` 仍在运行', note.call_args.args[1])
         self.assertNotIn('草稿', note.call_args.args[1])
@@ -552,9 +556,9 @@ class RequirementTests(unittest.TestCase):
 
         def git(*args, check=True):
             calls.append(args)
-            return 'c' * 40 if args[0] == 'commit-tree' else ''
-        with patch.object(req, 'git', side_effect=git), patch.object(req, 'sync_branch') as push, \
-                patch.object(req, 'comment') as note:
+            return type('Done', (), {'returncode': 0, 'stdout': 'c' * 40 + '\n'})()
+        with patch.object(control, 'git', side_effect=git), patch.object(control, 'sync_branch', return_value=0) as push, \
+                patch.object(control, 'comment') as note:
             req.act(self.issue, {'kind': 'env-retry', 'head': head, 'sn': 'cnb-ud2-1k64u0imv', 'count': 1}, head)
         self.assertEqual(('commit-tree', head + '^{tree}', '-p', head,
                           '-m', 'Retry dependency rescan after environment failure',
@@ -566,23 +570,34 @@ class RequirementTests(unittest.TestCase):
         self.assertIn('build/logs/cnb-ud2-1k64u0imv', body)
         self.assertIn('"phase": "env-retry"', body)
 
-    def test_a_retried_head_waits_instead_of_pushing_another_commit(self):
+    def test_a_commit_that_never_reached_the_branch_blocks_the_retry(self):
         head = 'b' * 40
+        with patch.object(control, 'git', return_value=type('Done', (), {'returncode': 128, 'stdout': ''})()), \
+                patch.object(control, 'sync_branch') as push, patch.object(control, 'comment') as note:
+            req.act(self.issue, {'kind': 'env-retry', 'head': head, 'sn': 'cnb-ud2-1k64u0imv', 'count': 1}, head)
+        push.assert_not_called()
+        self.assertIn('"phase": "env-blocked"', note.call_args.args[1])
+        self.assertIn('没有放行', note.call_args.args[1])
+
+    def test_a_head_that_already_has_an_environment_marker_waits(self):
+        head = 'b' * 40
+        failure = {'kind': 'osv-unreachable', 'sha': head, 'sn': 'cnb-ud2-1k64u0imv'}
         comments = [self.env_marker('env-retry', head)]
-        self.assertEqual('wait', self.decide(comments, env_failure={'kind': 'osv-unreachable', 'sha': head,
-                                                                   'sn': 'cnb-ud2-1k64u0imv'})['kind'])
-        with patch.object(req, 'git') as git, patch.object(req, 'sync_branch') as push:
+        with patch.object(control, 'comment') as note:
+            self.assertEqual('wait', self.decide(comments, env_failure=failure)['kind'])
+        note.assert_not_called()
+        with patch.object(control, 'git') as git, patch.object(control, 'sync_branch') as push:
             req.act(self.issue, {'kind': 'wait'}, head)
         git.assert_not_called()
         push.assert_not_called()
 
-    def test_two_retries_are_the_limit_and_the_owner_is_told_once(self):
+    def test_the_second_retry_on_the_same_head_blocks_and_the_owner_is_told_once(self):
         head = 'b' * 40
         comments = [self.env_marker('env-retry', 'd' * 40, '2026-09-22T02:05:00Z'),
                     self.env_marker('env-retry', 'e' * 40)]
         failure = {'kind': 'osv-unreachable', 'sha': head, 'sn': 'cnb-ud2-1k64u0imv'}
         posted = []
-        with patch.object(req, 'comment', side_effect=lambda *args: posted.append(args[1])):
+        with patch.object(control, 'comment', side_effect=lambda *args: posted.append(args[1])):
             self.assertEqual('wait', self.decide(comments, env_failure=failure)['kind'])
         self.assertEqual(1, len(posted))
         self.assertIn('api.osv.dev', posted[0])
@@ -590,7 +605,7 @@ class RequirementTests(unittest.TestCase):
         self.assertIn('"phase": "env-blocked"', posted[0])
         self.assertIn('"head": "' + head + '"', posted[0])
         blocked = [self.env_marker('env-blocked', head)]
-        with patch.object(req, 'comment') as note:
+        with patch.object(control, 'comment') as note:
             self.assertEqual('wait', self.decide(comments + blocked, env_failure=failure)['kind'])
         note.assert_not_called()
 
@@ -600,7 +615,7 @@ class RequirementTests(unittest.TestCase):
         with patch.object(req, 'build_log', return_value='no marker at all\n'):
             self.assertIsNone(req.unreachable(pull, statuses))
         for error in (RuntimeError('CNB is down'), KeyError('pipelines'), ValueError('bad json')):
-            with patch.object(req, 'api', side_effect=error):
+            with patch.object(control, 'api', side_effect=error):
                 self.assertIsNone(req.unreachable(pull, statuses))
             with patch.object(req, 'build_log', side_effect=error):
                 self.assertIsNone(req.unreachable(pull, statuses))
@@ -610,6 +625,7 @@ class RequirementTests(unittest.TestCase):
         rows = [self.attempt('failure', started)]
         self.assertEqual(self.decide([dispatch], rows, tree='tree-1'),
                          self.decide([dispatch], rows, tree='tree-1', env_failure=None))
+        self.assertEqual('retry', self.decide([dispatch], rows, tree='tree-1')['phase'])
 
     def test_more_than_one_red_check_is_not_an_environment_failure(self):
         statuses = self.env_statuses()['statuses'] + [{'state': 'failure', 'context': 'cnb(Automation unit tests)',
@@ -635,48 +651,95 @@ class RequirementTests(unittest.TestCase):
 
     def test_the_rescan_stage_log_is_read_from_the_build_status(self):
         status = {'pipelines': {'cnb-ud2-1k64u0imv-001': {
-            'id': 'cnb-ud2-1k64u0imv-001', 'name': 'Project NPC development',
+            'id': 'cnb-ud2-1k64u0imv-001', 'name': 'Go dependency regression tests',
             'stages': [{'id': 'stage-0', 'name': 'Verify core with resolved dependencies'},
-                       {'id': 'stage-1', 'name': req.RESCAN_STAGE}]}}}
+                       {'id': 'stage-1',
+                        'name': 'Rescan actual versions and verify repaired dependency'}]}}}
         urls = []
 
         def api(url, missing=False):
             urls.append(url)
             return status if '/build/status/' in url else env_failure.line('osv-unreachable', sha='b' * 40)
-        with patch.object(req, 'api', side_effect=api):
+        with patch.object(control, 'api', side_effect=api):
             self.assertIn('osv-unreachable', req.build_log('cnb-ud2-1k64u0imv'))
         self.assertEqual(['https://api.cnb.cool/507space/FlClash-alpha/-/build/status/cnb-ud2-1k64u0imv',
                           'https://api.cnb.cool/507space/FlClash-alpha/-/build/logs/stage/cnb-ud2-1k64u0imv/'
                           'cnb-ud2-1k64u0imv-001/stage-1'], urls)
-        with patch.object(req, 'api', return_value={'pipelines': {}}):
+        with patch.object(control, 'api', return_value={'pipelines': {}}):
             self.assertEqual('', req.build_log('cnb-ud2-1k64u0imv'))
-        with patch.object(req, 'api', return_value=None):
+        with patch.object(control, 'api', return_value=None):
             self.assertEqual('', req.build_log('cnb-ud2-1k64u0imv'))
+
+    def test_reconcile_asks_for_the_statuses_of_the_pull_number(self):
+        self.issue['author'] = {'username': 'Aharon', 'is_npc': False}
+        pull = {'number': 4, 'head': {'sha': 'b' * 40, 'ref': 'refs/heads/automation/req-9'},
+                'base': {'sha': 'm' * 40}, 'state': 'open'}
+        asked = []
+
+        def api(url, method='GET', data=None, missing=False, timeout=60):
+            asked.append(url)
+            path = url.split(control.POLICY['cnb'] + '/-/')[-1].split('?')[0]
+            if path == 'issues' and 'state=open' in url:
+                return [{'number': '9'}]
+            if path == 'issues/9':
+                return dict(self.issue)
+            if path == 'issues/9/comments':
+                return []
+            if path == 'pulls' and 'state=all' in url:
+                return [dict(pull, head={**pull['head'], 'repo': {'path': '507space/FlClash-alpha'}},
+                             state='open')]
+            if path == 'pulls/4':
+                return pull
+            if path == 'pulls/4/comments':
+                return []
+            if '/commit-statuses' in url:
+                return self.env_statuses()
+            if url.startswith('https://api.github.com/') and url.endswith('/git/ref/heads/main'):
+                return {'object': {'sha': 'm' * 40}}
+            raise AssertionError(url)
+        actions = []
+        with patch.object(control, 'api', side_effect=api), patch.object(req, 'branch_sha', return_value='b' * 40), \
+                patch.object(control, 'git', return_value=type('Done', (), {'returncode': 0, 'stdout': 'tree-1'})()), \
+                patch.object(req, 'unreachable', return_value=None) as scan, \
+                patch.object(req, 'review_block', return_value=(False, '')) as review, \
+                patch.object(req, 'act', side_effect=lambda issue, action, sha: actions.append(action)):
+            req.reconcile()
+        self.assertEqual('https://api.cnb.cool/507space/FlClash-alpha/-/pulls/4/commit-statuses',
+                         [url for url in asked if '/commit-statuses' in url][0])
+        self.assertEqual(4, scan.call_args.args[0]['number'])
+        self.assertEqual(4, review.call_args.args[0]['number'])
+        self.assertIn('error', [item['state'] for item in scan.call_args.args[1]])
 
     def test_an_environment_marker_does_not_move_the_development_ladder(self):
         head = 'b' * 40
         started = '2026-09-22T02:00:00Z'
         dispatch = self.marker('dev', 60, 'tree-1', started)
         failure = {'kind': 'osv-unreachable', 'sha': head, 'sn': 'cnb-ud2-1k64u0imv'}
-        blocked = [{'created_at': '2026-09-22T02:20:00Z', 'body': '结对审核未通过。按阻断项修改后推同一分支。'}]
-        with patch.object(req, 'comment'):
-            after_retry = self.decide([dispatch, self.env_marker('env-retry', head, '2026-09-22T02:05:00Z')],
-                                      [self.attempt('success', started)], tree='tree-1', review_failed=True,
-                                      env_failure=failure)
-        without = self.decide([dispatch], [self.attempt('success', started)], tree='tree-1', review_failed=True)
-        self.assertEqual('dispatch', after_retry['kind'])
-        self.assertEqual({key: value for key, value in without.items() if key != 'instruction'},
-                         {key: value for key, value in after_retry.items() if key != 'instruction'})
+        retried = [dispatch, self.env_marker('env-retry', head, '2026-09-22T02:05:00Z')]
+        rows = [self.attempt('success', started)]
+        with patch.object(control, 'comment'):
+            self.assertEqual('wait', self.decide(retried, rows, tree='tree-1', env_failure=failure)['kind'])
+            after = self.decide(retried, rows, tree='tree-1', review_failed=True, env_failure=failure)
+        without = self.decide([dispatch], rows, tree='tree-1', review_failed=True)
+        self.assertEqual('dispatch', after['kind'])
+        self.assertEqual(without, after)
 
     def test_an_environment_failure_never_forwards_or_syncs(self):
         head = 'b' * 40
         failure = {'kind': 'osv-unreachable', 'sha': head, 'sn': 'cnb-ud2-1k64u0imv'}
-        for kwargs in ({'checks_green': True, 'has_pull': True}, {'checks_green': True, 'behind': True},
-                       {'review_failed': True, 'behind': True}):
-            expected = 'dispatch' if kwargs.get('review_failed') else 'env-retry'
-            defaults = {key: value for key, value in kwargs.items() if key != 'checks_green'}
-        self.assertEqual(expected, self.decide(checks_green=kwargs.get('checks_green', False),
-                                               env_failure=failure, **defaults)['kind'])
+        started = '2026-09-22T02:00:00Z'
+        dispatch = self.marker('dev', 60, 'tree-1', started)
+        rows = [self.attempt('success', started)]
+        self.assertEqual('forward', self.decide([dispatch], rows, tree='tree-1', checks_green=True)['kind'])
+        self.assertEqual('sync-main', self.decide([dispatch], rows, tree='tree-1', checks_green=True,
+                                                  behind=True)['kind'])
+        for action in (self.decide([dispatch], rows, tree='tree-1', has_pull=True, env_failure=failure),
+                       self.decide([dispatch], rows, tree='tree-1', has_pull=True, env_failure=failure,
+                                   hold=''),
+                       self.decide([], rows, tree='tree-1', has_pull=True, env_failure=failure)):
+            self.assertNotIn(action['kind'], ('forward', 'sync-main'), action)
+        self.assertEqual('dispatch', self.decide([dispatch], rows, tree='tree-1', review_failed=True,
+                                                 env_failure=failure)['kind'])
         self.assertEqual('sync-main', self.decide(checks_green=True, behind=True)['kind'])
 
     def test_a_blocked_review_still_gets_a_developer_after_an_environment_retry(self):
