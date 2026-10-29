@@ -9,13 +9,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ~/.rustup and ~/.cargo with a default toolchain instead of RUSTUP_* variables.
 ENV PUB_CACHE=/root/.pub-cache
 ENV PATH=/opt/flutter/bin:/usr/local/go/bin:/root/.cargo/bin:$PATH
-RUN curl -fsSL --retry 3 https://go.dev/dl/go1.26.8.linux-amd64.tar.gz -o /tmp/go.tar.gz && \
-    echo 'd0f743b33e8d8945e6b1f432edd15785c70507121d6e2a723b21285eddf8b57b  /tmp/go.tar.gz' | sha256sum -c - && \
+RUN curl -fsSL --retry 3 https://go.dev/dl/go1.27.1.linux-amd64.tar.gz -o /tmp/go.tar.gz && \
+    echo '63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445  /tmp/go.tar.gz' | sha256sum -c - && \
     tar -xzf /tmp/go.tar.gz -C /usr/local && rm /tmp/go.tar.gz
 RUN curl -fsSL --retry 3 https://sh.rustup.rs -o /tmp/rustup.sh && \
-    sh /tmp/rustup.sh -y --profile minimal --default-toolchain 1.95.0 && rm /tmp/rustup.sh
+    sh /tmp/rustup.sh -y --profile minimal --default-toolchain 1.99.0 && rm /tmp/rustup.sh
 ENV TAR_OPTIONS=--no-same-owner
-RUN git clone --depth 1 --branch 3.47.1 https://github.com/flutter/flutter.git /opt/flutter && \
+RUN git clone --depth 1 --branch 3.47.6 https://github.com/flutter/flutter.git /opt/flutter && \
     git config --global --add safe.directory /opt/flutter && \
     flutter config --no-analytics --no-cli-animations && \
     flutter create --platforms=linux /tmp/warm && cd /tmp/warm && flutter test && rm -rf /tmp/warm
