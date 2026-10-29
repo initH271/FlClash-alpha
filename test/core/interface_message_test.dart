@@ -60,9 +60,6 @@ void main() {
     'setupConfig': () => core.setupConfig(_setupParams),
     'updateConfig': () => core.updateConfig(_updateParams),
     'validateConfig': () => core.validateConfig('/tmp/config.yaml'),
-    'changeProxy': () => core.changeProxy(
-      const ChangeProxyParams(groupName: 'G', proxyName: 'P'),
-    ),
     'updateGeoData': () => core.updateGeoData('geoip'),
     'updateExternalProvider': () => core.updateExternalProvider('provider'),
     'sideLoadExternalProvider': () =>
@@ -87,6 +84,19 @@ void main() {
     });
   });
 
+  test('an unanswered changeProxy is not reported as applied', () {
+    expect(
+      core.changeProxy(const ChangeProxyParams(groupName: 'G', proxyName: 'P')),
+      throwsA(
+        isA<CoreMethodException>().having(
+          (error) => error.code,
+          'code',
+          'no_response',
+        ),
+      ),
+    );
+  });
+
   test('an answered call still returns the core message verbatim', () async {
     final core = _AnsweringCore('nameserver is empty');
     expect(await core.setupConfig(_setupParams), 'nameserver is empty');
@@ -104,10 +114,40 @@ void main() {
   test('calls that legitimately degrade are left alone', () async {
     expect(await core.isInit, isFalse);
     expect(await core.forceGc(), isFalse);
-    expect(await core.getMemory(), 0);
+    expect(await core.getMemoryStats(), isNull);
     expect(await core.getExternalProviders(), isEmpty);
     expect(await core.getExternalProvider('p'), isNull);
+    expect(await core.watchRoute(true), isNull);
   });
+
+  test('calls nobody waits on absorb a Core that is gone', () async {
+    final core = _DisconnectedCore();
+
+    await core.resetTraffic();
+    await core.startLog();
+    await core.stopLog();
+
+    expect(core.invoked, [
+      CoreMethod.resetTraffic,
+      CoreMethod.startLog,
+      CoreMethod.stopLog,
+    ]);
+  });
+}
+
+class _DisconnectedCore extends _SilentCore {
+  @override
+  Future<T?> invokeMethod<T>({
+    required CoreMethod method,
+    Object? arguments,
+    Duration? timeout,
+  }) async {
+    invoked.add(method);
+    throw const CoreMethodException(
+      code: 'transport_disconnected',
+      message: 'Core RPC client is closed',
+    );
+  }
 }
 
 class _AnsweringCore extends _SilentCore {

@@ -38,9 +38,9 @@ class CoreService extends CoreHandlerInterface {
     final directLauncher = DirectCoreLauncher();
 
     final lifecycle = DesktopCoreLifecycle(
-      transportFactory: () => IPCCoreTransport(address: address),
+      transportFactory: () => IpcCoreTransport(address: address),
       launcherResolver: HelperLauncherResolver(
-        hasHelper: system.hasHelperService,
+        hasHelper: system.hasHelperService && !safeModeBuild,
         directLauncher: directLauncher,
         helperLauncher: HelperLauncher(helperClient),
         helperReady: () => helperClient.readiness(),

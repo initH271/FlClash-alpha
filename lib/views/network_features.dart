@@ -9,17 +9,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 class NetworkFeaturesView extends ConsumerWidget {
   const NetworkFeaturesView({super.key});
 
-  static void show(BuildContext context) {
-    showSheet(
-      context: context,
-      props: const SheetProps(isScrollControlled: true),
-      builder: (_) => AdaptiveSheetScaffold(
-        title: context.appLocalizations.networkFeatures,
-        body: const NetworkFeaturesView(),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l = context.appLocalizations;
@@ -30,65 +19,72 @@ class NetworkFeaturesView extends ConsumerWidget {
       ref.read(networkFeaturesProvider.notifier).update(change);
     }
 
-    return ListView(
-      padding: baseInfoEdgeInsets,
-      children: [
-        SwitchListTile(
-          title: Text(l.smartAutoStop),
-          subtitle: Text(l.smartAutoStopDesc),
-          value: settings.smartAutoStop,
-          onChanged: (value) => update((s) => s.copyWith(smartAutoStop: value)),
+    return BaseScaffold(
+      title: l.networkFeatures,
+      body: ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 16).copyWith(
+          top: context.contentTopPadding,
+          bottom: 20 + context.bottomInset,
         ),
-        _NetworkRulesEditor(initialValue: settings.smartAutoStopNetworks),
-        SwitchListTile(
-          title: Text(l.disableQuic),
-          subtitle: Text(l.disableQuicDesc),
-          value: settings.disableQuic,
-          onChanged: (value) => update((s) => s.copyWith(disableQuic: value)),
-        ),
-        SwitchListTile(
-          title: Text(l.snifferOverride),
-          value: settings.overrideSniffer,
-          onChanged: (value) =>
-              update((s) => s.copyWith(overrideSniffer: value)),
-        ),
-        SwitchListTile(
-          title: Text(l.sniffer),
-          value: settings.snifferEnabled,
-          onChanged: settings.overrideSniffer
-              ? (value) => update((s) => s.copyWith(snifferEnabled: value))
-              : null,
-        ),
-        SwitchListTile(
-          title: Text(l.ntpOverride),
-          value: settings.overrideNtp,
-          onChanged: (value) => update((s) => s.copyWith(overrideNtp: value)),
-        ),
-        SwitchListTile(
-          title: const Text('NTP'),
-          value: settings.ntpEnabled,
-          onChanged: settings.overrideNtp
-              ? (value) => update((s) => s.copyWith(ntpEnabled: value))
-              : null,
-        ),
-        TextFormField(
-          initialValue: settings.ntpServer,
-          maxLength: 253,
-          textInputAction: TextInputAction.done,
-          decoration: InputDecoration(labelText: l.ntpServer),
-          onFieldSubmitted: (value) {
-            if (value.trim().isNotEmpty) {
-              update((s) => s.copyWith(ntpServer: value.trim()));
-            }
-          },
-        ),
-        if (system.isDesktop)
+        children: [
           SwitchListTile(
-            title: Text(l.keepAwake),
-            value: settings.keepAwake,
-            onChanged: (value) => update((s) => s.copyWith(keepAwake: value)),
+            title: Text(l.smartAutoStop),
+            subtitle: Text(l.smartAutoStopDesc),
+            value: settings.smartAutoStop,
+            onChanged: (value) =>
+                update((s) => s.copyWith(smartAutoStop: value)),
           ),
-      ],
+          _NetworkRulesEditor(initialValue: settings.smartAutoStopNetworks),
+          SwitchListTile(
+            title: Text(l.disableQuic),
+            subtitle: Text(l.disableQuicDesc),
+            value: settings.disableQuic,
+            onChanged: (value) => update((s) => s.copyWith(disableQuic: value)),
+          ),
+          SwitchListTile(
+            title: Text(l.snifferOverride),
+            value: settings.overrideSniffer,
+            onChanged: (value) =>
+                update((s) => s.copyWith(overrideSniffer: value)),
+          ),
+          SwitchListTile(
+            title: Text(l.sniffer),
+            value: settings.snifferEnabled,
+            onChanged: settings.overrideSniffer
+                ? (value) => update((s) => s.copyWith(snifferEnabled: value))
+                : null,
+          ),
+          SwitchListTile(
+            title: Text(l.ntpOverride),
+            value: settings.overrideNtp,
+            onChanged: (value) => update((s) => s.copyWith(overrideNtp: value)),
+          ),
+          SwitchListTile(
+            title: const Text('NTP'),
+            value: settings.ntpEnabled,
+            onChanged: settings.overrideNtp
+                ? (value) => update((s) => s.copyWith(ntpEnabled: value))
+                : null,
+          ),
+          TextFormField(
+            initialValue: settings.ntpServer,
+            maxLength: 253,
+            textInputAction: TextInputAction.done,
+            decoration: InputDecoration(labelText: l.ntpServer),
+            onFieldSubmitted: (value) {
+              if (value.trim().isNotEmpty) {
+                update((s) => s.copyWith(ntpServer: value.trim()));
+              }
+            },
+          ),
+          if (system.isDesktop)
+            SwitchListTile(
+              title: Text(l.keepAwake),
+              value: settings.keepAwake,
+              onChanged: (value) => update((s) => s.copyWith(keepAwake: value)),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -161,11 +157,10 @@ class _NetworkRulesEditorState extends ConsumerState<_NetworkRulesEditor> {
         ),
         Align(
           alignment: Alignment.centerRight,
-          child: FilledButton.icon(
+          child: FilledButton(
             key: const ValueKey('save-network-rules'),
             onPressed: _save,
-            icon: const Icon(Icons.save),
-            label: Text(l.save),
+            child: Text(l.save),
           ),
         ),
       ],

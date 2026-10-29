@@ -7,7 +7,6 @@ import 'package:fl_clash/common/boot_record.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/launch.dart';
 import 'package:fl_clash/common/migration.dart';
-import 'package:fl_clash/common/permission.dart';
 import 'package:fl_clash/common/tray.dart';
 import 'package:fl_clash/common/window.dart';
 import 'package:fl_clash/database/database.dart';
@@ -16,6 +15,7 @@ import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
+import 'package:fl_clash/views/disclaimer.dart';
 import 'package:fl_clash/views/navigation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
@@ -73,6 +73,16 @@ class Bootstrap {
     );
   }
 
+  /// Runs before migration and the database: a copy started from another
+  /// install path gets past the platform's single-instance hand-off.
+  Future<void> _claimDataDirectory() async {
+    if (!system.isDesktop || await singleInstanceLock.acquire()) {
+      return;
+    }
+    commonPrint.log('another instance owns the data directory, exiting');
+    exit(0);
+  }
+
   Future<TonalPalette?> _getSystemPrimaryPalette() async {
     final raw = await DynamicColorPlugin.channel.invokeMethod<List<dynamic>>(
       DynamicColorPlugin.methodName,
@@ -89,14 +99,19 @@ class Bootstrap {
     int version,
     DynamicColorSeeds dynamicColor,
   ) async {
+    await _claimDataDirectory();
     globalState.packageInfo = await PackageInfo.fromPlatform();
     var config = await migration.run();
     _bootDecision = await bootGuard.evaluate(
       profileId: config.currentProfileId,
-      crashlyticsEnabled: config.appSettingProps.crashlytics,
     );
     if (_bootDecision.recovery == BootRecovery.clearProfile) {
       config = config.copyWith(currentProfileId: null);
+      await preferences.saveConfig(config);
+    }
+    final patchClashConfig = config.patchClashConfig.ensureControllerSecret();
+    if (patchClashConfig != config.patchClashConfig) {
+      config = config.copyWith(patchClashConfig: patchClashConfig);
       await preferences.saveConfig(config);
     }
     final appState = AppState(
@@ -123,7 +138,7 @@ class Bootstrap {
           accentColor: dynamicColor.accentColor,
         );
     final profiles = await database.profilesDao.query().get();
-    container.read(profilesProvider.notifier).setAndReorder(profiles);
+    container.read(profilesProvider.notifier).reorder(profiles);
     await AppLocalizations.load(
       getLocaleForString(config.appSettingProps.locale) ??
           WidgetsBinding.instance.platformDispatcher.locale,
@@ -159,17 +174,19 @@ class Bootstrap {
       unawaited(window?.hide());
     }
     await _handleFailedPreference();
-    await _handlerDisclaimer();
+    if (!await _handlerDisclaimer()) {
+      return;
+    }
     await _showCrashRecoveryTip();
-    await _showCrashlyticsTip();
     await _container.read(coreActionProvider.notifier).startCore();
     if (!_bootDecision.isDegraded) {
       await _container.read(setupActionProvider.notifier).initStatus();
     }
     _container.read(initProvider.notifier).value = true;
+    unawaited(_container.read(resourcesActionProvider.notifier).autoUpdate());
     await bootGuard.markRunning();
     unawaited(_container.read(commonActionProvider.notifier).autoCheckUpdate());
-    permissions.check(_container.read);
+    unawaited(_container.read(locationPermissionsProvider.notifier).refresh());
   }
 
   Future<void> _showCrashRecoveryTip() async {
@@ -177,16 +194,14 @@ class Bootstrap {
       case BootRecovery.none:
         return;
       case BootRecovery.skipAutoSetup:
-        await dialogs.showMessage(
+        await dialogs.showAlert(
           title: currentAppLocalizations.launchInterrupted,
-          cancelable: false,
           dismissible: false,
           message: TextSpan(text: currentAppLocalizations.launchInterruptedTip),
         );
       case BootRecovery.clearProfile:
-        await dialogs.showMessage(
+        await dialogs.showAlert(
           title: currentAppLocalizations.crashDetected,
-          cancelable: false,
           dismissible: false,
           message: TextSpan(
             text: currentAppLocalizations.crashDetectedTip(_failedProfileLabel),
@@ -218,36 +233,34 @@ class Bootstrap {
     await _container.read(systemActionProvider.notifier).handleExit(false);
   }
 
-  Future<void> _showCrashlyticsTip() async {
-    if (!system.isAndroid) return;
-    if (_container.read(
-      appSettingProvider.select((state) => state.crashlyticsTip),
-    )) {
-      return;
-    }
-    await dialogs.showMessage(
-      title: currentAppLocalizations.dataCollectionTip,
-      cancelable: false,
-      message: TextSpan(text: currentAppLocalizations.dataCollectionContent),
-    );
-    _container
-        .read(appSettingProvider.notifier)
-        .update((state) => state.copyWith(crashlyticsTip: true));
-  }
+  /// Unattended desktop installs, such as a container nobody watches, accept
+  /// up front: the core only starts after the disclaimer is accepted.
+  bool get _isDisclaimerAcceptedByEnvironment =>
+      system.isDesktop &&
+      Platform.environment['FLCLASH_ACCEPT_DISCLAIMER'] == '1';
 
-  Future<void> _handlerDisclaimer() async {
-    if (_container.read(
-      appSettingProvider.select((state) => state.disclaimerAccepted),
-    )) {
-      return;
+  /// Android's exit only finishes the activity, so Dart keeps running after
+  /// [SystemAction.handleExit] returns and must not go on to start the app.
+  Future<bool> _handlerDisclaimer() async {
+    final acceptedVersion = _container.read(
+      appSettingProvider.select((state) => state.acceptedDisclaimerVersion),
+    );
+    if (acceptedVersion >= disclaimerVersion) {
+      return true;
     }
-    final isDisclaimerAccepted = await dialogs.showDisclaimer();
+    final isDisclaimerAccepted =
+        _isDisclaimerAcceptedByEnvironment || await requestDisclaimerConsent();
     if (!isDisclaimerAccepted) {
       await _container.read(systemActionProvider.notifier).handleExit();
+      return false;
     }
     _container
         .read(appSettingProvider.notifier)
-        .update((state) => state.copyWith(disclaimerAccepted: true));
+        .update(
+          (state) =>
+              state.copyWith(acceptedDisclaimerVersion: disclaimerVersion),
+        );
+    return true;
   }
 }
 

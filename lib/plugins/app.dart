@@ -18,10 +18,26 @@ class App {
     return value;
   }
 
+  Future<Uri?> createExportDocument(String fileName) async {
+    final uri = await methodChannel.invokeMethod<String>(
+      'createExportDocument',
+      {'fileName': fileName},
+    );
+    return uri == null ? null : Uri.parse(uri);
+  }
+
+  Future<void> copyFileToUri(String path, Uri destination) async {
+    await methodChannel.invokeMethod<void>('copyFileToUri', {
+      'path': path,
+      'uri': destination.toString(),
+    });
+  }
+
   static App? _instance;
   late MethodChannel methodChannel;
   Function()? onExit;
   Function()? onPackagesChanged;
+  final floatingKeyboard = ValueNotifier(false);
 
   App._internal() {
     methodChannel = const MethodChannel('$packageName/app');
@@ -33,6 +49,8 @@ class App {
           }
         case 'packagesChanged':
           onPackagesChanged?.call();
+        case 'floatingImeChanged':
+          floatingKeyboard.value = call.arguments as bool;
         default:
           throw MissingPluginException();
       }
@@ -71,6 +89,15 @@ class App {
         false;
   }
 
+  /// Android 17 drops traffic between the app and the local network until the
+  /// user grants this; earlier versions answer true.
+  Future<bool> requestLocalNetworkPermission() async {
+    return await methodChannel.invokeMethod<bool>(
+          'requestLocalNetworkPermission',
+        ) ??
+        false;
+  }
+
   Future<List<String>> getChinaPackageNames() async {
     final packageNamesString = await methodChannel.invokeMethod<String>(
       'getChinaPackageNames',
@@ -80,36 +107,9 @@ class App {
     return packageNamesRaw.map((e) => e.toString()).toList();
   }
 
-  Future<bool?> requestNotificationsPermission() async {
-    return methodChannel.invokeMethod<bool>('requestNotificationsPermission');
-  }
-
-  Future<bool> openFile(String path) async {
-    return await methodChannel.invokeMethod<bool>('openFile', {'path': path}) ??
-        false;
-  }
-
-  Future<Uri?> createExportDocument(String fileName) async {
-    final uri = await methodChannel.invokeMethod<String>(
-      'createExportDocument',
-      {'fileName': fileName},
-    );
-    return uri == null ? null : Uri.parse(uri);
-  }
-
-  Future<void> copyFileToUri(String path, Uri destination) async {
-    await methodChannel.invokeMethod<void>('copyFileToUri', {
-      'path': path,
-      'uri': destination.toString(),
-    });
-  }
-
   final Map<String, ImageProvider?> _packageIcons = {};
   final Map<String, Future<ImageProvider?>> _packageIconTasks = {};
-
-  bool hasPackageIcon(String packageName) {
-    return _packageIcons.containsKey(packageName);
-  }
+  final TaskPool _packageIconPool = TaskPool(maxConcurrentIconLoads);
 
   ImageProvider? getCachedPackageIcon(String packageName) {
     return _packageIcons[packageName];
@@ -134,9 +134,11 @@ class App {
 
   Future<ImageProvider?> _requestPackageIcon(String packageName) async {
     try {
-      final path = await methodChannel.invokeMethod<String>('getPackageIcon', {
-        'packageName': packageName,
-      });
+      final path = await _packageIconPool.run(
+        () => methodChannel.invokeMethod<String>('getPackageIcon', {
+          'packageName': packageName,
+        }),
+      );
       if (path == null || path.isEmpty) {
         return null;
       }
@@ -158,10 +160,11 @@ class App {
   }
 
   Future<bool?> initShortcuts() async {
-    return methodChannel.invokeMethod<bool>(
-      'initShortcuts',
-      currentAppLocalizations.toggle,
-    );
+    return methodChannel.invokeMethod<bool>('initShortcuts', {
+      'start': currentAppLocalizations.start,
+      'stop': currentAppLocalizations.stop,
+      'toggle': currentAppLocalizations.toggle,
+    });
   }
 
   Future<bool?> updateExcludeFromRecents(bool value) async {
@@ -170,35 +173,9 @@ class App {
     });
   }
 
-  Future<bool?> isBatteryOptimizationDisabled() async {
-    if (!Platform.isAndroid) return true;
-    return methodChannel.invokeMethod<bool>('isBatteryOptimizationDisabled');
-  }
-
-  Future<bool?> openBatteryOptimizationSettings() async {
-    if (!Platform.isAndroid) return false;
-    return methodChannel.invokeMethod<bool>('openBatteryOptimizationSettings');
-  }
-
   Future<bool?> openAppSettings() async {
     if (!Platform.isAndroid) return false;
     return methodChannel.invokeMethod<bool>('openAppSettings');
-  }
-
-  Future<bool> didCrashOnPreviousExecution() async {
-    try {
-      final value = await methodChannel
-          .invokeMethod<bool>('didCrashOnPreviousExecution')
-          .timeout(_platformProbeTimeout);
-      return value ?? false;
-    } catch (error) {
-      commonPrint.log(
-        'Failed to read the previous-execution crash flag: '
-        '${compactError(error)}',
-        logLevel: LogLevel.warning,
-      );
-      return false;
-    }
   }
 
   Future<AppExitInfo?> getLastExitInfo() async {

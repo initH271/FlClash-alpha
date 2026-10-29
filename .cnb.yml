@@ -89,6 +89,8 @@ main:
             cp pubspec.yaml /tmp/flclash-pubspec.yaml
             trap 'cp /tmp/flclash-pubspec.yaml pubspec.yaml' EXIT
             sed -i 's/build_assets: true/build_assets: false/g' pubspec.yaml
+            (cd plugins/rust_api/rust && cargo build --locked)
+            export FRB_DART_LOAD_EXTERNAL_LIBRARY_NATIVE_LIB_DIR="$PWD/plugins/rust_api/rust/target/debug"
             flutter test --reporter expanded
         - name: Android unit tests
           image: $TOOLCHAIN_IMAGE

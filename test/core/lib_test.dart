@@ -218,16 +218,7 @@ void main() {
   });
 
   group('listeners', () {
-    test('a rejected core start never creates the VPN service', () async {
-      await lib.start();
-      service.calls.clear();
-      service.onInvokeMethod = (_) =>
-          const CoreMethodResponse(id: '1', result: false);
-      expect(await lib.startListener(), isFalse);
-      expect(service.calls, ['invokeMethod:startListener']);
-    });
-
-    test('a listener is started only when both sides agree', () async {
+    test('a listener start is answered by the service', () async {
       await lib.start();
       service.onInvokeMethod = (_) =>
           const CoreMethodResponse(id: '1', result: true);
@@ -236,6 +227,21 @@ void main() {
 
       service.startResult = false;
       expect(await lib.startListener(), isFalse);
+
+      service.startResult = true;
+      service.onInvokeMethod = (_) => null;
+      expect(await lib.startListener(), isTrue);
+      expect(service.calls.last, 'start');
+    });
+
+    test('a listener stop is answered by the service', () async {
+      await lib.start();
+      service.onInvokeMethod = (_) => null;
+
+      expect(await lib.stopListener(), isTrue);
+
+      service.stopResult = false;
+      expect(await lib.stopListener(), isFalse);
     });
 
     test('stopListener stops the service before the core listener', () async {

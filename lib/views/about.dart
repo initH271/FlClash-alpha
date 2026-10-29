@@ -1,24 +1,23 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/release_identity.dart';
 import 'package:fl_clash/enum/enum.dart';
-import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
-import 'package:fl_clash/widgets/list.dart';
-import 'package:fl_clash/widgets/scaffold.dart';
+import 'package:fl_clash/ui/icons/icons.dart';
+import 'package:fl_clash/ui/ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:dio/dio.dart';
 
 @immutable
 class Contributor {
-  final String? avatar;
+  final String avatar;
   final String name;
   final String? link;
 
-  const Contributor({this.avatar, required this.name, this.link});
+  const Contributor({required this.avatar, required this.name, this.link});
 }
 
 class AboutView extends ConsumerStatefulWidget {
@@ -31,6 +30,17 @@ class AboutView extends ConsumerStatefulWidget {
 }
 
 class _AboutViewState extends ConsumerState<AboutView> {
+  static const _maintainer = Contributor(
+    avatar: 'assets/images/avatar/aharon.png',
+    name: 'Aharon',
+    link: 'https://github.com/initH271',
+  );
+
+  static const _contributors = [
+    Contributor(avatar: 'assets/images/avatar/june2.jpg', name: 'June2'),
+    Contributor(avatar: 'assets/images/avatar/arue.jpg', name: 'Arue'),
+  ];
+
   final _dateToken = CancelToken();
   late final AppReleaseIdentity _identity;
   late final Future<DateTime?> _releaseDate;
@@ -54,212 +64,287 @@ class _AboutViewState extends ConsumerState<AboutView> {
   }
 
   Future<void> _checkUpdate(BuildContext context, WidgetRef ref) async {
+    if (ref.read(loadingProvider(LoadingTag.checkUpdate))) return;
     final commonAction = ref.read(commonActionProvider.notifier);
-    final data = await globalState.safeRun<Map<String, dynamic>?>(
-      request.checkForUpdate,
+    final result = await globalState.loadingRun(
+      () async => (release: await request.checkForUpdate()),
       title: context.appLocalizations.checkUpdate,
+      tag: LoadingTag.checkUpdate,
     );
-    unawaited(commonAction.checkUpdateResultHandle(data: data, isUser: true));
-  }
-
-  List<Widget> _buildMoreSection(BuildContext context, WidgetRef ref) {
-    final appLocalizations = context.appLocalizations;
-    return generateSection(
-      separated: false,
-      title: appLocalizations.more,
-      items: [
-        ListItem(
-          title: Text(appLocalizations.checkUpdate),
-          onTap: () {
-            _checkUpdate(context, ref);
-          },
-        ),
-        ListItem(
-          title: Text('${appLocalizations.project} · GitHub'),
-          onTap: () {
-            dialogs.openUrl('https://github.com/$repository');
-          },
-          trailing: const Icon(Icons.launch),
-        ),
-        ListItem(
-          title: Text('${appLocalizations.project} · CNB'),
-          onTap: () =>
-              dialogs.openUrl('https://cnb.cool/507space/FlClash-alpha'),
-          trailing: const Icon(Icons.launch),
-        ),
-        ListItem(
-          title: Text(appLocalizations.upstreamProject),
-          subtitle: const Text('FlClash · chen08209'),
-          onTap: () => dialogs.openUrl('https://github.com/chen08209/FlClash'),
-          trailing: const Icon(Icons.launch),
-        ),
-        ListItem(
-          title: Text(appLocalizations.core),
-          onTap: () {
-            dialogs.openUrl(
-              'https://github.com/chen08209/Clash.Meta/tree/FlClash',
-            );
-          },
-          trailing: const Icon(Icons.launch),
-        ),
-      ],
+    if (result == null) return;
+    unawaited(
+      commonAction.checkUpdateResultHandle(data: result.release, isUser: true),
     );
   }
 
-  List<Widget> _buildContributorsSection(AppLocalizations appLocalizations) {
-    const contributors = [
-      Contributor(
-        avatar: 'assets/images/avatar/aharon.png',
-        name: 'Aharon',
-        link: 'https://github.com/initH271',
-      ),
-      Contributor(avatar: 'assets/images/avatar/june2.jpg', name: 'June2'),
-      Contributor(avatar: 'assets/images/avatar/arue.jpg', name: 'Arue'),
-    ];
-    return generateSection(
-      separated: false,
-      title: appLocalizations.otherContributors,
-      items: [
-        ListItem(
-          title: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Wrap(
-              spacing: 24,
-              children: [
-                for (final contributor in contributors)
-                  Avatar(contributor: contributor),
-              ],
-            ),
-          ),
-        ),
-      ],
+  Widget _buildLinkItem({
+    required Glyph glyph,
+    required String title,
+    required String url,
+    required String label,
+  }) {
+    return ListItem(
+      leading: _LinkBadge(glyph: glyph),
+      title: Text(title),
+      subtitle: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+      trailing: const GlyphIcon(AppGlyphs.openExternal),
+      onTap: () {
+        dialogs.openUrl(url);
+      },
+    );
+  }
+
+  Widget _buildContributor(Contributor contributor, String subtitle) {
+    final link = contributor.link;
+    return ListItem(
+      leading: CircleAvatar(foregroundImage: AssetImage(contributor.avatar)),
+      title: Text(contributor.name),
+      subtitle: Text(subtitle),
+      onTap: link == null ? null : () => dialogs.openUrl(link),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final appLocalizations = context.appLocalizations;
-    final items = [
-      ListTile(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Consumer(
-              builder: (_, ref, _) {
-                return _DeveloperModeDetector(
-                  child: Wrap(
-                    spacing: 16,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Image.asset(
-                          'assets/images/icon.png',
-                          width: 64,
-                          height: 64,
-                        ),
-                      ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'FlClash-alpha',
-                            style: Theme.of(context).textTheme.headlineSmall,
-                          ),
-                          Text(
-                            _identity.displayVersion,
-                            style: Theme.of(context).textTheme.labelLarge,
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  onEnterDeveloperMode: () {
-                    ref
-                        .read(appSettingProvider.notifier)
-                        .update((state) => state.copyWith(developerMode: true));
-                    context.showNotifier(
-                      appLocalizations.developerModeEnableTip,
-                      level: MessageLevel.success,
-                    );
-                  },
-                );
-              },
-            ),
-            const SizedBox(height: 24),
-            Text(
-              appLocalizations.personalForkDescription,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              '${appLocalizations.upstreamVersion}: ${_identity.upstreamVersion}',
-              style: context.textTheme.bodySmall,
-            ),
-            FutureBuilder<DateTime?>(
-              future: _releaseDate,
-              builder: (context, snapshot) => Text(
-                '${appLocalizations.releaseDate}: ${snapshot.data == null ? appLocalizations.unknown : formatReleaseDate(snapshot.data!)}',
-                style: context.textTheme.bodySmall,
-              ),
-            ),
-            ExpansionTile(
-              title: Text(appLocalizations.versionDetails),
-              children: [
-                ListTile(
-                  title: Text(appLocalizations.buildNumber),
-                  subtitle: Text(globalState.packageInfo.buildNumber),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-      const SizedBox(height: 12),
-      ..._buildContributorsSection(appLocalizations),
-      ..._buildMoreSection(context, ref),
-    ];
-    return BaseScaffold(
+    final isLoading = ref.watch(loadingProvider(LoadingTag.checkUpdate));
+    return CommonScaffold(
+      isLoading: isLoading,
       title: appLocalizations.about,
-      body: Padding(
-        padding: kMaterialListPadding.copyWith(top: 16, bottom: 16),
-        child: generateListView(items),
+      body: ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 16).copyWith(
+          top: context.contentTopPadding,
+          bottom: 32 + context.bottomInset,
+        ),
+        children: [
+          _AboutHero(
+            identity: _identity,
+            releaseDate: _releaseDate,
+            isCheckingUpdate: isLoading,
+            onCheckUpdate: () {
+              _checkUpdate(context, ref);
+            },
+            onEnterDeveloperMode: () {
+              ref
+                  .read(appSettingProvider.notifier)
+                  .update((state) => state.copyWith(developerMode: true));
+              context.showNotifier(
+                appLocalizations.developerModeEnableTip,
+                level: MessageLevel.success,
+              );
+            },
+          ),
+          const SizedBox(height: 8),
+          generateSection(
+            title: appLocalizations.more,
+            items: [
+              _buildLinkItem(
+                glyph: AppGlyphs.code,
+                title: '${appLocalizations.project} · GitHub',
+                url: 'https://github.com/$repository',
+                label: 'GitHub',
+              ),
+              _buildLinkItem(
+                glyph: AppGlyphs.code,
+                title: '${appLocalizations.project} · CNB',
+                url: 'https://cnb.cool/507space/FlClash-alpha',
+                label: 'CNB',
+              ),
+              _buildLinkItem(
+                glyph: AppGlyphs.code,
+                title: appLocalizations.upstreamProject,
+                url: 'https://github.com/chen08209/FlClash',
+                label: 'FlClash · chen08209',
+              ),
+              _buildLinkItem(
+                glyph: AppGlyphs.cpu,
+                title: appLocalizations.core,
+                url: 'https://github.com/chen08209/Clash.Meta/tree/FlClash',
+                label: 'github.com/chen08209/Clash.Meta',
+              ),
+            ],
+          ),
+          generateSection(
+            title: appLocalizations.otherContributors,
+            items: [
+              _buildContributor(_maintainer, 'GitHub'),
+              for (final contributor in _contributors)
+                _buildContributor(contributor, appLocalizations.appIconDesign),
+            ],
+          ),
+        ],
       ),
     );
   }
 }
 
-class Avatar extends StatelessWidget {
-  final Contributor contributor;
+class _AboutHero extends StatelessWidget {
+  final AppReleaseIdentity identity;
+  final Future<DateTime?> releaseDate;
+  final bool isCheckingUpdate;
+  final VoidCallback onCheckUpdate;
+  final VoidCallback onEnterDeveloperMode;
 
-  const Avatar({super.key, required this.contributor});
+  const _AboutHero({
+    required this.identity,
+    required this.releaseDate,
+    required this.isCheckingUpdate,
+    required this.onCheckUpdate,
+    required this.onEnterDeveloperMode,
+  });
+
+  static const _logoSize = 96.0;
+  static const _logoInset = 14.0;
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: contributor.link == null
-          ? null
-          : () => dialogs.openUrl(contributor.link!),
+    final colorScheme = context.colorScheme;
+    final appLocalizations = context.appLocalizations;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
       child: Column(
         children: [
-          SizedBox(
-            width: 36,
-            height: 36,
-            child: CircleAvatar(
-              foregroundImage: contributor.avatar == null
-                  ? null
-                  : AssetImage(contributor.avatar!),
-              onForegroundImageError: contributor.avatar == null
-                  ? null
-                  : (_, _) => commonPrint.log(
-                      'Contributor avatar could not be loaded',
-                    ),
-              child: Text(contributor.name[0]),
+          _DeveloperModeDetector(
+            onEnterDeveloperMode: onEnterDeveloperMode,
+            child: DecoratedBox(
+              decoration: ShapeDecoration(
+                color: context.raisedSurfaceLevel.colorOf(colorScheme),
+                shape: AppShape.all(AppCorner.fit(_logoSize)),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(_logoInset),
+                child: Image.asset(
+                  'assets/images/icon.png',
+                  width: _logoSize - _logoInset * 2,
+                  height: _logoSize - _logoInset * 2,
+                ),
+              ),
             ),
           ),
-          const SizedBox(height: 4),
-          Text(contributor.name, style: context.textTheme.bodySmall),
+          const SizedBox(height: 20),
+          Text(
+            'FlClash-alpha',
+            style: AppTextStyle.title2.of(context, emphasized: true),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.center,
+            children: [
+              _Pill(
+                label: identity.displayVersion,
+                color: colorScheme.primary,
+                foregroundColor: colorScheme.onPrimary,
+              ),
+              _Pill(
+                label: 'GPL-3.0',
+                color: context.raisedSurfaceLevel.colorOf(colorScheme),
+                foregroundColor: colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Text(
+              appLocalizations.personalForkDescription,
+              textAlign: TextAlign.center,
+              style: AppTextStyle.subheadline
+                  .of(context)
+                  .copyWith(color: colorScheme.onSurfaceVariant, height: 1.5),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '${appLocalizations.upstreamVersion}: ${identity.upstreamVersion}',
+            style: AppTextStyle.caption1.of(context),
+          ),
+          FutureBuilder<DateTime?>(
+            future: releaseDate,
+            builder: (context, snapshot) {
+              final date = snapshot.data;
+              final value = date == null
+                  ? appLocalizations.unknown
+                  : formatReleaseDate(date);
+              return Text(
+                '${appLocalizations.releaseDate}: $value',
+                style: AppTextStyle.caption1.of(context),
+              );
+            },
+          ),
+          ExpansionTile(
+            title: Text(appLocalizations.versionDetails),
+            children: [
+              ListTile(
+                title: Text(appLocalizations.buildNumber),
+                subtitle: Text(globalState.packageInfo.buildNumber),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          TonalButton(
+            size: TonalButtonSize.bar,
+            glyph: AppGlyphs.sync,
+            label: appLocalizations.checkUpdate,
+            onPressed: isCheckingUpdate ? null : onCheckUpdate,
+          ),
         ],
+      ),
+    );
+  }
+}
+
+class _Pill extends StatelessWidget {
+  final String label;
+  final Color color;
+  final Color foregroundColor;
+
+  const _Pill({
+    required this.label,
+    required this.color,
+    required this.foregroundColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: ShapeDecoration(color: color, shape: AppShape.full),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        child: Text(
+          label,
+          style: AppTextStyle.caption1
+              .of(context, emphasized: true)
+              .copyWith(color: foregroundColor),
+        ),
+      ),
+    );
+  }
+}
+
+class _LinkBadge extends StatelessWidget {
+  final Glyph glyph;
+
+  const _LinkBadge({required this.glyph});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = context.colorScheme;
+    return DecoratedBox(
+      decoration: ShapeDecoration(
+        color: context.raisedSurfaceLevel.colorOf(colorScheme),
+        shape: AppShape.md,
+      ),
+      child: SizedBox.square(
+        dimension: 40,
+        child: Center(
+          child: GlyphIcon(
+            glyph,
+            size: 20,
+            color: colorScheme.onSurfaceVariant,
+          ),
+        ),
       ),
     );
   }

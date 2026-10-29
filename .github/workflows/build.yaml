@@ -25,7 +25,7 @@ concurrency:
   group: android-${{ inputs.source_ref || github.sha }}
   cancel-in-progress: false
 env:
-  RUSTUP_TOOLCHAIN: '1.95.0'
+  RUSTUP_TOOLCHAIN: '1.99.0'
 jobs:
   android:
     runs-on: ubuntu-24.04
@@ -55,7 +55,7 @@ jobs:
       - uses: actions/setup-go@v5
         if: steps.plan.outputs.compile == 'true'
         with:
-          go-version: '1.26.8'
+          go-version: '1.27.1'
           cache-dependency-path: core/go.sum
       - uses: actions/setup-java@v4
         if: steps.plan.outputs.active == 'true'
@@ -67,8 +67,8 @@ jobs:
       - uses: subosito/flutter-action@v2
         if: steps.plan.outputs.compile == 'true'
         with:
-          channel: master
-          flutter-version: '3.47.1'
+          channel: stable
+          flutter-version: '3.47.6'
           cache: true
       - uses: nttld/setup-ndk@v1
         if: steps.plan.outputs.compile == 'true'
@@ -79,7 +79,7 @@ jobs:
           link-to-sdk: true
       - name: Setup Rust
         if: steps.plan.outputs.compile == 'true'
-        run: rustup toolchain install 1.95.0 --profile minimal --target aarch64-linux-android
+        run: rustup toolchain install 1.99.0 --profile minimal --target aarch64-linux-android
       - uses: Swatinem/rust-cache@v2
         if: steps.plan.outputs.compile == 'true'
         with:

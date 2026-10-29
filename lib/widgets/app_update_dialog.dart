@@ -5,7 +5,8 @@ import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/update_download.dart';
 import 'package:fl_clash/common/release_identity.dart';
 import 'package:fl_clash/models/changelog.dart';
-import 'package:fl_clash/widgets/dialog.dart';
+import 'package:fl_clash/ui/icons/icons.dart';
+import 'package:fl_clash/ui/ui.dart';
 import 'package:material_ui/material_ui.dart';
 
 bool _updateDialogOpen = false;
@@ -250,7 +251,7 @@ class _UpdateReleaseNotesState extends State<_UpdateReleaseNotes> {
             widget.body ?? '',
           ).replaceAll(RegExp(r'<!--[\s\S]*?(?:-->|$)'), '').trim();
     if (notes.isEmpty) return const SizedBox.shrink();
-    final style = context.textTheme.bodyMedium;
+    final style = AppTextStyle.subheadline.of(context);
     return LayoutBuilder(
       builder: (context, constraints) {
         final painter = TextPainter(
@@ -275,7 +276,9 @@ class _UpdateReleaseNotesState extends State<_UpdateReleaseNotes> {
             if (needsExpansion)
               TextButton.icon(
                 onPressed: () => setState(() => _expanded = !_expanded),
-                icon: Icon(_expanded ? Icons.expand_less : Icons.expand_more),
+                icon: GlyphIcon(
+                  _expanded ? AppGlyphs.chevronUp : AppGlyphs.chevronDown,
+                ),
                 label: Text(_expanded ? l10n.showLess : l10n.showMore),
               ),
           ],

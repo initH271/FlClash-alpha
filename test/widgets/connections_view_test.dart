@@ -1,14 +1,20 @@
 import 'package:fl_clash/common/common.dart';
-import 'package:fl_clash/common/theme.dart';
+import 'package:fl_clash/core/controller.dart';
+import 'package:fl_clash/core/interface.dart';
 import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/models/models.dart';
+import 'package:fl_clash/providers/core.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/connection/connections.dart';
 import 'package:fl_clash/features/features.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
+
+import '../helpers/test_app.dart';
 
 void main() {
   late ProviderContainer container;
@@ -70,7 +76,7 @@ void main() {
     final connections = buildConnections(100);
 
     await pumpConnections(tester, connectionsReader: () async => connections);
-    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
 
     final builtItems = find.byType(TrackerInfoItem).evaluate().length;
     expect(builtItems, greaterThan(0));
@@ -80,16 +86,66 @@ void main() {
     await tester.scrollUntilVisible(
       find.textContaining('host-99.com'),
       800,
-      scrollable: find.byWidgetPredicate(
-        (widget) =>
-            widget is Scrollable &&
-            widget.axisDirection == AxisDirection.down &&
-            widget.controller != null,
-      ),
+      scrollable: find
+          .descendant(
+            of: find.byType(TrackerInfoAnimatedList),
+            matching: find.byType(Scrollable),
+          )
+          .first,
     );
 
     expect(find.textContaining('host-99.com'), findsOneWidget);
     expect(tester.takeException(), null);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('a row blocks its own connection and refreshes the list', (
+    tester,
+  ) async {
+    final core = _MockCoreHandlerInterface();
+    when(() => core.closeConnection(any())).thenAnswer((_) async => true);
+    container.dispose();
+    container = ProviderContainer(
+      overrides: [
+        coreHandlerProvider.overrideWithValue(CoreController.scoped(core)),
+      ],
+    );
+    globalState.container = container;
+    var connections = buildConnections(2);
+    var readCount = 0;
+
+    await pumpConnections(
+      tester,
+      connectionsReader: () async {
+        readCount++;
+        return connections;
+      },
+    );
+    await tester.pump(const Duration(seconds: 1));
+    final reads = readCount;
+    connections = connections.sublist(1);
+
+    await tester.tap(find.byTooltip('Block connection').first);
+    await tester.pumpAndSettle();
+
+    verify(() => core.closeConnection('0')).called(1);
+    expect(readCount, greaterThan(reads));
+    expect(find.textContaining('host-0.com'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('a wide table shows its whole protocol header', (tester) async {
+    await pumpConnections(
+      tester,
+      connectionsReader: () async => buildConnections(2),
+    );
+    tester.view.physicalSize = const Size(1600, 900);
+    await tester.pump(const Duration(seconds: 1));
+
+    final header = tester.renderObject<RenderParagraph>(find.text('Protocol'));
+    expect(header.didExceedMaxLines, isFalse);
 
     await tester.pumpWidget(const SizedBox.shrink());
   });
@@ -194,15 +250,16 @@ class _TestApp extends StatelessWidget {
       navigatorKey: globalState.navigatorKey,
       localizationsDelegates: const [
         AppLocalizations.delegate,
+        AppUiLocalizations.delegate,
         ...GlobalMaterialLocalizations.delegates,
       ],
       supportedLocales: AppLocalizations.delegate.supportedLocales,
       builder: (context, child) {
-        globalState.measure = Measure.of(context, 1);
-        globalState.theme = CommonTheme.of(context, 1);
-        return child!;
+        return wrapAppScopes(context, child!);
       },
       home: child,
     );
   }
 }
+
+class _MockCoreHandlerInterface extends Mock implements CoreHandlerInterface {}

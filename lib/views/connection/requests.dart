@@ -8,20 +8,28 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class RequestsView extends ConsumerStatefulWidget {
-  const RequestsView({super.key});
+  final ScrollController? scrollController;
+
+  const RequestsView({super.key, this.scrollController});
 
   @override
   ConsumerState<RequestsView> createState() => _RequestsViewState();
 }
 
-class _RequestsViewState extends ConsumerState<RequestsView> {
+class _RequestsViewState extends ConsumerState<RequestsView>
+    with RouteMotionHoldMixin<RequestsView> {
   final _listController = TrackerInfoListController();
   late final ScrollController _scrollController;
+  late final _physics = FollowEndScrollPhysics(
+    isFollowing: () => _listController.value.autoScrollToEnd,
+  );
 
   @override
   void initState() {
     super.initState();
-    _scrollController = ScrollController(initialScrollOffset: double.maxFinite);
+    _scrollController =
+        widget.scrollController ??
+        sheetScrollController(context, initialScrollOffset: double.maxFinite);
     _listController.setTrackerInfos(ref.read(requestsProvider).list);
     ref.listenManual(requestsProvider.select((state) => state.revision), (
       _,
@@ -34,7 +42,9 @@ class _RequestsViewState extends ConsumerState<RequestsView> {
   @override
   void dispose() {
     _listController.dispose();
-    _scrollController.dispose();
+    if (widget.scrollController == null) {
+      _scrollController.dispose();
+    }
     super.dispose();
   }
 
@@ -43,76 +53,69 @@ class _RequestsViewState extends ConsumerState<RequestsView> {
       if (!mounted) {
         return;
       }
-      _listController.setTrackerInfos(ref.read(requestsProvider).list);
-    }, duration: commonDuration);
+      updateWhenRouteSettled(
+        () => _listController.setTrackerInfos(ref.read(requestsProvider).list),
+      );
+    }, duration: renderThrottleDuration);
   }
 
   @override
   Widget build(BuildContext context) {
     final appLocalizations = context.appLocalizations;
     return CommonScaffold(
-      title: appLocalizations.requests,
+      title: PageLabel.requests.label,
       searchState: AppBarSearchState(onSearch: _listController.search),
       onKeywordsUpdate: _listController.updateKeywords,
-      floatingActionButton: ValueListenableBuilder(
-        valueListenable: _listController,
-        builder: (_, state, _) {
-          final autoScrollToEnd = state.autoScrollToEnd;
-          return FadeRotationScaleBox(
-            child: FloatingActionButton(
-              key: ValueKey(autoScrollToEnd),
-              onPressed: () {
-                if (autoScrollToEnd) {
-                  _listController.setAutoScrollToEnd(false);
-                } else {
-                  _listController.resumeAutoScrollToEnd(
-                    ref.read(requestsProvider).list,
-                  );
-                }
-              },
-              child: autoScrollToEnd
-                  ? const Icon(Icons.block)
-                  : const Icon(Icons.vertical_align_top),
-            ),
-          );
-        },
-      ),
       body: ValueListenableBuilder<TrackerInfosState>(
         valueListenable: _listController,
         builder: (context, state, _) {
           final requests = state.list;
           return NullStatusSwitcher(
             isEmpty: requests.isEmpty,
+            isSearching: state.isSearching,
             nullStatus: NullStatus(
               label: appLocalizations.nullTip(appLocalizations.requests),
               illustration: NullStatusIllustration.requests,
             ),
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: FloatingScrollbar(
-                controller: _scrollController,
-                hintBuilder: (fraction) {
-                  final index = (fraction * (requests.length - 1)).round();
-                  return requests[index].start.showFull;
-                },
-                child: ScrollToEndBox(
+            child: RecordTableFrame<TrackerInfo>(
+              tableId: 'requests',
+              items: requests,
+              reverse: true,
+              columnsOf: (width) =>
+                  trackerInfoColumns(context, width: width, isLive: false),
+              builder: (context, table, requests) => Align(
+                alignment: Alignment.topCenter,
+                child: FloatingScrollbar(
                   controller: _scrollController,
-                  dataSource: requests,
-                  enable: state.autoScrollToEnd,
-                  onCancelToEnd: () {
-                    _listController.setAutoScrollToEnd(false);
+                  hintBuilder: (fraction) {
+                    final index = (fraction * (requests.length - 1)).round();
+                    return requests[index].start.showFull;
                   },
-                  child: TrackerInfoList(
-                    reverse: true,
-                    shrinkWrap: true,
-                    physics: const NextClampingScrollPhysics(),
+                  child: ScrollToEndBox(
                     controller: _scrollController,
-                    padding: EdgeInsets.only(
-                      bottom: 16 + BottomInsetScope.of(context),
-                    ),
-                    trackerInfos: requests,
-                    detailTitle: appLocalizations.details(
-                      appLocalizations.request,
+                    enable: state.autoScrollToEnd,
+                    onCancelToEnd: () {
+                      _listController.setAutoScrollToEnd(false);
+                    },
+                    onResumeToEnd: () {
+                      _listController.resumeAutoScrollToEnd(
+                        ref.read(requestsProvider).list,
+                      );
+                    },
+                    child: TrackerInfoList(
+                      reverse: true,
+                      shrinkWrap: true,
+                      physics: _physics,
+                      controller: _scrollController,
+                      padding: EdgeInsets.only(
+                        top: context.contentTopPadding,
+                        bottom: 16 + context.bottomInset,
+                      ),
+                      trackerInfos: requests,
+                      table: table,
+                      detailTitle: appLocalizations.details(
+                        appLocalizations.request,
+                      ),
                     ),
                   ),
                 ),

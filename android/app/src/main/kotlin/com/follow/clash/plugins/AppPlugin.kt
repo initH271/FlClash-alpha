@@ -1,7 +1,6 @@
 package com.follow.clash.plugins
 
 import android.Manifest
-import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.ActivityManager
 import android.content.BroadcastReceiver
@@ -9,13 +8,12 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.net.VpnService
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.VpnService
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.os.PowerManager
 import android.provider.Settings
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -24,6 +22,9 @@ import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
 import androidx.core.net.toUri
+import androidx.core.view.OnApplyWindowInsetsListener
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.follow.clash.R
 import com.follow.clash.common.Components
 import com.follow.clash.common.GlobalState
@@ -31,6 +32,7 @@ import com.follow.clash.common.PendingCallback
 import com.follow.clash.common.QuickAction
 import com.follow.clash.common.quickIntent
 import com.follow.clash.common.registerReceiverCompat
+import com.follow.clash.common.shortcutId
 import com.follow.clash.getPackageIconPath
 import com.follow.clash.packages.PackageResolver
 import com.follow.clash.showToast
@@ -71,9 +73,15 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
 
     private val requestInstalledAppsCallback = PendingCallback<Boolean>()
 
+    private val requestLocalNetworkCallback = PendingCallback<Boolean>()
+
     private var exportDocumentResult: Result? = null
 
     private var isRequestingNotificationPermission = false
+
+    private var isRequestingLocalNetworkPermission = false
+
+    private var skipLocalNetworkPermissionRequest = false
 
     private val gson = Gson()
 
@@ -103,6 +111,22 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
 
     private var skipNotificationPermissionRequest = false
 
+    @Suppress("DEPRECATION")
+    private val isTelevision by lazy {
+        val packageManager = GlobalState.application.packageManager
+        packageManager.hasSystemFeature(PackageManager.FEATURE_TELEVISION) ||
+            packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
+    }
+
+    private var floatingIme = false
+
+    // A TV keyboard floats over the app and reports a zero-height IME inset.
+    private val imeInsetsListener = OnApplyWindowInsetsListener { view, insets ->
+        val ime = WindowInsetsCompat.Type.ime()
+        reportFloatingIme(insets.isVisible(ime) && insets.getInsets(ime).bottom == 0)
+        ViewCompat.onApplyWindowInsets(view, insets)
+    }
+
     private val mainHandler = Handler(Looper.getMainLooper())
 
     /**
@@ -123,10 +147,9 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
         }
     }
 
-    override fun onMethodCall(call: MethodCall, rawResult: Result) {
-        val result = MainThreadResult(rawResult)
+    override fun onMethodCall(call: MethodCall, result: Result) {
         when (call.method) {
-            "getNetworkAddresses" -> {
+            "getNetworkAddresses" -> reply(result) {
                 val manager = GlobalState.application.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
                 val addresses = mutableSetOf<String>()
                 val gateways = mutableSetOf<String>()
@@ -139,8 +162,9 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
                         }
                     }
                 }
-                result.success(mapOf("addresses" to addresses.toList(), "gateways" to gateways.toList()))
+                mapOf("addresses" to addresses.toList(), "gateways" to gateways.toList())
             }
+
             "moveTaskToBack" -> {
                 activity?.moveTaskToBack(true)
                 result.success(true)
@@ -153,11 +177,15 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
             }
 
             "initShortcuts" -> {
-                val label = call.arguments as? String
-                if (label == null) {
-                    result.error("INVALID_ARGUMENT", "Shortcut label must be a string", null)
+                val labels = shortcutLabels(call.arguments)
+                if (labels == null) {
+                    result.error(
+                        "INVALID_ARGUMENT",
+                        "Shortcut labels must map every quick action to a string",
+                        null,
+                    )
                 } else {
-                    initShortcuts(label)
+                    initShortcuts(labels)
                     result.success(true)
                 }
             }
@@ -178,6 +206,10 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
                 requestInstalledAppsPermission { granted -> result.success(granted) }
             }
 
+            "requestLocalNetworkPermission" -> {
+                requestLocalNetworkPermission { granted -> result.success(granted) }
+            }
+
             "getPackageIcon" -> {
                 handleGetPackageIcon(call, result)
             }
@@ -188,20 +220,8 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
                 result.success(true)
             }
 
-            "isBatteryOptimizationDisabled" -> {
-                result.success(isBatteryOptimizationDisabled())
-            }
-
-            "openBatteryOptimizationSettings" -> {
-                result.success(openBatteryOptimizationSettings())
-            }
-
             "openAppSettings" -> {
                 result.success(openAppSettings())
-            }
-
-            "didCrashOnPreviousExecution" -> reply(result) {
-                GlobalState.didCrashOnPreviousExecution()
             }
 
             "getLastExitInfo" -> reply(result) {
@@ -282,44 +302,34 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
         }
     }
 
-    private fun initShortcuts(label: String) {
-        val shortcut = with(ShortcutInfoCompat.Builder(GlobalState.application, "toggle")) {
-            setShortLabel(label)
-            setIcon(
-                IconCompat.createWithResource(
-                    GlobalState.application,
-                    R.mipmap.ic_launcher_round,
-                ),
-            )
-            setIntent(QuickAction.TOGGLE.quickIntent)
-            build()
+    private fun shortcutLabels(arguments: Any?): Map<QuickAction, String>? {
+        val map = arguments as? Map<*, *> ?: return null
+        return QuickAction.entries.associateWith { action ->
+            map[action.shortcutId] as? String ?: return null
         }
-        ShortcutManagerCompat.setDynamicShortcuts(
-            GlobalState.application,
-            listOf(shortcut),
-        )
     }
 
-    private fun isBatteryOptimizationDisabled(): Boolean {
-        val powerManager = getSystemService(GlobalState.application, PowerManager::class.java)
-        return powerManager?.isIgnoringBatteryOptimizations(GlobalState.application.packageName)
-            ?: false
-    }
-
-    @SuppressLint("BatteryLife")
-    private fun openBatteryOptimizationSettings(): Boolean {
-        // VPN continuity is the user-requested core function, so the direct exemption is intentional.
-        val activity = activity ?: return false
-        return try {
-            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                data = "package:${GlobalState.application.packageName}".toUri()
+    private fun initShortcuts(labels: Map<QuickAction, String>) {
+        val shortcuts = SHORTCUT_ORDER.mapIndexed { rank, action ->
+            with(ShortcutInfoCompat.Builder(GlobalState.application, action.shortcutId)) {
+                setShortLabel(labels.getValue(action))
+                setIcon(IconCompat.createWithResource(GlobalState.application, action.shortcutIcon))
+                setIntent(action.quickIntent)
+                setRank(rank)
+                build()
             }
-            activity.startActivity(intent)
-            true
-        } catch (_: Exception) {
-            false
         }
+        ShortcutManagerCompat.setDynamicShortcuts(GlobalState.application, shortcuts)
     }
+
+    // Plain circles, not adaptive icons: an adaptive shortcut icon takes the
+    // launcher's own mask, which is a square on many devices.
+    private val QuickAction.shortcutIcon: Int
+        get() = when (this) {
+            QuickAction.START -> R.drawable.ic_shortcut_start
+            QuickAction.STOP -> R.drawable.ic_shortcut_stop
+            QuickAction.TOGGLE -> R.drawable.ic_shortcut_toggle
+        }
 
     private fun openAppSettings(): Boolean {
         val activity = activity ?: return false
@@ -336,12 +346,13 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
 
     @Suppress("DEPRECATION")
     private fun updateExcludeFromRecents(value: Boolean?) {
+        val taskId = activity?.taskId ?: return
         val am = getSystemService(GlobalState.application, ActivityManager::class.java)
         val task = am?.appTasks?.firstOrNull {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                it.taskInfo.taskId == activity?.taskId
+                it.taskInfo?.taskId == taskId
             } else {
-                it.taskInfo.id == activity?.taskId
+                it.taskInfo?.id == taskId
             }
         }
         task?.setExcludeFromRecents(value ?: false)
@@ -377,6 +388,42 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
     private fun invokeRequestNotificationCallback(shouldStart: Boolean) {
         isRequestingNotificationPermission = false
         requestNotificationCallback.resolve(shouldStart)
+    }
+
+    fun requestLocalNetworkPermission(callback: (Boolean) -> Unit) = onMainThread {
+        requestLocalNetworkCallback.replace(callback, supersededValue = false)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.CINNAMON_BUN || hasLocalNetworkPermission()) {
+            invokeRequestLocalNetworkCallback(true)
+            return@onMainThread
+        }
+        if (skipLocalNetworkPermissionRequest) {
+            invokeRequestLocalNetworkCallback(false)
+            return@onMainThread
+        }
+        if (isRequestingLocalNetworkPermission) {
+            return@onMainThread
+        }
+        val activity = activity
+        if (activity == null) {
+            invokeRequestLocalNetworkCallback(false)
+            return@onMainThread
+        }
+        isRequestingLocalNetworkPermission = true
+        ActivityCompat.requestPermissions(
+            activity,
+            arrayOf(Manifest.permission.ACCESS_LOCAL_NETWORK),
+            LOCAL_NETWORK_PERMISSION_REQUEST_CODE,
+        )
+    }
+
+    private fun hasLocalNetworkPermission(): Boolean = ContextCompat.checkSelfPermission(
+        GlobalState.application,
+        Manifest.permission.ACCESS_LOCAL_NETWORK,
+    ) == PackageManager.PERMISSION_GRANTED
+
+    private fun invokeRequestLocalNetworkCallback(granted: Boolean) {
+        isRequestingLocalNetworkPermission = false
+        requestLocalNetworkCallback.resolve(granted)
     }
 
     private fun requestInstalledAppsPermission(callback: (Boolean) -> Unit) = onMainThread {
@@ -461,6 +508,7 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
         scope.cancel()
         invokeVpnPrepareCallback(false)
         invokeRequestNotificationCallback(false)
+        invokeRequestLocalNetworkCallback(false)
         invokeRequestInstalledAppsCallback(false)
     }
 
@@ -474,14 +522,34 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
         activity = binding.activity
         binding.addActivityResultListener(activityResultListener)
         binding.addRequestPermissionsResultListener(permissionsResultListener)
+        if (isTelevision) {
+            ViewCompat.setOnApplyWindowInsetsListener(
+                binding.activity.window.decorView,
+                imeInsetsListener,
+            )
+        }
     }
 
     private fun detachFromActivity() {
+        if (isTelevision) {
+            activity?.window?.decorView?.let {
+                ViewCompat.setOnApplyWindowInsetsListener(it, null)
+            }
+            reportFloatingIme(false)
+        }
         activity = null
         val binding = activityBinding ?: return
         activityBinding = null
         binding.removeActivityResultListener(activityResultListener)
         binding.removeRequestPermissionsResultListener(permissionsResultListener)
+    }
+
+    private fun reportFloatingIme(floating: Boolean) {
+        if (floating == floatingIme) {
+            return
+        }
+        floatingIme = floating
+        channel.invokeMethod("floatingImeChanged", floating)
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
@@ -498,6 +566,7 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
         detachFromActivity()
         invokeVpnPrepareCallback(false)
         invokeRequestNotificationCallback(false)
+        invokeRequestLocalNetworkCallback(false)
         invokeRequestInstalledAppsCallback(false)
     }
 
@@ -543,13 +612,24 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
             true
         }
 
+        LOCAL_NETWORK_PERMISSION_REQUEST_CODE -> {
+            skipLocalNetworkPermissionRequest = true
+            invokeRequestLocalNetworkCallback(
+                grantResults.isNotEmpty() &&
+                    grantResults[0] == PackageManager.PERMISSION_GRANTED,
+            )
+            true
+        }
+
         else -> false
     }
 
     private companion object {
+        val SHORTCUT_ORDER = listOf(QuickAction.START, QuickAction.STOP, QuickAction.TOGGLE)
         const val VPN_PERMISSION_REQUEST_CODE = 1001
         const val NOTIFICATION_PERMISSION_REQUEST_CODE = 1002
         const val INSTALLED_APPS_PERMISSION_REQUEST_CODE = 1003
-        const val EXPORT_DOCUMENT_REQUEST_CODE = 1004
+        const val LOCAL_NETWORK_PERMISSION_REQUEST_CODE = 1004
+        const val EXPORT_DOCUMENT_REQUEST_CODE = 1005
     }
 }

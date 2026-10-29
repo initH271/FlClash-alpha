@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/views/config/log_retention.dart';
@@ -33,7 +35,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('1 day'), findsOneWidget);
     expect(find.text('7 days'), findsOneWidget);
-    expect(find.text('14 days (Default)'), findsOneWidget);
+    // The row's value button shows the current period beside the menu entry.
+    expect(find.text('14 days (Default)'), findsNWidgets(2));
     expect(find.text('30 days'), findsOneWidget);
     await tester.tap(find.text('7 days'));
     await tester.pumpAndSettle();
@@ -47,7 +50,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(c.read(appSettingProvider).logRetentionDays, 21);
     final restored = AppSettingProps.fromJson(
-      c.read(appSettingProvider).toJson(),
+      jsonDecode(jsonEncode(c.read(appSettingProvider)))
+          as Map<String, dynamic>,
     );
     expect(restored.logRetentionDays, 21);
   });

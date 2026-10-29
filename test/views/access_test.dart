@@ -1,4 +1,5 @@
 import 'package:fl_clash/enum/enum.dart';
+import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/action.dart';
 import 'package:fl_clash/providers/app.dart';
@@ -6,11 +7,14 @@ import 'package:fl_clash/providers/config.dart';
 import 'package:fl_clash/providers/database.dart';
 import 'package:fl_clash/providers/state.dart';
 import 'package:fl_clash/state.dart';
+import 'package:fl_clash/ui/icons/icons.dart';
 import 'package:fl_clash/views/access.dart';
+import 'package:fl_clash/widgets/widgets.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../helpers/glyph_finders.dart';
 import '../helpers/test_app.dart';
 import '../helpers/test_profiles.dart';
 
@@ -63,6 +67,16 @@ class _TestSystemAction extends SystemAction {
     installedAppsPermissionGranted = grantOnRequest;
     return grantOnRequest;
   }
+}
+
+Future<void> openBarMenu(WidgetTester tester) async {
+  await tester.tap(
+    find.descendant(
+      of: find.byType(AppBar),
+      matching: find.byGlyph(AppGlyphs.more),
+    ),
+  );
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -157,6 +171,54 @@ void main() {
       await teardownView(tester);
     });
 
+    testWidgets('the settings sub menu shows system apps from a check', (
+      tester,
+    ) async {
+      seedAccessControl(const AccessControlProps(enable: true));
+      await pumpAccessView(tester);
+      final l10n = AppLocalizations.current;
+      Finder inMenu(Finder finder) =>
+          find.descendant(of: find.byType(CommonPopupMenu), matching: finder);
+
+      await openBarMenu(tester);
+      await tester.tap(inMenu(find.text(l10n.settings)).last);
+      await tester.pumpAndSettle();
+      expect(inMenu(find.text(l10n.source)), findsOneWidget);
+      await tester.tap(inMenu(find.text(l10n.systemApp)));
+      await tester.pumpAndSettle();
+
+      final state = container.read(accessControlStateProvider);
+      expect(state.isFilterSystemApp, isFalse);
+      expect(state.isFilterNonInternetApp, isTrue);
+      expect(find.byType(CommonPopupMenu), findsNothing);
+      expect(find.text('Settings'), findsOneWidget);
+
+      await teardownView(tester);
+    });
+
+    testWidgets('the settings sub menu switches the mode', (tester) async {
+      seedAccessControl(const AccessControlProps(enable: true));
+      await pumpAccessView(tester);
+      final l10n = AppLocalizations.current;
+      Finder inMenu(Finder finder) =>
+          find.descendant(of: find.byType(CommonPopupMenu), matching: finder);
+
+      await openBarMenu(tester);
+      await tester.tap(inMenu(find.text(l10n.settings)).last);
+      await tester.pumpAndSettle();
+      await tester.tap(inMenu(find.text(l10n.whitelistMode)));
+      await tester.pumpAndSettle();
+
+      expect(
+        container.read(accessControlStateProvider).mode,
+        AccessControlMode.acceptSelected,
+      );
+      await openBarMenu(tester);
+      expect(inMenu(find.text(l10n.whitelistMode)), findsOneWidget);
+
+      await teardownView(tester);
+    });
+
     testWidgets('sorts by name when the name sort is selected', (tester) async {
       seedAccessControl(
         const AccessControlProps(enable: true, sort: AccessSortType.name),
@@ -192,6 +254,42 @@ void main() {
 
       await teardownView(tester);
     });
+
+    testWidgets('ignores case and needs every term to match', (tester) async {
+      seedAccessControl(const AccessControlProps(enable: true));
+      await pumpAccessView(tester);
+
+      container.read(queryProvider(QueryTag.access).notifier).value = 'CHAT';
+      await tester.pump();
+      expect(find.text('Chat'), findsOneWidget);
+      expect(find.text('Browser'), findsNothing);
+
+      container.read(queryProvider(QueryTag.access).notifier).value =
+          'EXAMPLE browser';
+      await tester.pump();
+      expect(find.text('Browser'), findsOneWidget);
+      expect(find.text('Chat'), findsNothing);
+
+      await teardownView(tester);
+    });
+
+    testWidgets('the app bar search field filters the list', (tester) async {
+      seedAccessControl(const AccessControlProps(enable: true));
+      await pumpAccessView(tester);
+
+      await tester.tap(find.byGlyph(AppGlyphs.search));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'nothing matches');
+      await tester.pumpAndSettle();
+
+      expect(find.text('Browser'), findsNothing);
+      expect(
+        find.text(AppLocalizations.current.noSearchResults),
+        findsOneWidget,
+      );
+
+      await teardownView(tester);
+    });
   });
 
   group('selection', () {
@@ -214,22 +312,141 @@ void main() {
       await teardownView(tester);
     });
 
-    testWidgets('the action button selects then clears every visible app', (
+    testWidgets('the bar at the foot says access control is off and turns '
+        'it on', (tester) async {
+      seedAccessControl(const AccessControlProps());
+      await pumpAccessView(tester);
+      final l10n = AppLocalizations.current;
+
+      expect(find.text(l10n.accessControlDisabledDesc), findsOneWidget);
+      await tester.tap(find.widgetWithText(TonalButton, l10n.turnOn));
+      await tester.pump();
+
+      expect(container.read(accessControlStateProvider).enable, isTrue);
+      expect(find.text(l10n.accessControlDisabledDesc), findsNothing);
+      expect(find.text(l10n.accessControlNotAllowDesc), findsOneWidget);
+
+      await teardownView(tester);
+    });
+
+    testWidgets('the bar at the foot follows the mode and counts the '
+        'selected apps', (tester) async {
+      seedAccessControl(
+        const AccessControlProps(
+          enable: true,
+          rejectList: ['com.example.browser'],
+        ),
+      );
+      await pumpAccessView(tester);
+      final l10n = AppLocalizations.current;
+
+      expect(find.text(l10n.accessControlNotAllowDesc), findsOneWidget);
+      expect(find.text(l10n.accessControlSelectedCount(1)), findsOneWidget);
+
+      await tester.tap(find.text('Chat'));
+      await tester.pump();
+      expect(find.text(l10n.accessControlSelectedCount(2)), findsOneWidget);
+
+      container
+          .read(accessControlStateProvider.notifier)
+          .update(
+            (state) => state.copyWith(mode: AccessControlMode.acceptSelected),
+          );
+      await tester.pump();
+      expect(find.text(l10n.accessControlAllowDesc), findsOneWidget);
+      expect(find.text(l10n.accessControlSelectedCount(0)), findsOneWidget);
+
+      await teardownView(tester);
+    });
+
+    testWidgets('select all stands beside search, then folds for save', (
       tester,
     ) async {
       seedAccessControl(const AccessControlProps(enable: true));
       await pumpAccessView(tester);
 
-      await tester.tap(find.byType(FloatingActionButton).first);
-      await tester.pump();
+      expect(
+        find.ancestor(
+          of: find.byTooltip('Select all'),
+          matching: find.ancestor(
+            of: find.byTooltip('Search'),
+            matching: find.byType(TonalButtonGroup),
+          ),
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(find.byTooltip('Select all'));
+      await tester.pumpAndSettle();
       expect(
         [...container.read(accessControlStateProvider).currentList]..sort(),
         ['com.example.browser', 'com.example.chat'],
       );
 
-      await tester.pump(const Duration(milliseconds: 400));
-      await tester.tap(find.byType(FloatingActionButton).first);
-      await tester.pump();
+      expect(find.byTooltip('Save'), findsOneWidget);
+      expect(find.byTooltip('Deselect all'), findsNothing);
+      await openBarMenu(tester);
+      await tester.tap(find.text('Deselect all'));
+      await tester.pumpAndSettle();
+      expect(container.read(accessControlStateProvider).currentList, isEmpty);
+
+      await teardownView(tester);
+    });
+
+    testWidgets('the bar menu turns access control on and off in a section', (
+      tester,
+    ) async {
+      seedAccessControl(const AccessControlProps(enable: true));
+      await pumpAccessView(tester);
+      final l10n = AppLocalizations.current;
+      Finder inMenu(Finder finder) =>
+          find.descendant(of: find.byType(CommonPopupMenu), matching: finder);
+      Finder checkOn(String label) => inMenu(
+        find.descendant(
+          of: find.ancestor(of: find.text(label), matching: find.byType(Row)),
+          matching: find.byGlyph(AppGlyphs.check),
+        ),
+      );
+
+      await openBarMenu(tester);
+      expect(inMenu(find.text(l10n.accessControl)), findsOneWidget);
+      expect(inMenu(find.text(l10n.blacklistMode)), findsOneWidget);
+      expect(checkOn(l10n.turnOn), findsOneWidget);
+      expect(checkOn(l10n.turnOff), findsNothing);
+
+      await tester.tap(inMenu(find.text(l10n.turnOff)));
+      await tester.pumpAndSettle();
+      expect(container.read(accessControlStateProvider).enable, isFalse);
+
+      await openBarMenu(tester);
+      expect(checkOn(l10n.turnOn), findsNothing);
+      expect(checkOn(l10n.turnOff), findsOneWidget);
+
+      await tester.tap(inMenu(find.text(l10n.turnOn)));
+      await tester.pumpAndSettle();
+      expect(container.read(accessControlStateProvider).enable, isTrue);
+
+      await teardownView(tester);
+    });
+
+    testWidgets('searching selects then clears only the matching apps', (
+      tester,
+    ) async {
+      seedAccessControl(const AccessControlProps(enable: true));
+      await pumpAccessView(tester);
+
+      await tester.tap(find.byTooltip('Search'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'chat');
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Select all'));
+      await tester.pumpAndSettle();
+      expect(container.read(accessControlStateProvider).currentList, [
+        'com.example.chat',
+      ]);
+
+      await tester.tap(find.byTooltip('Deselect all'));
+      await tester.pumpAndSettle();
       expect(container.read(accessControlStateProvider).currentList, isEmpty);
 
       await teardownView(tester);
@@ -287,7 +504,8 @@ void main() {
       expect(find.text('App list permission required'), findsOneWidget);
       expect(find.widgetWithText(FilledButton, 'Authorize'), findsOneWidget);
       expect(find.text('No data'), findsNothing);
-      expect(find.byType(FloatingActionButton), findsNothing);
+      await openBarMenu(tester);
+      expect(find.text('Select all'), findsNothing);
 
       await teardownView(tester);
     });
@@ -354,8 +572,9 @@ void main() {
       seedAccessControl(const AccessControlProps(enable: true));
 
       await pumpAccessView(tester);
+      await openBarMenu(tester);
 
-      expect(find.widgetWithText(FilledButton, 'Save'), findsNothing);
+      expect(find.text('Save'), findsNothing);
 
       await teardownView(tester);
     });
@@ -376,10 +595,8 @@ void main() {
       await tester.tap(find.text('Browser'));
       await tester.pump();
 
-      final saveButton = find.widgetWithText(FilledButton, 'Save');
-      expect(saveButton, findsOneWidget);
-      await tester.tap(saveButton);
-      await tester.pump();
+      await tester.tap(find.byTooltip('Save'));
+      await tester.pumpAndSettle();
 
       final saved = container
           .read(vpnSettingProvider)
