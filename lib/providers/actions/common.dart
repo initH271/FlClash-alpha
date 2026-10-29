@@ -4,9 +4,25 @@ part of '../action.dart';
 class CommonAction extends _$CommonAction {
   CoreController get _core => ref.read(coreHandlerProvider);
   bool _isUpdatingTraffic = false;
+  late UpdateCheckScheduler _updates;
+  bool _updatesStarted = false;
+  bool _updateForeground = true;
 
   @override
-  void build() {}
+  void build() {
+    _updates = UpdateCheckScheduler(
+      load: request.checkForUpdate,
+      notify: (data) => checkUpdateResultHandle(data: data),
+      onError: (error) => commonPrint.log('Update check failed: $error'),
+    )..setForeground(_updateForeground);
+    ref.onDispose(_updates.dispose);
+    ref.listen(appSettingProvider.select((state) => state.autoCheckUpdate), (
+      _,
+      enabled,
+    ) {
+      if (_updatesStarted) _updates.setEnabled(enabled);
+    }, fireImmediately: true);
+  }
 
   void toggleRunning() {
     final running = !ref.read(isStartProvider);
@@ -83,19 +99,15 @@ class CommonAction extends _$CommonAction {
   }
 
   Future<bool> autoCheckUpdate() async {
-    if (!ref.read(appSettingProvider).autoCheckUpdate) return false;
-    final Map<String, dynamic>? res;
-    try {
-      res = await request.checkForUpdate();
-    } catch (error) {
-      commonPrint.log(
-        'checkForUpdate failed: ${compactError(error)}',
-        logLevel: LogLevel.warning,
-      );
-      return false;
-    }
-    await checkUpdateResultHandle(data: res);
-    return res != null;
+    if (!system.isAndroid) return false;
+    _updatesStarted = true;
+    _updates.setEnabled(ref.read(appSettingProvider).autoCheckUpdate);
+    return _updates.check();
+  }
+
+  void setUpdateCheckForeground(bool foreground) {
+    _updateForeground = foreground;
+    _updates.setForeground(foreground);
   }
 
   TextSpan _releaseSpan(BuildContext context, String tagName, String? body) {
@@ -148,22 +160,22 @@ class CommonAction extends _$CommonAction {
   }) async {
     if (data != null) {
       final context = globalState.navigatorKey.currentContext!;
+      if (Platform.isAndroid) {
+        await showAppUpdateDialog(context, data);
+        return;
+      }
       final res = await dialogs.showMessage(
         title: currentAppLocalizations.discoverNewVersion,
         message: _releaseSpan(
           context,
-          data['tag_name'] as String,
+          '${data['tag_name']} · ${data['source']}',
           data['body'] as String?,
         ),
         confirmText: currentAppLocalizations.goDownload,
         cancelText: isUser ? null : currentAppLocalizations.noLongerRemind,
       );
       if (res == true) {
-        unawaited(
-          launchUrl(
-            Uri.parse('https://github.com/$repository/releases/latest'),
-          ),
-        );
+        unawaited(launchUrl(Uri.parse(data['download_url'] as String)));
       } else if (!isUser && res == false) {
         ref
             .read(appSettingProvider.notifier)

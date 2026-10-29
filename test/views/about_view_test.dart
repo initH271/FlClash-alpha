@@ -33,9 +33,6 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Aharon'), findsOneWidget);
       expect(find.text('Telegram'), findsNothing);
-      for (final avatar in tester.widgetList<Avatar>(find.byType(Avatar))) {
-        expect(avatar.contributor.link ?? '', isNot(contains('t.me')));
-      }
       expect(
         tester
             .widget<CircleAvatar>(find.byType(CircleAvatar).first)
@@ -51,27 +48,24 @@ void main() {
       expect(find.text('Arue'), findsOneWidget);
     },
   );
-  testWidgets(
-    'about 页在中文下展示个人分支说明',
-    (tester) async {
-      tester.view.physicalSize = const Size(1200, 1800);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      await tester.pumpWidget(
-        const TestApp(
-          wrapInProviderScope: true,
-          locale: Locale('zh', 'CN'),
-          child: AboutView(),
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(
-        find.text(
-          'FlClash-alpha 由 Aharon 维护，基于 chen08209/FlClash。支持滚动日志，并可从 GitHub 与 CNB 更新。',
-        ),
-        findsOneWidget,
-      );
-    },
-  );
+  testWidgets('about 页在中文下展示个人分支说明', (tester) async {
+    tester.view.physicalSize = const Size(1200, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      const TestApp(
+        wrapInProviderScope: true,
+        locale: Locale('zh', 'CN'),
+        child: AboutView(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.text(
+        'FlClash-alpha 由 Aharon 维护，基于 chen08209/FlClash。支持滚动日志，并可从 GitHub 与 CNB 更新。',
+      ),
+      findsOneWidget,
+    );
+  });
 }

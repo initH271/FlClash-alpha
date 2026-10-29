@@ -11,6 +11,28 @@ import 'package:flutter/services.dart';
 const _platformProbeTimeout = Duration(seconds: 2);
 
 class App {
+  Future<Map<String, dynamic>?> getNetworkAddresses() async {
+    final value = await methodChannel.invokeMapMethod<String, dynamic>(
+      'getNetworkAddresses',
+    );
+    return value;
+  }
+
+  Future<Uri?> createExportDocument(String fileName) async {
+    final uri = await methodChannel.invokeMethod<String>(
+      'createExportDocument',
+      {'fileName': fileName},
+    );
+    return uri == null ? null : Uri.parse(uri);
+  }
+
+  Future<void> copyFileToUri(String path, Uri destination) async {
+    await methodChannel.invokeMethod<void>('copyFileToUri', {
+      'path': path,
+      'uri': destination.toString(),
+    });
+  }
+
   static App? _instance;
   late MethodChannel methodChannel;
   Function()? onExit;

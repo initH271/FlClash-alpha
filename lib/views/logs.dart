@@ -53,6 +53,7 @@ class _LogsViewState extends ConsumerState<LogsView>
     with RouteMotionHoldMixin<LogsView> {
   final _listController = LogListController();
   late final ScrollController _scrollController;
+  bool _exportingHistory = false;
   late final _physics = FollowEndScrollPhysics(
     isFollowing: () => _listController.value.autoScrollToEnd,
   );
@@ -75,7 +76,7 @@ class _LogsViewState extends ConsumerState<LogsView>
       IconButtonData(
         glyph: AppGlyphs.export,
         tooltip: context.appLocalizations.exportLogs,
-        onPressed: _handleExport,
+        onPressed: _exportingHistory ? null : _handleExport,
       ),
     ];
   }
@@ -88,17 +89,23 @@ class _LogsViewState extends ConsumerState<LogsView>
   }
 
   Future<void> _handleExport() async {
+    if (_exportingHistory) return;
+    setState(() => _exportingHistory = true);
     final appLocalizations = context.appLocalizations;
-    final res = await globalState.safeRun<bool>(() async {
-      return ref.read(logsProvider.notifier).exportLogs();
-    }, title: appLocalizations.exportLogs);
-    if (res != true) return;
-    unawaited(
-      dialogs.showAlert(
-        title: appLocalizations.tip,
-        message: TextSpan(text: appLocalizations.exportSuccess),
-      ),
-    );
+    try {
+      final res = await globalState.safeRun<bool>(() async {
+        return ref.read(logsProvider.notifier).exportLogs();
+      }, title: appLocalizations.exportLogs);
+      if (res != true || !mounted) return;
+      unawaited(
+        dialogs.showAlert(
+          title: appLocalizations.tip,
+          message: TextSpan(text: appLocalizations.exportSuccess),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _exportingHistory = false);
+    }
   }
 
   void updateLogsThrottler() {

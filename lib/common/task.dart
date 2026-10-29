@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/network_policy.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:flutter/foundation.dart';
@@ -176,6 +177,9 @@ Future<RealProfile> _makeRealProfileTask(MakeRealProfileState data) async {
     }
   }
   rawConfig['external-ui'] = '';
+  if (realPatchConfig.externalController == ExternalControllerStatus.open) {
+    rawConfig['external-ui'] = join(dirname(profilesPath), 'dashboard');
+  }
   switch (realPatchConfig.interfaceNameMode) {
     case InterfaceNameMode.clear:
       rawConfig['interface-name'] = '';
@@ -185,6 +189,10 @@ Future<RealProfile> _makeRealProfileTask(MakeRealProfileState data) async {
       rawConfig['interface-name'] = realPatchConfig.interfaceName;
   }
   rawConfig['external-ui-url'] = '';
+  if (realPatchConfig.externalController == ExternalControllerStatus.open) {
+    rawConfig['external-ui-url'] =
+        'https://github.com/Zephyruso/zashboard/releases/download/v3.29.1/dist-no-fonts.zip';
+  }
   rawConfig.addAll(realPatchConfig.generalOverrideJson);
   rawConfig['log-level'] = realPatchConfig.logLevel.name;
   rawConfig['port'] = 0;
@@ -370,8 +378,12 @@ Future<RealProfile> _makeRealProfileTask(MakeRealProfileState data) async {
         .toList();
   }
   rawConfig['rules'] = rules;
-  final yaml = await _encodeYaml(Map<String, dynamic>.from(rawConfig));
-  return (yaml: yaml, md5: yaml.toMd5(), counts: configCountsOf(rawConfig));
+  final networkConfig = applyNetworkFeatures(
+    Map<String, dynamic>.from(rawConfig),
+    data.networkFeatures,
+  );
+  final yaml = await _encodeYaml(networkConfig);
+  return (yaml: yaml, md5: yaml.toMd5(), counts: configCountsOf(networkConfig));
 }
 
 typedef ShakingStoreArgs = ({

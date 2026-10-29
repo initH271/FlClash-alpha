@@ -167,7 +167,17 @@ class SetupAction extends _$SetupAction {
     if (running && !initialize && !ref.read(initProvider)) {
       return Future.value(true);
     }
+    if (!initialize) {
+      ref.read(networkUserIntentProvider.notifier).record();
+    }
     return _run(running, initialize: running && initialize);
+  }
+
+  Future<bool> setRunningAutomatically(bool running) {
+    if (running && !ref.read(initProvider)) {
+      return Future.value(true);
+    }
+    return _run(running, initialize: false);
   }
 
   Future<bool> _run(
@@ -206,17 +216,23 @@ class SetupAction extends _$SetupAction {
       return applied;
     }
 
+    // A listener ahead of an unapplied config crashed mihomo (#202).
+    final bool applied;
     try {
-      await _startCoreRunning(request);
+      if (await inputsApplied()) {
+        await _startCoreRunning(request);
+        return true;
+      }
+      applied = await applyProfile(
+        force: true,
+        preloadInvoke: () => _startCoreRunning(request),
+      );
     } catch (_) {
       _rollbackRunning(request);
       rethrow;
     }
-    final applied = await inputsApplied();
-    if (_isCurrent(request) && !applied) {
-      applyProfileDebounce(force: true, silence: true);
-    }
-    return true;
+    if (!applied) _rollbackRunning(request);
+    return applied;
   }
 
   Future<void> _startCoreRunning(_RunRequest request) async {
@@ -521,6 +537,7 @@ class SetupAction extends _$SetupAction {
     );
     final res = await makeRealProfileTask(
       MakeRealProfileState(
+        networkFeatures: ref.read(networkFeaturesProvider),
         rules: rules,
         proxyGroups: proxyGroups,
         injectedProxyProviders: injected.proxies,
@@ -784,7 +801,7 @@ class SetupAction extends _$SetupAction {
           }
           final message = await _core.setupConfig(
             params: setupParams,
-            preloadInvoke: preloadInvoke,
+            preloadInvoke: profileFailed ? null : preloadInvoke,
           );
           if (message.isNotEmpty) {
             globalState.lastConfigCounts = configCountsOf(const {});

@@ -90,7 +90,7 @@ Flutter lengths are logical pixels, the unit Android calls dp. Comments, test na
 as in `48 dp`, never px: a reader takes px for physical pixels and misjudges the size by the device pixel ratio. Write
 "physical pixel" in full where the code really works in them, as the hairline snapping in
 `lib/ui/list_row_separator.dart` and the Win32 frame metrics in `plugins/window` do; raster image sizes in
-`tool/` and CSS under `site/` keep px. `test/lint/length_unit_test.dart` fails on a number followed by px in `lib/`
+`tool/` keep px. `test/lint/length_unit_test.dart` fails on a number followed by px in `lib/`
 and `test/`.
 
 CI gates formatting: `dart format --output=none --set-exit-if-changed lib test
@@ -562,6 +562,20 @@ failure, disposal, and any timer boundary that changes visible state.
 - Only a macOS or Android debug build has its own data directory; every other build shares the installed app's data
   directory and single-instance lock, so it cannot start while the user's instance runs. `.agents/commands.md` lists
   which builds are kept apart.
+
+## Automation Changes
+
+`.automation/`, `.cnb/`, `.cnb.yml` and `.github/` describe how this repository is automated, so they follow the
+requirement flow instead of an ordinary fix. An agent that needs to change them opens a CNB `[需求]` issue from the
+requirement form, selects 自动化配置 under 影响范围, and checks 允许改自动化配置. The checkbox is the owner's
+authorization: without it the requirement cannot modify those paths at all, and `.automation/requirements.py` rejects
+the form when the area is selected unchecked. The development NPC implements the change on the `automation/req-<n>`
+branch the controller names; the controller merges the PR.
+
+Do not push a `fix/` branch for one of these changes and merge it by hand. Only
+`automation/req-*`, `automation/security-sync-*` and `automation/cnb-main-*` are auto-merged by the controller
+(`merge_ready` in `.automation/security_finish.py`), so a hand-pushed branch stays outside that gate entirely. Plain
+edits are not the escape hatch either: the paths are protected by the rule, not by a hook that would catch them.
 
 ## Commit Messages
 

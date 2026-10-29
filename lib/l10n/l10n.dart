@@ -2841,9 +2841,14 @@ class AppLocalizations {
     );
   }
 
-  /// `Export logs`
+  /// `Export all logs`
   String get exportLogs {
-    return Intl.message('Export logs', name: 'exportLogs', desc: '', args: []);
+    return Intl.message(
+      'Export all logs',
+      name: 'exportLogs',
+      desc: '',
+      args: [],
+    );
   }
 
   /// `Export successful`
@@ -7943,8 +7948,7 @@ class AppLocalizations {
   String customImportDroppedSubRules(num count, Object label) {
     return Intl.plural(
       count,
-      one:
-          '1 SUB-RULE rule was dropped, since custom profiles do not support sub-rules',
+      one: '1 SUB-RULE rule was dropped, since custom profiles do not support sub-rules',
       other:
           '$label SUB-RULE rules were dropped, since custom profiles do not support sub-rules',
       name: 'customImportDroppedSubRules',
@@ -8050,6 +8054,313 @@ class AppLocalizations {
       name: 'alreadyInLocalProxies',
       desc: '',
       args: [name],
+    );
+  }
+
+  /// `Upstream project`
+  String get upstreamProject {
+    return Intl.message(
+      'Upstream project',
+      name: 'upstreamProject',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `FlClash-alpha is maintained by Aharon and based on chen08209/FlClash. It keeps rolling logs and updates from GitHub and CNB.`
+  String get personalForkDescription {
+    return Intl.message(
+      'FlClash-alpha is maintained by Aharon and based on chen08209/FlClash. It keeps rolling logs and updates from GitHub and CNB.',
+      name: 'personalForkDescription',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Downloading update…`
+  String get updateDownloading {
+    return Intl.message(
+      'Downloading update…',
+      name: 'updateDownloading',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Verifying the installation package…`
+  String get updateVerifying {
+    return Intl.message(
+      'Verifying the installation package…',
+      name: 'updateVerifying',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Download verified. Tap Install update to continue.`
+  String get updateReady {
+    return Intl.message(
+      'Download verified. Tap Install update to continue.',
+      name: 'updateReady',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Install update`
+  String get installUpdate {
+    return Intl.message(
+      'Install update',
+      name: 'installUpdate',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Allow this app to install updates in system settings, then return here.`
+  String get updateInstallPermission {
+    return Intl.message(
+      'Allow this app to install updates in system settings, then return here.',
+      name: 'updateInstallPermission',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The system installer is open. Confirm installation there.`
+  String get updateInstallerOpened {
+    return Intl.message(
+      'The system installer is open. Confirm installation there.',
+      name: 'updateInstallerOpened',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The update could not be downloaded, verified, or opened. Please retry.`
+  String get updateDownloadFailed {
+    return Intl.message(
+      'The update could not be downloaded, verified, or opened. Please retry.',
+      name: 'updateDownloadFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Retry`
+  String get updateRetry {
+    return Intl.message('Retry', name: 'updateRetry', desc: '', args: []);
+  }
+
+  /// `Network tools`
+  String get networkFeatures {
+    return Intl.message(
+      'Network tools',
+      name: 'networkFeatures',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Automatic stop and resume`
+  String get smartAutoStop {
+    return Intl.message(
+      'Automatic stop and resume',
+      name: 'smartAutoStop',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Pause on matching local networks; resume only connections paused automatically. Manual stop takes priority.`
+  String get smartAutoStopDesc {
+    return Intl.message(
+      'Pause on matching local networks; resume only connections paused automatically. Manual stop takes priority.',
+      name: 'smartAutoStopDesc',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Local network rules`
+  String get networkRules {
+    return Intl.message(
+      'Local network rules',
+      name: 'networkRules',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Enter IP/CIDR or gateway:192.168.1.1, separated by commas or new lines. Use Done or Save to apply.`
+  String get networkRulesDesc {
+    return Intl.message(
+      'Enter IP/CIDR or gateway:192.168.1.1, separated by commas or new lines. Use Done or Save to apply.',
+      name: 'networkRulesDesc',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Enter valid IPv4 addresses or CIDR ranges.`
+  String get networkRulesInvalid {
+    return Intl.message(
+      'Enter valid IPv4 addresses or CIDR ranges.',
+      name: 'networkRulesInvalid',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Block UDP/443`
+  String get disableQuic {
+    return Intl.message(
+      'Block UDP/443',
+      name: 'disableQuic',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Adds a rejection rule before subscription rules. QUIC on other ports is unaffected.`
+  String get disableQuicDesc {
+    return Intl.message(
+      'Adds a rejection rule before subscription rules. QUIC on other ports is unaffected.',
+      name: 'disableQuicDesc',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `NTP server`
+  String get ntpServer {
+    return Intl.message('NTP server', name: 'ntpServer', desc: '', args: []);
+  }
+
+  /// `Keep awake while running`
+  String get keepAwake {
+    return Intl.message(
+      'Keep awake while running',
+      name: 'keepAwake',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Sniffer override`
+  String get snifferOverride {
+    return Intl.message(
+      'Sniffer override',
+      name: 'snifferOverride',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `NTP override`
+  String get ntpOverride {
+    return Intl.message(
+      'NTP override',
+      name: 'ntpOverride',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Core log retention`
+  String get logRetentionTitle {
+    return Intl.message(
+      'Core log retention',
+      name: 'logRetentionTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Core history is deleted after the selected period. Shortening the period removes expired records.`
+  String get logRetentionDesc {
+    return Intl.message(
+      'Core history is deleted after the selected period. Shortening the period removes expired records.',
+      name: 'logRetentionDesc',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{count, plural, =1{1 day} other{{count} days}}`
+  String logRetentionDays(num count) {
+    return Intl.plural(
+      count,
+      one: '1 day',
+      other: '$count days',
+      name: 'logRetentionDays',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `Custom retention period`
+  String get logRetentionCustom {
+    return Intl.message(
+      'Custom retention period',
+      name: 'logRetentionCustom',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Enter a whole number of days between 1 and 36500`
+  String get logRetentionInvalid {
+    return Intl.message(
+      'Enter a whole number of days between 1 and 36500',
+      name: 'logRetentionInvalid',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `days`
+  String get logRetentionUnit {
+    return Intl.message('days', name: 'logRetentionUnit', desc: '', args: []);
+  }
+
+  /// `Upstream version`
+  String get upstreamVersion {
+    return Intl.message(
+      'Upstream version',
+      name: 'upstreamVersion',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Release date`
+  String get releaseDate {
+    return Intl.message(
+      'Release date',
+      name: 'releaseDate',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Internal build number`
+  String get buildNumber {
+    return Intl.message(
+      'Internal build number',
+      name: 'buildNumber',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Version details`
+  String get versionDetails {
+    return Intl.message(
+      'Version details',
+      name: 'versionDetails',
+      desc: '',
+      args: [],
     );
   }
 }

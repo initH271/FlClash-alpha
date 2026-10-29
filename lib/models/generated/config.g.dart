@@ -28,6 +28,9 @@ _AppSettingProps _$AppSettingPropsFromJson(
   silentLaunch: json['silentLaunch'] as bool? ?? false,
   autoRun: json['autoRun'] as bool? ?? false,
   openLogs: json['openLogs'] as bool? ?? false,
+  logRetentionDays: json['logRetentionDays'] == null
+      ? defaultLogRetentionDays
+      : logRetentionDaysFromJson(json['logRetentionDays']),
   closeConnections: json['closeConnections'] as bool? ?? true,
   delayTestTimeout:
       (json['delayTestTimeout'] as num?)?.toInt() ?? defaultDelayTestTimeout,
@@ -101,6 +104,7 @@ Map<String, dynamic> _$AppSettingPropsToJson(_AppSettingProps instance) =>
       'silentLaunch': instance.silentLaunch,
       'autoRun': instance.autoRun,
       'openLogs': instance.openLogs,
+      'logRetentionDays': instance.logRetentionDays,
       'closeConnections': instance.closeConnections,
       'delayTestTimeout': instance.delayTestTimeout,
       'tabAnimation': _$TabAnimationEnumMap[instance.tabAnimation]!,
@@ -256,6 +260,9 @@ Map<String, dynamic> _$AuthenticationPropsToJson(
 
 _NetworkProps _$NetworkPropsFromJson(Map<String, dynamic> json) =>
     _NetworkProps(
+      networkFeatures: json['networkFeatures'] == null
+          ? const NetworkFeatureSettings()
+          : NetworkFeatureSettings.safeFromJson(json['networkFeatures']),
       systemProxy: json['systemProxy'] as bool? ?? true,
       bypassDomain:
           (json['bypassDomain'] as List<dynamic>?)
@@ -274,6 +281,7 @@ _NetworkProps _$NetworkPropsFromJson(Map<String, dynamic> json) =>
 
 Map<String, dynamic> _$NetworkPropsToJson(_NetworkProps instance) =>
     <String, dynamic>{
+      'networkFeatures': instance.networkFeatures,
       'systemProxy': instance.systemProxy,
       'bypassDomain': instance.bypassDomain,
       'bypassPrivateRoute': instance.bypassPrivateRoute,

@@ -252,7 +252,8 @@ void main() {
     await tester.pump();
 
     expect(find.byType(AboutView), findsOneWidget);
-    expect(find.text('Telegram'), findsOneWidget);
+    expect(find.text('Telegram'), findsNothing);
+    expect(find.text('FlClash-alpha'), findsOneWidget);
     final hero = find.byWidgetPredicate(
       (widget) => widget.runtimeType.toString() == '_AboutHero',
     );
@@ -269,10 +270,20 @@ void main() {
         await tester.pump();
       }
     }
+    expect(find.textContaining('Project · GitHub'), findsOneWidget);
+    expect(find.textContaining('Project · CNB'), findsOneWidget);
+    expect(
+      find.textContaining(
+        'It keeps rolling logs and updates from GitHub and CNB.',
+      ),
+      findsOneWidget,
+    );
     expect(tester.takeException(), null);
   });
 
-  testWidgets('about view shows progress while checking for updates', (
+  // The fork's updater only serves the Android APK, so a desktop check ends
+  // without a request and reports the app as current.
+  testWidgets('about view reports a desktop update check as current', (
     tester,
   ) async {
     final container = _containerFor(tester);
@@ -288,29 +299,14 @@ void main() {
       ),
     );
     await tester.pump();
-    expect(find.byType(LinearProgressIndicator), findsNothing);
+    final releaseDateRequests = adapter.requests;
 
     await tester.tap(find.text('Check for updates'));
-    await tester.pump();
-    expect(find.byType(LinearProgressIndicator), findsOneWidget);
-
-    await tester.tap(find.text('Check for updates'));
-    await tester.pump(const Duration(milliseconds: 100));
-    expect(adapter.requests, 1);
-
-    adapter.response.complete(
-      ResponseBody.fromString(
-        jsonEncode({'tag_name': 'v0.0.0'}),
-        200,
-        headers: {
-          Headers.contentTypeHeader: [Headers.jsonContentType],
-        },
-      ),
-    );
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
     await tester.pumpAndSettle();
 
+    expect(adapter.requests, releaseDateRequests);
     expect(find.byType(LinearProgressIndicator), findsNothing);
     expect(find.text('The app is already up to date'), findsOneWidget);
     expect(tester.takeException(), null);

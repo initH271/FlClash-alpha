@@ -14,10 +14,8 @@ class LogRetentionItem extends ConsumerWidget {
       appSettingProvider.select((value) => value.logRetentionDays),
     );
     return ListItem<int>.options(
-      leading: const Icon(Icons.history_outlined),
       title: Text(l.logRetentionTitle),
-      subtitle: Text('${l.logRetentionDays(days)}\n${l.logRetentionDesc}'),
-      dialogTitle: l.logRetentionTitle,
+      subtitle: Text(l.logRetentionDesc),
       options: [
         1,
         7,
@@ -31,7 +29,6 @@ class LogRetentionItem extends ConsumerWidget {
           ? l.custom
           : '${l.logRetentionDays(value)}${value == 14 ? ' (${l.defaultText})' : ''}',
       onChanged: (value) async {
-        if (value == null) return;
         int? selected = value;
         if (value == 0) {
           final input = await dialogs.showCommonDialog<String>(
@@ -41,7 +38,6 @@ class LogRetentionItem extends ConsumerWidget {
               value: '$days',
               suffixText: l.logRetentionUnit,
               keyboardType: TextInputType.number,
-              errorMaxLines: 3,
               validator: (value) {
                 final number = int.tryParse(value ?? '');
                 return number == null ||

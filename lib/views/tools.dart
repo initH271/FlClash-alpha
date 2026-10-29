@@ -9,6 +9,7 @@ import 'package:fl_clash/views/access.dart';
 import 'package:fl_clash/views/backup_and_restore.dart';
 import 'package:fl_clash/views/config/general.dart';
 import 'package:fl_clash/views/hotkey.dart';
+import 'package:fl_clash/views/network_features.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -55,6 +56,7 @@ class _ToolViewState extends ConsumerState<ToolsView> {
         const _LocaleItem(),
         const _ThemeItem(),
         const _BackupItem(),
+        const _NetworkFeaturesItem(),
         if (system.isDesktop) const _HotkeyItem(),
         if (system.isAndroid) const _AccessItem(),
         const _AdvancedConfigItem(),
@@ -159,6 +161,19 @@ class _BackupItem extends StatelessWidget {
       leading: const GlyphIcon(AppGlyphs.cloudSync),
       title: Text(context.appLocalizations.backupAndRestore),
       widget: const BackupAndRestore(),
+    );
+  }
+}
+
+class _NetworkFeaturesItem extends StatelessWidget {
+  const _NetworkFeaturesItem();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListItem.open(
+      leading: const GlyphIcon(AppGlyphs.wifi),
+      title: Text(context.appLocalizations.networkFeatures),
+      widget: const NetworkFeaturesView(),
     );
   }
 }

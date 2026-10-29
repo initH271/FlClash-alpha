@@ -4,6 +4,7 @@ import 'package:fl_clash/features/form/form.dart';
 import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
+import 'package:fl_clash/views/config/log_retention.dart';
 import 'package:fl_clash/views/config/on_demand.dart';
 import 'package:fl_clash/views/config/override.dart';
 import 'package:fl_clash/views/config/user_agents.dart';
@@ -374,6 +375,7 @@ class GeneralView extends ConsumerWidget {
   List<Widget> _logItems() {
     return [
       const LogLevelItem(),
+      const LogRetentionItem(),
       _appSettingToggle(
         title: (l) => l.logcat,
         select: (state) => state.openLogs,

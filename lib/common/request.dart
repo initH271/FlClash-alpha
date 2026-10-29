@@ -6,12 +6,15 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/app_update.dart';
+import 'package:fl_clash/common/release_identity.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/state.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
 class Request {
   late final Dio dio;
+  late final ReleaseDateClient releaseDates = ReleaseDateClient(dio);
   late final Dio _clashDio;
   String? userAgent;
 
@@ -87,12 +90,14 @@ class Request {
 
   /// Null when this build is current; throws when GitHub cannot be asked.
   Future<Map<String, dynamic>?> checkForUpdate() async {
-    final release = await latestRelease();
-    final remoteVersion = release['tag_name'] as String;
-    final version = globalState.packageInfo.version;
-    final hasUpdate =
-        compareVersions(remoteVersion.replaceAll('v', ''), version) > 0;
-    return hasUpdate ? release : null;
+    if (!Platform.isAndroid) return null;
+    final build = int.tryParse(globalState.packageInfo.buildNumber);
+    if (build == null) return null;
+    final result = await AppUpdateChecker.network(dio).check(build);
+    if (result != null) {
+      commonPrint.log('Update ${result['tag_name']} via ${result['source']}');
+    }
+    return result;
   }
 
   /// The release page redirect still answers once the hourly API quota is spent.

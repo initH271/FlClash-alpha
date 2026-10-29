@@ -165,7 +165,6 @@ class Bootstrap {
     unawaited(
       _container.read(profilesActionProvider.notifier).autoUpdateProfiles(),
     );
-    unawaited(_container.read(commonActionProvider.notifier).autoCheckUpdate());
     unawaited(
       autoLaunch?.updateStatus(_container.read(appSettingProvider).autoLaunch),
     );
@@ -186,6 +185,7 @@ class Bootstrap {
     _container.read(initProvider.notifier).value = true;
     unawaited(_container.read(resourcesActionProvider.notifier).autoUpdate());
     await bootGuard.markRunning();
+    unawaited(_container.read(commonActionProvider.notifier).autoCheckUpdate());
     unawaited(_container.read(locationPermissionsProvider.notifier).refresh());
   }
 

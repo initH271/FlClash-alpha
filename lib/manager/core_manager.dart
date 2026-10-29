@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/core/core.dart';
 import 'package:fl_clash/enum/enum.dart';
+import 'package:fl_clash/manager/network_automation_manager.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/action.dart';
 import 'package:fl_clash/providers/app.dart';
@@ -24,8 +25,13 @@ class CoreManager extends ConsumerStatefulWidget {
 }
 
 class _CoreContainerState extends ConsumerState<CoreManager>
-    with CoreEventListener {
+    with
+        CoreEventListener,
+        WidgetsBindingObserver,
+        NetworkAutomationMixin<CoreManager> {
   CoreController get _core => ref.read(coreHandlerProvider);
+  int _logRetentionRevision = 0;
+  bool _syncingLogRetention = false;
 
   @override
   Widget build(BuildContext context) {
@@ -37,6 +43,14 @@ class _CoreContainerState extends ConsumerState<CoreManager>
     super.initState();
     coreEventManager.addListener(this);
     ref.read(updatingActionProvider.notifier);
+    ref.listenManual(
+      networkFeaturesProvider.select((settings) => settings.profileOptions),
+      (previous, next) {
+        if (previous != next) {
+          unawaited(ref.read(setupActionProvider.notifier).fullSetup());
+        }
+      },
+    );
     // A rejected profile stays selected on purpose: silently reverting to
     // the previous one hides the error and looks like the switch was lost.
     ref.listenManual(currentProfileIdProvider, (prev, next) {
@@ -81,8 +95,44 @@ class _CoreContainerState extends ConsumerState<CoreManager>
     ref.listenManual(coreStatusProvider, (prev, next) {
       if (next == CoreStatus.connected && prev != CoreStatus.connected) {
         _syncLogStream();
+        unawaited(_syncLogRetention());
       }
     }, fireImmediately: true);
+    ref.listenManual(
+      appSettingProvider.select((value) => value.logRetentionDays),
+      (_, _) {
+        unawaited(_syncLogRetention());
+      },
+    );
+  }
+
+  Future<void> _syncLogRetention() async {
+    if (ref.read(coreStatusProvider) != CoreStatus.connected) return;
+    _logRetentionRevision++;
+    if (_syncingLogRetention) return;
+    _syncingLogRetention = true;
+    try {
+      int applied;
+      do {
+        applied = _logRetentionRevision;
+        try {
+          await Future<void>.sync(
+            () => _core.setLogHistoryRetention(
+              ref.read(appSettingProvider).logRetentionDays,
+            ),
+          );
+        } catch (error) {
+          commonPrint.log(
+            'Failed to update log retention: $error',
+            logLevel: LogLevel.warning,
+          );
+        }
+      } while (mounted &&
+          applied != _logRetentionRevision &&
+          ref.read(coreStatusProvider) == CoreStatus.connected);
+    } finally {
+      _syncingLogRetention = false;
+    }
   }
 
   void _syncLogStream() {

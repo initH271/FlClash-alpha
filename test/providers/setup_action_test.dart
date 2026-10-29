@@ -407,6 +407,9 @@ void main() {
       tester,
     ) async {
       final setup = buildScoped();
+      // Building CommonAction schedules a riverpod dispose check; do it while
+      // the fake clock still runs.
+      expect(trafficUpdates(), 0);
       setVisible(false);
       await setup.setRunning(true);
       await tester.pump(const Duration(seconds: 3));
@@ -2006,7 +2009,8 @@ void main() {
 
         await messageAction.setRunning(true, initialize: true);
 
-        expect(messageAction.coreRunningCalls, [true, false]);
+        // No profile builds here, so the listener never starts.
+        expect(messageAction.coreRunningCalls, [false]);
         expect(scoped.read(runTimeProvider), isNull);
         verify(() => core.setupConfig(any())).called(1);
       },

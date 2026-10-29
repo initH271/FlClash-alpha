@@ -91,6 +91,8 @@ Duration probeGuardDuration(ProbeParams params) => coreGuardFor(params.timeout);
 const serviceSweepBudgetFactor = 6;
 
 const coreConnectionWaitDuration = Duration(seconds: 10);
+const defaultLogRetentionDays = 14;
+const maxLogRetentionDays = 36500;
 
 /// Keep at or below the Core's delay-test concurrency (`delayTestConcurrency`
 /// in core/delay.go).
@@ -121,7 +123,7 @@ const systemDnsRecordKey = 'system_dns_record';
 const bootRecordKey = 'boot_record';
 const appliedConfigMd5Key = 'applied_config_md5';
 const defaultSystemDnsFallback = '223.5.5.5';
-const repository = 'chen08209/FlClash';
+const repository = 'initH271/FlClash-alpha';
 const maxMobileWidth = 600;
 const maxLaptopWidth = 840;
 const defaultTestUrl = 'https://www.gstatic.com/generate_204';

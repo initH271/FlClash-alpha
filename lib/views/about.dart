@@ -1,6 +1,8 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/release_identity.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
@@ -13,17 +15,53 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 class Contributor {
   final String avatar;
   final String name;
+  final String? link;
 
-  const Contributor({required this.avatar, required this.name});
+  const Contributor({required this.avatar, required this.name, this.link});
 }
 
-class AboutView extends ConsumerWidget {
-  const AboutView({super.key});
+class AboutView extends ConsumerStatefulWidget {
+  final Future<DateTime?> Function()? releaseDateLoader;
+
+  const AboutView({super.key, this.releaseDateLoader});
+
+  @override
+  ConsumerState<AboutView> createState() => _AboutViewState();
+}
+
+class _AboutViewState extends ConsumerState<AboutView> {
+  static const _maintainer = Contributor(
+    avatar: 'assets/images/avatar/aharon.png',
+    name: 'Aharon',
+    link: 'https://github.com/initH271',
+  );
 
   static const _contributors = [
     Contributor(avatar: 'assets/images/avatar/june2.jpg', name: 'June2'),
     Contributor(avatar: 'assets/images/avatar/arue.jpg', name: 'Arue'),
   ];
+
+  final _dateToken = CancelToken();
+  late final AppReleaseIdentity _identity;
+  late final Future<DateTime?> _releaseDate;
+
+  @override
+  void initState() {
+    super.initState();
+    _identity = AppReleaseIdentity.installed(
+      globalState.packageInfo.version,
+      globalState.packageInfo.buildNumber,
+    );
+    _releaseDate =
+        widget.releaseDateLoader?.call() ??
+        request.releaseDates.lookup(_identity.releaseTag, _dateToken);
+  }
+
+  @override
+  void dispose() {
+    _dateToken.cancel('About page closed');
+    super.dispose();
+  }
 
   Future<void> _checkUpdate(BuildContext context, WidgetRef ref) async {
     if (ref.read(loadingProvider(LoadingTag.checkUpdate))) return;
@@ -56,8 +94,18 @@ class AboutView extends ConsumerWidget {
     );
   }
 
+  Widget _buildContributor(Contributor contributor, String subtitle) {
+    final link = contributor.link;
+    return ListItem(
+      leading: CircleAvatar(foregroundImage: AssetImage(contributor.avatar)),
+      title: Text(contributor.name),
+      subtitle: Text(subtitle),
+      onTap: link == null ? null : () => dialogs.openUrl(link),
+    );
+  }
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final appLocalizations = context.appLocalizations;
     final isLoading = ref.watch(loadingProvider(LoadingTag.checkUpdate));
     return CommonScaffold(
@@ -70,6 +118,8 @@ class AboutView extends ConsumerWidget {
         ),
         children: [
           _AboutHero(
+            identity: _identity,
+            releaseDate: _releaseDate,
             isCheckingUpdate: isLoading,
             onCheckUpdate: () {
               _checkUpdate(context, ref);
@@ -90,9 +140,21 @@ class AboutView extends ConsumerWidget {
             items: [
               _buildLinkItem(
                 glyph: AppGlyphs.code,
-                title: appLocalizations.project,
+                title: '${appLocalizations.project} · GitHub',
                 url: 'https://github.com/$repository',
-                label: 'github.com/$repository',
+                label: 'GitHub',
+              ),
+              _buildLinkItem(
+                glyph: AppGlyphs.code,
+                title: '${appLocalizations.project} · CNB',
+                url: 'https://cnb.cool/507space/FlClash-alpha',
+                label: 'CNB',
+              ),
+              _buildLinkItem(
+                glyph: AppGlyphs.code,
+                title: appLocalizations.upstreamProject,
+                url: 'https://github.com/chen08209/FlClash',
+                label: 'FlClash · chen08209',
               ),
               _buildLinkItem(
                 glyph: AppGlyphs.cpu,
@@ -100,25 +162,14 @@ class AboutView extends ConsumerWidget {
                 url: 'https://github.com/chen08209/Clash.Meta/tree/FlClash',
                 label: 'github.com/chen08209/Clash.Meta',
               ),
-              _buildLinkItem(
-                glyph: AppGlyphs.send,
-                title: 'Telegram',
-                url: 'https://t.me/FlClash',
-                label: 't.me/FlClash',
-              ),
             ],
           ),
           generateSection(
             title: appLocalizations.otherContributors,
             items: [
+              _buildContributor(_maintainer, 'GitHub'),
               for (final contributor in _contributors)
-                ListItem(
-                  leading: CircleAvatar(
-                    foregroundImage: AssetImage(contributor.avatar),
-                  ),
-                  title: Text(contributor.name),
-                  subtitle: Text(appLocalizations.appIconDesign),
-                ),
+                _buildContributor(contributor, appLocalizations.appIconDesign),
             ],
           ),
         ],
@@ -128,11 +179,15 @@ class AboutView extends ConsumerWidget {
 }
 
 class _AboutHero extends StatelessWidget {
+  final AppReleaseIdentity identity;
+  final Future<DateTime?> releaseDate;
   final bool isCheckingUpdate;
   final VoidCallback onCheckUpdate;
   final VoidCallback onEnterDeveloperMode;
 
   const _AboutHero({
+    required this.identity,
+    required this.releaseDate,
     required this.isCheckingUpdate,
     required this.onCheckUpdate,
     required this.onEnterDeveloperMode,
@@ -168,7 +223,7 @@ class _AboutHero extends StatelessWidget {
           ),
           const SizedBox(height: 20),
           Text(
-            appName,
+            'FlClash-alpha',
             style: AppTextStyle.title2.of(context, emphasized: true),
           ),
           const SizedBox(height: 10),
@@ -178,7 +233,7 @@ class _AboutHero extends StatelessWidget {
             alignment: WrapAlignment.center,
             children: [
               _Pill(
-                label: 'v${globalState.packageInfo.version}',
+                label: identity.displayVersion,
                 color: colorScheme.primary,
                 foregroundColor: colorScheme.onPrimary,
               ),
@@ -193,12 +248,39 @@ class _AboutHero extends StatelessWidget {
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 420),
             child: Text(
-              appLocalizations.desc,
+              appLocalizations.personalForkDescription,
               textAlign: TextAlign.center,
               style: AppTextStyle.subheadline
                   .of(context)
                   .copyWith(color: colorScheme.onSurfaceVariant, height: 1.5),
             ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '${appLocalizations.upstreamVersion}: ${identity.upstreamVersion}',
+            style: AppTextStyle.caption1.of(context),
+          ),
+          FutureBuilder<DateTime?>(
+            future: releaseDate,
+            builder: (context, snapshot) {
+              final date = snapshot.data;
+              final value = date == null
+                  ? appLocalizations.unknown
+                  : formatReleaseDate(date);
+              return Text(
+                '${appLocalizations.releaseDate}: $value',
+                style: AppTextStyle.caption1.of(context),
+              );
+            },
+          ),
+          ExpansionTile(
+            title: Text(appLocalizations.versionDetails),
+            children: [
+              ListTile(
+                title: Text(appLocalizations.buildNumber),
+                subtitle: Text(globalState.packageInfo.buildNumber),
+              ),
+            ],
           ),
           const SizedBox(height: 20),
           TonalButton(
