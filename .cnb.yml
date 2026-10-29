@@ -106,40 +106,34 @@ main:
             chmod +x android/gradlew
             [ -f android/gradle/wrapper/gradle-wrapper.jar ] || cp "$wrapper_dir/gradle/wrapper/gradle-wrapper.jar" android/gradle/wrapper/gradle-wrapper.jar
             cat > /tmp/flclash-mirror.init.gradle <<'EOF'
-            import org.gradle.api.artifacts.repositories.MavenArtifactRepository
             import org.gradle.api.artifacts.dsl.RepositoryHandler
 
-            def mirrors = [
-              'https://maven.aliyun.com/repository/google',
-              'https://maven.aliyun.com/repository/public',
-              'https://maven.aliyun.com/repository/gradle-plugin',
-            ]
-            // Maven Central answers 429 to the shared CI egress, so the Aliyun mirrors go ahead
-            // of whatever settings declare. Handlers are type-checked before use: reading the
-            // result of a missing method lands on a settings/project delegate and fails as
-            // "write-only property". The closure parameter is typed so the assignment stays on
-            // the repository instead of the DELEGATE_FIRST target, null while the maven closure
-            // is still stored.
-            def prepend = { handler ->
+            def central = ['https://repo.maven.apache.org/maven2', 'https://repo1.maven.org/maven2']
+            def mirror = 'https://maven.aliyun.com/repository/public'
+            // Maven Central answers 429 to the shared CI egress, so every Central entry is
+            // rewritten to the Aliyun mirror. Rewriting instead of adding repositories keeps
+            // Flutter's included :gradle build working: it runs FAIL_ON_PROJECT_REPOS, reads its
+            // classpath from settings-level dependencyResolutionManagement, and its plugin
+            // handler holds PluginArtifactRepository, so a typed closure would be rejected.
+            // `handler.all` (not withType().configureEach) is what still reaches entries added
+            // after the hook, which is how both Flutter settings declare their repositories.
+            def redirect = { handler ->
               if (!(handler instanceof RepositoryHandler)) { return }
-              try {
-                def created = mirrors.collect { mirror ->
-                  handler.maven { MavenArtifactRepository repo -> repo.url = mirror }
+              handler.all { repo ->
+                if (repo.metaClass.hasProperty(repo, 'url')) {
+                  def current = repo.url.toString().replaceAll('/+$', '')
+                  if (central.contains(current)) { repo.url = mirror }
                 }
-                created.reverseEach { repo -> handler.remove(repo) }
-                created.reverseEach { repo -> handler.addFirst(repo) }
-              } catch (org.gradle.api.InvalidUserCodeException ignored) {
-                // PREFER_SETTINGS rejects project repositories; Flutter's included :gradle build
-                // sets it, and its own settings already own the repository list.
               }
             }
-            gradle.settingsEvaluated { settings ->
-              prepend(settings.pluginManagement.repositories)
-              prepend(settings.dependencyResolutionManagement.repositories)
+            beforeSettings { settings ->
+              redirect(settings.pluginManagement.repositories)
+              redirect(settings.dependencyResolutionManagement.repositories)
+              redirect(settings.buildscript.repositories)
             }
-            gradle.beforeProject { project ->
-              prepend(project.buildscript.repositories)
-              prepend(project.repositories)
+            allprojects {
+              redirect(buildscript.repositories)
+              redirect(repositories)
             }
             EOF
             cd android
