@@ -105,8 +105,34 @@ main:
             cp "$wrapper_dir/gradlew" android/gradlew
             chmod +x android/gradlew
             [ -f android/gradle/wrapper/gradle-wrapper.jar ] || cp "$wrapper_dir/gradle/wrapper/gradle-wrapper.jar" android/gradle/wrapper/gradle-wrapper.jar
+            cat > /tmp/flclash-mirror.init.gradle <<'EOF'
+            @groovy.transform.Field def mirrors = [
+              'https://maven.aliyun.com/repository/google',
+              'https://maven.aliyun.com/repository/public',
+              'https://maven.aliyun.com/repository/gradle-plugin',
+            ]
+            // Maven Central answers 429 to the shared CI egress, so the Aliyun mirrors go
+            // ahead of whatever repository list the settings or the build already declares.
+            // `repo.@url` bypasses DELEGATE_FIRST dispatch: a plain assignment would target
+            // the delegate, still null while the repository closure is only stored.
+            def setUrl = { repo, value -> repo.@url = value }
+            def prepend = { repositories ->
+              mirrors.each { mirror -> repositories.maven { repo -> setUrl(repo, mirror) } }
+            }
+            beforeSettings { settings ->
+              prepend(settings.pluginManagement.repositories)
+              prepend(settings.dependencyResolutionManagement.repositories)
+            }
+            allprojects {
+              prepend(buildscript.repositories)
+              prepend(repositories)
+            }
+            EOF
             cd android
-            ./gradlew :common:testDebugUnitTest :service:testDebugUnitTest :app:testDebugUnitTest -Ptarget-platform=android-arm64 -x :app:compileFlutterBuildDebug -x :app:copyFlutterAssetsDebug
+            ./gradlew --init-script /tmp/flclash-mirror.init.gradle \
+              -Dorg.gradle.internal.repository.max.retries=8 -Dorg.gradle.internal.repository.initial.backoff=1000 \
+              :common:testDebugUnitTest :service:testDebugUnitTest :app:testDebugUnitTest \
+              -Ptarget-platform=android-arm64 -x :app:compileFlutterBuildDebug -x :app:copyFlutterAssetsDebug
         - name: Android Go vet
           image: $TOOLCHAIN_IMAGE
           timeout: 15m
