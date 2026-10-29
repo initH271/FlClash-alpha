@@ -298,3 +298,20 @@ native checks and independent NPC reviews, then receives the GitHub main mirror.
 No controller operation attempts to approve or merge its own CNB PR. Compatible
 repairs use a signed, exact-head GitHub forwarding PR; broader migrations use a
 normal reviewed GitHub integration PR. Branch protections remain enabled.
+
+A release in flight freezes that entrypoint. `pause.release_lock()` reads the open
+candidates `automation/upstream-*` pull requests against `main`, and counts a lock while
+one build.yaml run for a candidate head is not `completed`, or while the
+`FlClash/approved-build` status on a candidate head has been `pending` for at most 180
+minutes. A lock only defers the `/merge` calls in `forward_pull` and `merge_ready`;
+forwarding, `requirements.sync_main` and branch refreshes keep running, so a release
+cannot collide with work that is not a merge. Promoting a candidate moves `main` to its
+head and closes its pull request, and a finished run or a final status ends the lock on
+the next pass. Expired `pending` state stops counting as a lock once it is older than
+180 minutes, and the controller says so once in the upgrade issue naming the candidate
+rather than releasing it silently. A lock that lasts longer than 90 minutes gets one
+reminder in that issue, because nothing else would tell the owner a build is stuck.
+
+HOLD still wins: a requirement pull request the owner took by hand is never merged by
+`merge_ready`, lock or not. `pause.py status [automation/req-<n>]` is the read-only
+entrypoint that reports both, using GET requests only and posting nothing.

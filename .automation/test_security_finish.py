@@ -1,5 +1,6 @@
 import json
 import hashlib
+import io
 import os
 import types
 import unittest
@@ -312,3 +313,150 @@ class SecurityFinishTests(unittest.TestCase):
             finish.merge_one()
             forward.assert_not_called()
             self.assertFalse(any(len(c.args) > 1 for c in call.call_args_list))
+
+
+RELEASE = {'source': 'release', 'head': 'a' * 40, 'pull': 12, 'since': '2026-10-29T09:00:00Z',
+           'minutes': 30, 'evidence': 'build.yaml 运行未结束', 'issue': '217'}
+HOLD = {'source': 'hold', 'head': 'automation/security-sync-bbbbbbbbbbbbbbbb',
+        'since': '2026-10-29T09:00:00Z', 'branch': 'automation/req-9'}
+
+
+class ReleaseLockTests(unittest.TestCase):
+    def setUp(self):
+        env = patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test'})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def forwarding(self, lock, ref='automation/security-sync-' + 'b' * 16):
+        payload = {'base': 'a' * 40, 'head': 'b' * 40, 'tree': 'tree', 'cnb_number': '8'}
+        target = {'number': 9, 'body': '<!-- flclash-security-mirror ' + json.dumps(finish.sign(payload)) + ' -->',
+                  'base': {'ref': 'main'}, 'head': {'ref': ref, 'repo': {'full_name': finish.POLICY['github']}}}
+
+        def api(url, method='GET', data=None):
+            return {'state': 'open'} if '/issues/' in url else []
+        with (patch.object(finish, 'api', side_effect=api) as call, patch.object(finish, 'pages', return_value=[target]),
+              patch.object(finish, 'mirror_attestation', return_value='verified'),
+              patch.object(finish, 'after_github_merge') as follow,
+              patch.object(finish.pause, 'paused', return_value=lock) as paused):
+            finish.forward_pull({'number': '26'}, {'number': '8', 'head': {'sha': payload['head']}}, payload['base'])
+            return call, follow, paused
+
+    def test_a_locked_main_never_merges_a_forwarded_repair(self):
+        for lock in (RELEASE, HOLD):
+            call, follow, paused = self.forwarding(lock)
+            follow.assert_not_called()
+            self.assertFalse(any(len(c.args) > 1 and c.args[0].endswith('/merge') for c in call.call_args_list))
+            self.assertEqual('main', paused.call_args.args[0])
+
+    def test_an_open_main_still_merges_the_forwarded_repair(self):
+        payload = {'base': 'a' * 40, 'head': 'b' * 40, 'tree': 'tree', 'cnb_number': '8'}
+        target = {'number': 9, 'body': '<!-- flclash-security-mirror ' + json.dumps(finish.sign(payload)) + ' -->',
+                  'base': {'ref': 'main'}, 'head': {'ref': 'automation/security-sync-x', 'repo': {'full_name': finish.POLICY['github']}}}
+
+        def api(url, method='GET', data=None):
+            if '/issues/' in url:
+                return {'state': 'open'}
+            return [] if method == 'GET' else {'merged': True}
+        with (patch.object(finish, 'api', side_effect=api), patch.object(finish, 'pages', return_value=[target]),
+              patch.object(finish, 'mirror_attestation', return_value='verified'),
+              patch.object(finish, 'after_github_merge') as follow,
+              patch.object(finish.pause, 'paused', return_value=None) as paused):
+            finish.forward_pull({'number': '26'}, {'number': '8', 'head': {'sha': payload['head']}}, payload['base'])
+        follow.assert_called_once_with(payload['head'])
+        self.assertEqual('main', paused.call_args.args[0])
+        self.assertEqual('automation/security-sync-x', paused.call_args.args[1])
+
+
+class MergeReadyTests(unittest.TestCase):
+    def setUp(self):
+        reset = patch.object(finish.pause, '_release', None)
+        reset.start()
+        self.addCleanup(reset.stop)
+        self.writes = []
+
+    def listed(self, ref, sha):
+        return {'number': abs(hash((ref, sha))) % 1000,
+                'head': {'ref': ref, 'repo': {'full_name': finish.POLICY['github']}}, 'base': {'ref': 'main'}}
+
+    def pull(self, ref, sha):
+        return {'number': 1, 'draft': False, 'mergeable_state': 'clean', 'head': {'sha': sha, 'ref': ref},
+                'base': {'ref': 'main'}}
+
+    def api(self, pulls):
+        def api(url, method='GET', data=None):
+            self.writes.append((method, url))
+            if url.endswith('/status'):
+                return {'statuses': [{'context': 'FlClash/paired-review', 'state': 'success'}]}
+            if method == 'PUT':
+                return {'merged': False}
+            for ref, sha in pulls:
+                if url.endswith('/pulls/' + str(self.listed(ref, sha)['number'])):
+                    return self.pull(ref, sha)
+            raise AssertionError('unexpected read ' + url)
+        return api
+
+    def run_merge_ready(self, pulls, comments=()):
+        listed = [self.listed(ref, sha) for ref, sha in pulls]
+        with (patch.object(finish, 'pages', return_value=listed), patch.object(finish, 'api', side_effect=self.api(pulls)),
+              patch.object(finish, 'mirror_attestation', return_value='verified'),
+              patch.object(finish, 'after_github_merge'),
+              patch.object(finish.pause, 'pages', side_effect=self.reads(comments))):
+            finish.merge_ready()
+
+    def reads(self, comments):
+        def pages(url, *args, **kwargs):
+            return [{'body': body} for body in comments]
+        return pages
+
+    def merges(self):
+        return [url for method, url in self.writes if method == 'PUT']
+
+    def test_a_release_stops_every_merge_and_says_so_once_per_requirement(self):
+        posted = []
+        with patch.object(finish.pause, 'paused', return_value=RELEASE) as paused, \
+                patch.object(finish.pause, 'comment', side_effect=lambda number, body: posted.append((number, body))):
+            self.run_merge_ready([('automation/req-9', 'c' * 40), ('automation/security-sync-x', 'd' * 40)])
+        self.assertEqual([], self.merges())
+        self.assertEqual(['main', 'main'], [call.args[0] for call in paused.call_args_list])
+        self.assertEqual(['9'], [number for number, _ in posted])
+        body = posted[0][1]
+        self.assertTrue(body.startswith(finish.pause.REQUIREMENT_DEFERRED.format('a' * 40)))
+        self.assertIn('GitHub PR #12', body)
+        self.assertNotIn('草稿', body)
+        mark = finish.pause.REQUIREMENT_DEFERRED.format('a' * 40)
+        with patch.object(finish.pause, 'paused', return_value=RELEASE), \
+                patch.object(finish.pause, 'comment') as again:
+            self.run_merge_ready([('automation/req-9', 'c' * 40)], comments=[mark])
+        again.assert_not_called()
+
+    def test_an_owner_hold_only_prints(self):
+        with patch.object(finish.pause, 'paused', return_value=HOLD), \
+                patch.object(finish.pause, 'comment') as post, patch('sys.stdout', new_callable=io.StringIO) as out:
+            self.run_merge_ready([('automation/req-9', 'c' * 40)])
+        post.assert_not_called()
+        self.assertEqual([], self.merges())
+        self.assertIn('automation/req-9 held by owner; deferring merge', out.getvalue())
+
+    def test_an_open_main_still_merges(self):
+        with patch.object(finish.pause, 'paused', return_value=None), patch.object(finish.pause, 'comment') as post:
+            self.run_merge_ready([('automation/cnb-main-x', 'c' * 40)])
+        post.assert_not_called()
+        self.assertEqual(1, len(self.merges()))
+
+    def test_a_held_requirement_waits_while_a_repair_merges(self):
+        owner = {'username': finish.POLICY['approver'], 'is_npc': False}
+        holds = {'automation/req-9': {'created_at': '2026-10-29T09:00:00Z', 'body': 'HOLD', 'author': owner}}
+
+        def reads(url, *args, **kwargs):
+            number = url.split('/issues/')[1].split('/')[0]
+            return [item] if number == '9' else []
+
+        def paused(scope, branch='', comments=None):
+            return {'source': 'hold', 'since': holds[branch]['created_at'], 'branch': branch} \
+                if branch in holds else None
+        with patch.object(finish.pause, 'paused', side_effect=paused), \
+                patch.object(finish.pause, 'pages', side_effect=reads), patch.object(finish.pause, 'comment') as post:
+            self.run_merge_ready([('automation/req-9', 'c' * 40),
+                                  ('automation/security-sync-' + 'e' * 16, 'd' * 40)])
+        post.assert_not_called()
+        self.assertEqual(1, len(self.merges()))
