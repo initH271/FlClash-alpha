@@ -132,7 +132,9 @@ def _age(stamp, now):
 
 def stalled(issue, comments, pull, checks, now):
     """Return a one-time key for a requirement state no event will advance, or ''."""
-    key = '' if pause.held(comments) else _stalled(issue, comments, pull, checks, now)
+    if pause.held(comments):
+        return ''
+    key = _stalled(issue, comments, pull, checks, now)
     if key or not pull or not comments or (checks and all(item['state'] == 'success' for item in checks)):
         return key
     # A stuck requirement may still be resynced or forwarded, so it gets one idle wake per head.

@@ -162,6 +162,29 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual('', wake.stalled(issue, [signed, forwarded, hold], pull, green, now))
         self.assertNotEqual('', wake.stalled(issue, [signed, forwarded, hold, release], pull, green, now))
 
+    def test_a_hold_suppresses_the_idle_wake_exactly_as_it_suppresses_a_stall(self):
+        now = 1_790_200_000
+        stamp = lambda minutes: time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(now - minutes * 60))
+        issue = {'created_at': stamp(300)}
+        marker = '<!-- flclash-requirement {"payload": {"phase": "dev"}, "signature": "x"} -->'
+        seeded = {'id': 'm300', 'created_at': stamp(300), 'body': marker,
+                  'statuses': {'npc': [{'context': {'npc.slug': '507space/FlClash-alpha', 'npc.name': '开发助手'},
+                                        'statuses': [{'state': 'success'}]}]}}
+        owner = {'username': 'Aharon', 'is_npc': False}
+        report = {'created_at': stamp(60), 'body': '阶段汇报', 'author': {'username': '507space/FlClash-alpha(开发助手)'}}
+        pull = {'head': {'sha': 'abc'}}
+        red = [{'context': 'x(Paired review gate)', 'state': 'error'}]
+        green = [{'context': 'x(Flutter and Android requirement tests)', 'state': 'success'}]
+        hold = {'created_at': stamp(50), 'body': 'HOLD', 'author': owner}
+        release = {'created_at': stamp(40), 'body': 'RELEASE', 'author': owner}
+        for checks, expected in ((red, 'idle-abc-1'), (green, 'green-abc')):
+            self.assertEqual(expected, wake.stalled(issue, [seeded, report], pull, checks, now), checks)
+            self.assertEqual('', wake.stalled(issue, [seeded, report, hold], pull, checks, now), checks)
+        released = [seeded, report, hold, release]
+        self.assertEqual('', wake.stalled(issue, released, pull, red, now))
+        self.assertEqual('green-abc', wake.stalled(issue, released, pull, green, now))
+        self.assertEqual('idle-abc-1', wake.stalled(issue, released[:2], pull, red, now))
+
     def test_waker_dispatches_only_after_every_other_check_passes(self):
         pull = {'state': 'open', 'number': '5', 'base': {'sha': 'b'}, 'head': {'sha': 'h'}}
 
