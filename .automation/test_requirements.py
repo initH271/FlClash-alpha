@@ -12,6 +12,11 @@ import requirements as req
 import security_finish
 
 
+def local_git(*args, **kwargs):
+    """Run git in the patched ROOT, except the fetch the test never needs."""
+    return [] if args[:1] == ('fetch',) else control.git(*args, **kwargs)
+
+
 BODY = """## 要改什么
 
 加快日志导出
@@ -311,13 +316,15 @@ class RequirementTests(unittest.TestCase):
         for body, author in (('HOLD', npc), ('HOLD', visitor), ('HOLD 一下', owner), ('hold', owner)):
             self.assertEqual('', pause.command({'body': body, 'author': author}), body)
             self.assertEqual('', pause.held([{'created_at': 'x', 'body': body, 'author': author}]))
-        self.assertEqual({'source': 'hold', 'since': '2026-09-22T02:00:00Z', 'branch': 'automation/req-9'},
-                         pause.paused('branch', 'automation/req-9', [hold]))
-        self.assertEqual({'source': 'hold', 'since': '2026-09-22T02:00:00Z', 'branch': 'automation/req-9'},
-                         pause.paused('main', 'automation/req-9', [hold]))
+        expected = {'source': 'hold', 'head': '', 'ref': 'automation/req-9',
+                    'since': '2026-09-22T02:00:00Z', 'branch': 'automation/req-9'}
+        self.assertEqual(expected, pause.paused('branch', 'automation/req-9', [hold]))
+        self.assertEqual(expected, pause.paused('main', 'automation/req-9', [hold]))
         self.assertIsNone(pause.paused('branch', 'automation/req-9', [hold, release]))
         self.assertIsNone(pause.paused('branch', 'automation/security-sync-x', [hold]))
-        self.assertIsNone(pause.paused('branch', 'automation/req-9', None))
+        with patch.object(pause, 'pages', return_value=[hold]) as pages:
+            self.assertEqual('hold', pause.paused('branch', 'automation/req-9', None)['source'])
+        self.assertIn('/issues/9/comments', pages.call_args.args[0])
         with self.assertRaises(ValueError):
             pause.paused('x', 'automation/req-9', [hold])
 
@@ -357,7 +364,7 @@ class RequirementTests(unittest.TestCase):
 
     def test_foreign_commits_ignore_agent_commits_and_side_branches(self):
         with tempfile.TemporaryDirectory() as directory, \
-                patch.object(control, 'ROOT', pathlib.Path(directory)), patch.object(req, 'git', side_effect=control.git):
+                patch.object(control, 'ROOT', pathlib.Path(directory)), patch.object(req, 'git', side_effect=local_git):
             control.git('init')
             control.git('config', 'user.name', 'controller')
             control.git('config', 'user.email', 'test@example.invalid')
