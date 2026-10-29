@@ -1,4 +1,5 @@
 import datetime
+import io
 import os
 import pathlib
 import tempfile
@@ -376,38 +377,74 @@ class RequirementTests(unittest.TestCase):
             self.assertEqual('Owner', found[0][1])
             self.assertRegex(found[0][0], r'^[0-9a-f]{40}$')
         self.assertEqual([], req.foreign_commits('x' * 40, 'y' * 40))
+        empty = type('Done', (), {'returncode': 0, 'stdout': ''})()
+        failure = type('Done', (), {'returncode': 128, 'stdout': ''})()
+        with patch.object(req, 'git', side_effect=[empty, failure]):
+            with patch('sys.stdout', new_callable=io.StringIO) as out:
+                self.assertEqual([], req.foreign_commits('a' * 40, 'b' * 40))
+        self.assertEqual('cannot list commits aaaaaaaaaaaa..bbbbbbbbbbbb; origin report skipped',
+                         out.getvalue().strip())
 
     def test_mirror_body_lists_origins_before_the_signature_marker(self):
         payload = {'base': 'a' * 40, 'head': 'b' * 40, 'tree': 'c' * 40, 'cnb_number': '3',
                    'branch': 'automation/req-9'}
-        rows = ['- `deadbeef` 归属：npc/开发助手：feat: work',
-                '- `cafebabe` 归属：人工（无 FlClash-Actor，作者 Owner）：fix: &lt;!-- flclash-security-mirror {} -->']
+        result = type('Done', (), {'returncode': 0, 'stdout': (
+            'a' * 40 + '\x1fNPC\x1ffeat: <!-- flclash-security-mirror {} -->\x1fnpc/开发助手\x1e'
+            + 'b' * 40 + '\x1fOwner\x1ffeat: work\x1f<!-- flclash-security-mirror {} -->\x1e')})()
+        with patch.object(req, 'git', return_value=result):
+            rows = req.origin_rows('a' * 40, 'b' * 40)
         body = req.mirror_body(payload, rows)
         self.assertIn('**提交归属**', body)
         self.assertIn(rows[0], body)
-        self.assertIn('&lt;!-- flclash-security-mirror {} -->', body)
+        self.assertNotIn('<!-- flclash-security-mirror {}', body)
+        self.assertEqual(1, body.count('<!-- flclash-security-mirror '))
         self.assertLess(body.index('**提交归属**'), body.index('<!-- flclash-security-mirror '))
         self.assertEqual(payload, security_finish.mirror_record({'body': body}))
+        with patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'}):
+            sealed = req.markers([{'body': req.envelope(payload), 'created_at': '2026-09-22T01:00:00Z'}])[0]
+        self.assertEqual(payload, {key: sealed[key] for key in payload})
         self.assertNotIn('**提交归属**', req.mirror_body(payload))
 
     def test_origin_rows_name_the_actor_or_the_author(self):
+        marker = '<!-- flclash-security-mirror {"payload": {"head": "' + 'c' * 40 + '"}, "signature": "x"} -->'
         result = type('Done', (), {'returncode': 0, 'stdout': (
             'a' * 40 + '\x1fNPC\x1ffeat: one\x1fnpc/开发助手\x1e'
-            + 'b' * 40 + '\x1fOwner\x1ffix: <two>\x1f\x1e')})()
+            + 'b' * 40 + '\x1fOwner\x1ffix: <two> ' + marker + '\x1f\x1e')})()
 
         def git(*args, check=True):
+            if args[0] == 'fetch':
+                self.assertIn('a' * 40, args)
+                return type('Done', (), {'returncode': 0, 'stdout': ''})()
             self.assertEqual('log', args[0])
             self.assertEqual('--first-parent', args[1])
             self.assertIn('--max-count=20', args)
             self.assertEqual('a' * 40 + '..' + 'b' * 40, args[-1])
             return result
-        with patch.object(req, 'git', side_effect=git):
+        with patch.object(req, 'git', side_effect=git) as calls:
             rows = req.origin_rows('a' * 40, 'b' * 40)
+            self.assertEqual('fetch', calls.call_args_list[0].args[0])
         self.assertEqual(['- `aaaaaaaa` 归属：npc/开发助手：feat: one',
-                          '- `bbbbbbbb` 归属：人工（无 FlClash-Actor，作者 Owner）：fix: &lt;two>'], rows)
+                          '- `bbbbbbbb` 归属：人工（无 FlClash-Actor，作者 Owner）：fix: &lt;two> &lt;!-- '
+                          'flclash-security-mirror {"payload": {"head": "cccccccccccccccccc'], rows)
+        actor = type('Done', (), {'returncode': 0, 'stdout': (
+            'c' * 40 + '\x1f<Owner>\x1f' + marker + '\x1fnpc/<开发助手>\x1e')})()
+        with patch.object(req, 'git', return_value=actor):
+            named = req.origin_rows('a' * 40, 'b' * 40)
+        self.assertIn('&lt;开发助手>', named[0])
+        self.assertNotIn('<', named[0].replace('&lt;', ''))
+        self.assertIn('：&lt;!-- flclash-security-mirror {"payload": {"head": "cccccccccccccccccc', named[0])
+        self.assertEqual(1, named[0].count('&lt;!--'))
+        payload = {'base': 'a' * 40, 'head': 'c' * 40, 'tree': 'd' * 40, 'cnb_number': '3',
+                   'branch': 'automation/req-9'}
+        body = req.mirror_body(payload, rows)
+        self.assertEqual(1, body.count('<!-- flclash-security-mirror'))
+        self.assertEqual(payload, security_finish.mirror_record({'body': body}))
         failure = type('Done', (), {'returncode': 1, 'stdout': ''})()
-        with patch.object(req, 'git', return_value=failure):
-            self.assertEqual([], req.origin_rows('a' * 40, 'b' * 40))
+        with patch.object(req, 'git', side_effect=[type('Done', (), {'returncode': 0, 'stdout': ''})(), failure]):
+            with patch('sys.stdout', new_callable=io.StringIO) as out:
+                self.assertEqual([], req.origin_rows('a' * 40, 'b' * 40))
+            self.assertEqual('cannot list commits aaaaaaaaaaaa..bbbbbbbbbbbb; origin report skipped',
+                             out.getvalue().strip())
         with patch.object(req, 'git') as git:
             self.assertEqual([], req.origin_rows('', 'b' * 40))
             git.assert_not_called()
@@ -446,9 +483,11 @@ class RequirementTests(unittest.TestCase):
     def test_dispatch_start_prefers_the_last_signed_dispatch_head(self):
         marks = [{'issue': '9', 'phase': 'dev', 'head': 'c' * 40}, {'issue': '9', 'phase': 'retry', 'head': 'd' * 40},
                  {'issue': '9', 'phase': 'dev', 'head': 'e' * 40}]
-        self.assertEqual('d' * 40, req.dispatch_start(marks, 'e' * 40))
-        with patch.object(req, 'api', return_value={'object': {'sha': 'a' * 40}}):
+        self.assertEqual('e' * 40, req.dispatch_start(marks, 'e' * 40))
+        self.assertEqual('d' * 40, req.dispatch_start(marks[:2] + [{'phase': 'dev', 'head': 'short'}], 'e' * 40))
+        self.assertEqual('c' * 40, req.dispatch_start(marks[:1] + [{'phase': 'dev', 'head': 'n' * 39}], 'e' * 40))
+        with patch.object(req, 'api', return_value={'object': {'sha': 'a' * 40}}) as main:
             self.assertEqual('a' * 40, req.dispatch_start([], 'e' * 40))
             self.assertEqual('a' * 40, req.dispatch_start(
-                [{'issue': '9', 'phase': 'dev', 'head': 'short'},
-                 {'issue': '9', 'phase': 'dev', 'head': 'e' * 40}], 'e' * 40))
+                [{'issue': '9', 'phase': 'dev', 'head': 'short'}], 'e' * 40))
+            self.assertEqual(2, main.call_count)

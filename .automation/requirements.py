@@ -423,23 +423,43 @@ def mirror_body(payload, origins=()):
             + '<!-- flclash-security-mirror ' + json.dumps(sign(payload)) + ' -->')
 
 
-def origin_rows(base, sha, limit=20):
-    if not re.fullmatch(r'[a-f0-9]{40}', base or '') or not re.fullmatch(r'[a-f0-9]{40}', sha or ''):
+def commit_rows(since, sha, limit, skip_actor=False):
+    """Return (sha, author, subject) per commit in since..sha, or [] when git cannot list them.
+
+    The start is fetched first: a requirement commit is not always local, and a bare `git log` failure
+    would otherwise look like an empty branch.
+    """
+    if not (re.fullmatch(r'[a-f0-9]{40}', since or '') and re.fullmatch(r'[a-f0-9]{40}', sha or '')):
         return []
+    git('fetch', '--no-tags', f'https://github.com/{POLICY["github"]}.git', since, check=False)
     log = git('log', '--first-parent', f'--max-count={limit}',
               '--format=%H%x1f%an%x1f%s%x1f%(trailers:key=FlClash-Actor,valueonly,separator=%x2c)%x1e',
-              f'{base}..{sha}', check=False)
+              f'{since}..{sha}', check=False)
     if log.returncode:
+        print(f'cannot list commits {since[:12]}..{sha[:12]}; origin report skipped')
         return []
     rows = []
     for record in filter(None, (item.strip() for item in log.stdout.split('\x1e'))):
         fields = record.split('\x1f')
         if len(fields) < 3:
             continue
-        commit, author, subject = fields[:3]
         actor = fields[3].strip() if len(fields) > 3 else ''
-        rows.append('- `{}` 归属：{}'.format(commit[:8], actor or f'人工（无 FlClash-Actor，作者 {author}）')
-                    + '：' + subject[:80].replace('<', '&lt;'))
+        if skip_actor and actor:
+            continue
+        rows.append((fields[0], fields[1], fields[2], actor))
+    return rows
+
+
+def escaped(text):
+    """Keep a branch payload from closing the mirror marker it is quoted inside."""
+    return text.replace('<', '&lt;')
+
+
+def origin_rows(base, sha, limit=20):
+    rows = []
+    for commit, author, subject, actor in commit_rows(base, sha, limit):
+        origin = actor or f'人工（无 FlClash-Actor，作者 {author}）'
+        rows.append('- `{}` 归属：{}：{}'.format(commit[:8], escaped(origin), escaped(subject[:80])))
     return rows
 
 
@@ -449,18 +469,7 @@ def foreign_commits(since, sha, limit=10):
         return []
     if since == sha:
         return []
-    log = git('log', '--first-parent', f'--max-count={limit}',
-              '--format=%H%x1f%an%x1f%s%x1f%(trailers:key=FlClash-Actor,valueonly,separator=%x2c)%x1e',
-              f'{since}..{sha}', check=False)
-    if log.returncode:
-        return []
-    found = []
-    for record in filter(None, (item.strip() for item in log.stdout.split('\x1e'))):
-        fields = record.split('\x1f')
-        if len(fields) > 3 and fields[3].strip():
-            continue
-        found.append((fields[0], fields[1], fields[2]))
-    return found
+    return [row[:3] for row in commit_rows(since, sha, limit, skip_actor=True)]
 
 
 def forward(issue, number, sha):
@@ -625,7 +634,7 @@ def dispatch_start(marks, sha):
     """Where the branch was before this round: the last signed dispatch head, else GitHub main."""
     for item in reversed(marks):
         head = item.get('head')
-        if re.fullmatch(r'[a-f0-9]{40}', head or '') and head != sha:
+        if re.fullmatch(r'[a-f0-9]{40}', head or ''):
             return head
     main = api(f'{GH}/git/ref/heads/main')['object']['sha']
     return main if re.fullmatch(r'[a-f0-9]{40}', main or '') else ''
