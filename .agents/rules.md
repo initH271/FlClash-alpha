@@ -571,8 +571,11 @@ requirement form, selects 自动化配置 under 影响范围, and checks 允许�
 authorization: without it the requirement cannot modify those paths at all, and `.automation/requirements.py` rejects
 the form when the area is selected unchecked. The development NPC implements the change on the `automation/req-<n>`
 branch the controller names; the controller merges the PR. The development NPC takes work through no other door:
-it ignores every `@` in PR comments, the owner's included, so dispatch or rework by commenting on the requirement
-issue and letting the controller dispatch.
+it ignores every `@` in PR comments, the owner's included. To send it back, the owner posts a comment on the
+requirement issue whose first line starts with `REWORK:` followed by the blocker list; `owner_rework` in
+`.automation/requirements.py` reads only the owner's own comment, dispatches it once as a targeted round that raises
+the rung, and treats it as answered after the next signed dispatch. It acts while the pull request is open and not yet
+green; once the ladder has stopped as stuck, HOLD and push instead.
 
 Do not push a `fix/` branch for one of these changes and merge it by hand. Only
 `automation/req-*`, `automation/security-sync-*` and `automation/cnb-main-*` are auto-merged by the controller

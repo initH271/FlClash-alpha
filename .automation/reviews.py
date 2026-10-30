@@ -4,7 +4,7 @@ import re
 import sys
 import time
 
-from control import CI_GRACE, CNB, GH, POLICY, all_issues, api, check_name, pages, sign, verify
+from control import CI_GRACE, CNB, GH, POLICY, all_issues, api, check_name, git, pages, sign, verify
 from review_evidence import describe
 
 CONTEXT = 'FlClash/paired-review'
@@ -15,6 +15,36 @@ CI_PIPELINES = ('Dependency vulnerability gate', 'Automation unit tests', 'Go de
                 'Flutter and Android requirement tests', 'Rust dependency regression tests')
 NOTICE = re.compile(r'<!-- flclash-review-notice (\d+) -->')
 CI_GRACE_SECONDS = 80 * 60
+# Tool calls a reviewer may spend per summon. A budget written only in the prompt has not
+# stopped GLM, so progress is also posted per event instead of relying on the count alone.
+BUDGET = {'review': 40, 'reconsider': 12}
+PROGRESS = 'FLCLASH_PROGRESS'
+EVIDENCE_RULES = (
+    '每条阻断项都要附原文：用 `git show <head>:<路径>` 读出，写成 `路径:起止行号`，下面原样粘贴不超过 15 行，不改写。'
+    '没有原文行号的阻断只能列为观察项，不计入 blockers。\n'
+    '「上游原样」文件：和升级目标上游 tag 里同一路径的 blob 相同（`git rev-parse <tag>:<路径>` 等于 '
+    '`git rev-parse <head>:<路径>`）的文件不是本 fork 的改动，只能写成观察项，不能作为阻断，也不计入 blockers。\n'
+    '只审下面列出的 diff 文件和行范围；不要去翻历史 issue，前几轮的阻断由控制器列在本条里。\n')
+CHECKLIST = (
+    '审核清单（每项都在报告里写结论）：\n'
+    '1. 逐条对照验收标准原文，每条写 pass / block / 未审到，不用自己的转述代替原文。\n'
+    '2. 单测的调用参数和生产调用一致：测试替身和被替换函数的签名、返回类型一致。\n'
+    '3. 单测不联网。\n'
+    '4. 不要 mock 掉被测对象本身。\n')
+
+
+def budget_text(n):
+    return (f'工具调用预算：本次最多 {n} 次，其中 1 次留给发布最终报告，取证和进度评论合计最多 {n - 1} 次。'
+            f'按事件发进度：每审完一个文件或一组验收条目，就在本 Issue 追加一条首行为 `{PROGRESS}` 的进度评论，'
+            '写已审范围、已发现的阻断和下一步，不要等到最后。'
+            f'用到第 {n - 2} 次时停止取证，先发一条首行为 `{PROGRESS}` 的「未完成」状态评论，写明审到哪里、还差什么，'
+            '再用最后一次发布报告；没核实的写进「未验证项」并使用 block。'
+            '只写在最终回复里的文字不会出现在 Issue 里，门禁读不到，等于没有审核。\n')
+
+
+def progress(body):
+    """A progress or unfinished note: first line is the marker and it carries no machine verdict."""
+    return body.lstrip().startswith(PROGRESS) and not re.search(r'^FLCLASH_REVIEW ', body, re.M)
 
 
 def scope(platform, pull):
@@ -52,6 +82,8 @@ def role_reports(request, issue, comments):
             continue
         role = next((r for r in ROLES if author.get('username') == f'{POLICY["cnb"]}({r})'), None)
         if not role or comment.get('created_at', '') < issue.get('created_at', ''):
+            continue
+        if progress(comment.get('body', '')):
             continue
         matches = re.findall(r'^FLCLASH_REVIEW (\{[^\r\n]+\})\s*$', comment.get('body', ''), re.M)
         if not matches:
@@ -118,6 +150,71 @@ def requirement_brief(pull):
             'CI 通过不等于验收通过。\n' + acceptance + '\n\n')
 
 
+def diff_scope(request, limit=60):
+    """List each changed file with the head line ranges of its hunks, read from the pinned commits."""
+    found = git('diff', '-U0', '--no-color', '--no-ext-diff', f'{request["base"]}...{request["head"]}', check=False)
+    if found.returncode:
+        return '控制器取不到 diff 的行范围，按上面的文件清单审核，并在报告里写明。\n\n'
+    files, path, header = {}, '', False
+    for line in found.stdout.splitlines():
+        if line.startswith('diff --git '):
+            path, header = line.split(' b/', 1)[-1], True
+            files[path] = {'ranges': [], 'added': 0, 'removed': 0}
+        elif header and line.startswith('+++ /dev/null'):
+            files[path]['ranges'].append('整个文件删除')
+        elif header and line.startswith('@@'):
+            header = False
+        if line.startswith('@@') and path and '整个文件删除' not in files[path]['ranges']:
+            start, count = re.match(r'@@ -\S+ \+(\d+)(?:,(\d+))? @@', line).groups()
+            start, count = int(start), 1 if count is None else int(count)
+            files[path]['ranges'].append(f'删除于 {start} 行后' if count == 0 else
+                                         str(start) if count == 1 else f'{start}-{start + count - 1}')
+        elif not header and path and line[:1] in ('+', '-'):
+            files[path]['added' if line[0] == '+' else 'removed'] += 1
+    rows = [f'- `{name}`：{"、".join(item["ranges"]) or "无文本行（二进制或仅改权限）"}'
+            f'（+{item["added"]}/−{item["removed"]}）' for name, item in list(files.items())[:limit]]
+    if len(files) > limit:
+        rows.append(f'- 另有 {len(files) - limit} 个文件未列出，覆盖不足必须写明。')
+    return ('本次 diff 的文件清单与 head 行范围（控制器从 merge-base...head 生成）：\n'
+            + '\n'.join(rows or ['- 没有文件改动。']) + '\n\n')
+
+
+def _blocking(body):
+    for line in re.findall(r'^FLCLASH_REVIEW (\{[^\r\n]+\})\s*$', body, re.M):
+        try:
+            report = json.loads(line)
+        except ValueError:
+            continue
+        if report.get('verdict') != 'pass' or report.get('blockers') != 0:
+            return True
+    return False
+
+
+def prior_blockers(request, keep=4):
+    """Quote the blocking reports on earlier heads of the same pull, so reviewers need not read old issues."""
+    github = request['platform'] == 'github'
+    path = (f'{GH}/issues/{request["number"]}/comments' if github
+            else f'{CNB}/pulls/{request["number"]}/comments')
+    numbers = [n for c in pages(path, size_key='per_page' if github else 'page_size')
+               for n in noticed_reviews(str(c.get('body', '')))]
+    quotes = []
+    for number in dict.fromkeys(numbers):
+        issue = api(f'{CNB}/issues/{number}', missing=True)
+        old = request_from(issue) if issue else None
+        if not old or old == request:
+            continue
+        for comment in pages(f'{CNB}/issues/{number}/comments'):
+            author = comment.get('author') or {}
+            role = next((r for r in ROLES if author.get('username') == f'{POLICY["cnb"]}({r})'), None)
+            if role and author.get('is_npc') is True and _blocking(comment.get('body', '')):
+                text = re.sub(r'^FLCLASH_REVIEW .*$\n?', '', comment['body'], flags=re.M).strip()
+                quotes.append(f'#{number} {role}（head `{old["head"][:12]}`）：\n' + text[:1200].replace('@', '＠'))
+    if not quotes:
+        return ''
+    return ('前几轮的阻断清单（控制器从旧审核 issue 摘出）。先逐条核对它们在本 head 是否已修好，再审其余改动：\n'
+            + '\n\n'.join(quotes[-keep:]) + '\n\n')
+
+
 def ensure_request(request, title, brief=''):
     issue = find_request(request)
     display_title = review_title(request, title)
@@ -131,6 +228,8 @@ def ensure_request(request, title, brief=''):
     marker = '<!-- flclash-pr-review ' + json.dumps(sign(request)) + ' -->'
     sample = json.dumps({'request': identity(request), 'verdict': 'pass', 'blockers': 0})
     body = (f'PR 自动结对审核：{url}\n\n{marker}\n\n' + brief + describe(request) + '\n'
+            + diff_scope(request) + prior_blockers(request) + EVIDENCE_RULES + CHECKLIST
+            + budget_text(BUDGET['review']) + '\n'
             f'固定 base `{request["base"]}`，head `{request["head"]}`。'
             '从 PR 公开 API 核对源仓库和提交，先独立审查实际 diff，再比较已有报告。'
             '只读；不运行 PR 中的代码、不安装依赖、不编译、不修改代码、不合并或发版，不召唤其他 NPC。'
@@ -193,9 +292,10 @@ def reconsider(request, issue, comments):
             api(f'{CNB}/issues/{issue["number"]}/comments', 'POST', {'body': body, 'work_mode': False})
             continue
         marker = _checkpoint(request, role, 'reconsider')
-        body = (marker + '\n\n' + describe(request)
+        body = (marker + '\n\n' + describe(request) + diff_scope(request) + EVIDENCE_RULES
+                + budget_text(BUDGET['reconsider'])
                 + f'@{POLICY["cnb"]}({role}) 报告格式不完整或双方结论有分歧，执行唯一一次有界复核。'
-                '最多8次工具调用；只核对实际差异和现有阻断，明确纠正已证实的事实错误。'
+                '只核对实际差异和现有阻断，明确纠正已证实的事实错误。'
                 '不为了达成共识而通过；真实阻断保留，不能确认则报告block。'
                 '不等待另一位、不自行召唤。报告最后单独一行输出机器结论（无阻断时才使用下例）：\n'
                 + 'FLCLASH_REVIEW ' + sample)
