@@ -907,6 +907,14 @@ class MessageLookup extends MessageLookupByLibrary {
       "Пока push работает, сервисы Google Play держат соединение с mtalk.google.com:5228.",
     ),
     "forkPushViaProxy": MessageLookupByLibrary.simpleMessage("Через прокси"),
+    "forkRouteCheck": MessageLookupByLibrary.simpleMessage(
+      "Проверка маршрутов",
+    ),
+    "forkRouteCheckHint": MessageLookupByLibrary.simpleMessage(
+      "Проверяется только HTTP(S); не-веб порты, например 5228 у FCM, не охвачены.",
+    ),
+    "forkRouteCheckIdle": MessageLookupByLibrary.simpleMessage("Не проверено"),
+    "forkRouteCheckRun": MessageLookupByLibrary.simpleMessage("Проверить"),
     "fr": MessageLookupByLibrary.simpleMessage("Французский"),
     "general": MessageLookupByLibrary.simpleMessage("Общие"),
     "generalOverrideDesc": MessageLookupByLibrary.simpleMessage(

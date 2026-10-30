@@ -1000,5 +1000,9 @@
   "forkPushViaProxy": "Via le proxy",
   "forkPushDirect": "Hors proxy",
   "forkPushEmpty": "Aucune connexion push",
-  "forkPushEmptyHint": "Tant que les notifications push fonctionnent, les services Google Play gardent une connexion vers mtalk.google.com:5228."
+  "forkPushEmptyHint": "Tant que les notifications push fonctionnent, les services Google Play gardent une connexion vers mtalk.google.com:5228.",
+  "forkRouteCheck": "Vérification du routage",
+  "forkRouteCheckRun": "Vérifier",
+  "forkRouteCheckIdle": "Non vérifié",
+  "forkRouteCheckHint": "Teste uniquement HTTP(S) ; les ports non web comme le 5228 de FCM ne sont pas couverts."
 }

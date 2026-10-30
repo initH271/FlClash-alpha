@@ -869,6 +869,12 @@ class MessageLookup extends MessageLookupByLibrary {
       "While push works, Google Play services keeps a connection open to mtalk.google.com:5228.",
     ),
     "forkPushViaProxy": MessageLookupByLibrary.simpleMessage("Via proxy"),
+    "forkRouteCheck": MessageLookupByLibrary.simpleMessage("Route check"),
+    "forkRouteCheckHint": MessageLookupByLibrary.simpleMessage(
+      "Tests HTTP(S) only; non-web ports such as FCM\'s 5228 are not covered.",
+    ),
+    "forkRouteCheckIdle": MessageLookupByLibrary.simpleMessage("Not checked"),
+    "forkRouteCheckRun": MessageLookupByLibrary.simpleMessage("Run check"),
     "fr": MessageLookupByLibrary.simpleMessage("French"),
     "general": MessageLookupByLibrary.simpleMessage("General"),
     "generalOverrideDesc": MessageLookupByLibrary.simpleMessage(

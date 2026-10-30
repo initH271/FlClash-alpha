@@ -4,6 +4,7 @@ import 'package:fl_clash/ui/icons/icons.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'push_channel.dart';
+import 'route_check.dart';
 
 /// Upstream's registry hands every value it has no arm for to [forkTileOf].
 class ForkTile {
@@ -25,6 +26,11 @@ final Map<DashboardWidget, ForkTile> forkTiles = {
     card: PushChannelCard.new,
     glyph: AppGlyphs.send,
     label: (appLocalizations) => appLocalizations.forkPushChannel,
+  ),
+  DashboardWidget.forkRouteCheck: ForkTile(
+    card: RouteCheckCard.new,
+    glyph: AppGlyphs.target,
+    label: (appLocalizations) => appLocalizations.forkRouteCheck,
   ),
 };
 

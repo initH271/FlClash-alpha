@@ -1000,5 +1000,9 @@
   "forkPushViaProxy": "プロキシ経由",
   "forkPushDirect": "プロキシ未経由",
   "forkPushEmpty": "プッシュ接続なし",
-  "forkPushEmptyHint": "プッシュ通知が動作中は、Google Play 開発者サービスが mtalk.google.com:5228 への接続を維持します。"
+  "forkPushEmptyHint": "プッシュ通知が動作中は、Google Play 開発者サービスが mtalk.google.com:5228 への接続を維持します。",
+  "forkRouteCheck": "ルーティング診断",
+  "forkRouteCheckRun": "診断を実行",
+  "forkRouteCheckIdle": "未チェック",
+  "forkRouteCheckHint": "HTTP(S) のみ確認します。FCM の 5228 などの Web 以外のポートは対象外です。"
 }

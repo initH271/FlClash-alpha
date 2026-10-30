@@ -147,6 +147,7 @@ const _$EditorFontSizeEnumMap = {
 
 const _$DashboardWidgetEnumMap = {
   DashboardWidget.forkPushChannel: 'forkPushChannel',
+  DashboardWidget.forkRouteCheck: 'forkRouteCheck',
   DashboardWidget.currentOutbound: 'currentOutbound',
   DashboardWidget.networkSpeed: 'networkSpeed',
   DashboardWidget.outboundMode: 'outboundMode',

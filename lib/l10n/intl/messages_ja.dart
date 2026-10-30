@@ -736,6 +736,12 @@ class MessageLookup extends MessageLookupByLibrary {
       "プッシュ通知が動作中は、Google Play 開発者サービスが mtalk.google.com:5228 への接続を維持します。",
     ),
     "forkPushViaProxy": MessageLookupByLibrary.simpleMessage("プロキシ経由"),
+    "forkRouteCheck": MessageLookupByLibrary.simpleMessage("ルーティング診断"),
+    "forkRouteCheckHint": MessageLookupByLibrary.simpleMessage(
+      "HTTP(S) のみ確認します。FCM の 5228 などの Web 以外のポートは対象外です。",
+    ),
+    "forkRouteCheckIdle": MessageLookupByLibrary.simpleMessage("未チェック"),
+    "forkRouteCheckRun": MessageLookupByLibrary.simpleMessage("診断を実行"),
     "fr": MessageLookupByLibrary.simpleMessage("フランス語"),
     "general": MessageLookupByLibrary.simpleMessage("一般"),
     "generalOverrideDesc": MessageLookupByLibrary.simpleMessage(

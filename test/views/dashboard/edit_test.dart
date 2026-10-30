@@ -100,7 +100,7 @@ void main() {
       DashboardWidget.proxyGroups,
       DashboardWidget.networkSpeed,
     ]);
-    await pumpEditor(tester);
+    await pumpEditor(tester, size: const Size(412, 1800));
 
     expect(find.byType(DashboardEditor), findsOneWidget);
     final current = top(tester, find.byType(CurrentOutboundCard));

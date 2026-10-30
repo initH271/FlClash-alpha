@@ -8413,6 +8413,46 @@ class AppLocalizations {
       args: [],
     );
   }
+
+  /// `Route check`
+  String get forkRouteCheck {
+    return Intl.message(
+      'Route check',
+      name: 'forkRouteCheck',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Run check`
+  String get forkRouteCheckRun {
+    return Intl.message(
+      'Run check',
+      name: 'forkRouteCheckRun',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Not checked`
+  String get forkRouteCheckIdle {
+    return Intl.message(
+      'Not checked',
+      name: 'forkRouteCheckIdle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Tests HTTP(S) only; non-web ports such as FCM's 5228 are not covered.`
+  String get forkRouteCheckHint {
+    return Intl.message(
+      'Tests HTTP(S) only; non-web ports such as FCM\'s 5228 are not covered.',
+      name: 'forkRouteCheckHint',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<AppLocalizations> {

@@ -675,6 +675,12 @@ class MessageLookup extends MessageLookupByLibrary {
       "推送正常时，Google Play 服务会保持一条到 mtalk.google.com:5228 的连接。",
     ),
     "forkPushViaProxy": MessageLookupByLibrary.simpleMessage("经代理"),
+    "forkRouteCheck": MessageLookupByLibrary.simpleMessage("分流自检"),
+    "forkRouteCheckHint": MessageLookupByLibrary.simpleMessage(
+      "只测 HTTP(S)，测不了 FCM 的 5228 等非 Web 端口。",
+    ),
+    "forkRouteCheckIdle": MessageLookupByLibrary.simpleMessage("未检测"),
+    "forkRouteCheckRun": MessageLookupByLibrary.simpleMessage("自检"),
     "fr": MessageLookupByLibrary.simpleMessage("法语"),
     "general": MessageLookupByLibrary.simpleMessage("常规"),
     "generalOverrideDesc": MessageLookupByLibrary.simpleMessage(

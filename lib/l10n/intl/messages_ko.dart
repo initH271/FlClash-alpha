@@ -726,6 +726,12 @@ class MessageLookup extends MessageLookupByLibrary {
       "푸시가 작동하는 동안 Google Play 서비스는 mtalk.google.com:5228 연결을 유지합니다.",
     ),
     "forkPushViaProxy": MessageLookupByLibrary.simpleMessage("프록시 경유"),
+    "forkRouteCheck": MessageLookupByLibrary.simpleMessage("라우팅 점검"),
+    "forkRouteCheckHint": MessageLookupByLibrary.simpleMessage(
+      "HTTP(S)만 점검하며 FCM의 5228 같은 웹 외 포트는 점검하지 않습니다.",
+    ),
+    "forkRouteCheckIdle": MessageLookupByLibrary.simpleMessage("점검 안 함"),
+    "forkRouteCheckRun": MessageLookupByLibrary.simpleMessage("점검 실행"),
     "fr": MessageLookupByLibrary.simpleMessage("프랑스어"),
     "general": MessageLookupByLibrary.simpleMessage("일반"),
     "generalOverrideDesc": MessageLookupByLibrary.simpleMessage(

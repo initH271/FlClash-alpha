@@ -1000,5 +1000,9 @@
   "forkPushViaProxy": "Через прокси",
   "forkPushDirect": "Не через прокси",
   "forkPushEmpty": "Нет push-соединения",
-  "forkPushEmptyHint": "Пока push работает, сервисы Google Play держат соединение с mtalk.google.com:5228."
+  "forkPushEmptyHint": "Пока push работает, сервисы Google Play держат соединение с mtalk.google.com:5228.",
+  "forkRouteCheck": "Проверка маршрутов",
+  "forkRouteCheckRun": "Проверить",
+  "forkRouteCheckIdle": "Не проверено",
+  "forkRouteCheckHint": "Проверяется только HTTP(S); не-веб порты, например 5228 у FCM, не охвачены."
 }

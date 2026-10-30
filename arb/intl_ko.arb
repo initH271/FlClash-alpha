@@ -1000,5 +1000,9 @@
   "forkPushViaProxy": "프록시 경유",
   "forkPushDirect": "프록시 미경유",
   "forkPushEmpty": "푸시 연결 없음",
-  "forkPushEmptyHint": "푸시가 작동하는 동안 Google Play 서비스는 mtalk.google.com:5228 연결을 유지합니다."
+  "forkPushEmptyHint": "푸시가 작동하는 동안 Google Play 서비스는 mtalk.google.com:5228 연결을 유지합니다.",
+  "forkRouteCheck": "라우팅 점검",
+  "forkRouteCheckRun": "점검 실행",
+  "forkRouteCheckIdle": "점검 안 함",
+  "forkRouteCheckHint": "HTTP(S)만 점검하며 FCM의 5228 같은 웹 외 포트는 점검하지 않습니다."
 }

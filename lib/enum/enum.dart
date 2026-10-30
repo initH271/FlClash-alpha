@@ -483,6 +483,7 @@ enum FunctionTag {
 enum DashboardWidget {
   // Fork tiles: one block, named fork*, dispatched by dashboard/fork.
   forkPushChannel,
+  forkRouteCheck,
   currentOutbound,
   networkSpeed,
   outboundMode,
