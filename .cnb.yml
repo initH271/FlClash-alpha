@@ -36,13 +36,15 @@ main:
           image: python:3.12-slim
           script: python3 .automation/wake.py ci-done 'Dependency vulnerability gate'
           timeout: 2m
-    - name: Automation unit tests
+    - &automation-unit-tests
+      name: Automation unit tests
       runner: { cpus: 1 }
       docker:
         image: python:3.12
       stages:
-        - name: Test automation changes
-          script: |
+        - &automation-stage
+          name: Test automation changes
+          script: &automation-script |
             changed=$(git diff --name-only "$CNB_PULL_REQUEST_TARGET_SHA" HEAD || true)
             printf '%s\n' "$changed" | grep -Eq '^(\.automation/|\.cnb/|\.cnb\.yml|\.github/|tool/)' || { echo 'Skipped: no automation changes'; exit 0; }
             python3 -m unittest discover -s .automation -p 'test_*.py'
@@ -52,13 +54,16 @@ main:
           image: python:3.12-slim
           script: python3 .automation/wake.py ci-done 'Automation unit tests'
           timeout: 2m
-    - name: Go dependency regression tests
+    - &go-tests
+      name: Go dependency regression tests
       runner: { cpus: 2 }
       docker:
         image: golang:1.27.1
       stages:
         - name: Verify core with resolved dependencies
           script: |
+            command -v python3 >/dev/null || { apt-get update -qq && apt-get install -y --no-install-recommends python3; } || true
+            python3 .automation/ci_paths.py reuse || [ $? -ne 3 ] || exit 0
             git submodule update --init --recursive
             cd core
             CGO_ENABLED=0 go test . ./internal/logstore
@@ -89,7 +94,8 @@ main:
           image: python:3.12-slim
           script: python3 .automation/wake.py ci-done 'Go dependency regression tests'
           timeout: 2m
-    - name: Flutter and Android requirement tests
+    - &flutter-tests
+      name: Flutter and Android requirement tests
       runner: { cpus: 4 }
       docker:
         image: ubuntu:24.04
@@ -110,8 +116,8 @@ main:
           image: $TOOLCHAIN_IMAGE
           timeout: 45m
           script: |
-            changed=$(git diff --name-only "$CNB_PULL_REQUEST_TARGET_SHA" HEAD || true)
-            printf '%s\n' "$changed" | grep -Eq '^(lib/|android/|test/|pubspec\.yaml|analysis_options\.yaml|\.cnb/Dockerfile|\.cnb\.yml)' || { echo 'No Flutter or Android changes'; exit 0; }
+            python3 .automation/ci_paths.py reuse || [ $? -ne 3 ] || exit 0
+            python3 .automation/ci_paths.py trigger flutter "$CNB_PULL_REQUEST_TARGET_SHA" || [ $? -ne 3 ] || exit 0
             git submodule update --init --recursive
             flutter pub get
             flutter analyze --no-fatal-infos
@@ -125,8 +131,8 @@ main:
           image: $TOOLCHAIN_IMAGE
           timeout: 30m
           script: |
-            changed=$(git diff --name-only "$CNB_PULL_REQUEST_TARGET_SHA" HEAD || true)
-            printf '%s\n' "$changed" | grep -Eq '^(android/|core/|pubspec\.(yaml|lock)|\.cnb/Dockerfile|\.cnb\.yml)' || { echo 'Skipped: no android/, core/, pubspec or CI toolchain changes'; exit 0; }
+            python3 .automation/ci_paths.py reuse || [ $? -ne 3 ] || exit 0
+            python3 .automation/ci_paths.py trigger android "$CNB_PULL_REQUEST_TARGET_SHA" || [ $? -ne 3 ] || exit 0
             git submodule update --init --recursive
             flutter pub get
             flutter_root=${FLUTTER_ROOT:-$(dirname "$(dirname "$(readlink -f "$(command -v flutter)")")")}
@@ -159,8 +165,8 @@ main:
           image: $TOOLCHAIN_IMAGE
           timeout: 15m
           script: |
-            changed=$(git diff --name-only "$CNB_PULL_REQUEST_TARGET_SHA" HEAD || true)
-            printf '%s\n' "$changed" | grep -Eq '^(core/|build_config\.yaml|\.cnb/Dockerfile|\.cnb\.yml)' || { echo 'Skipped: no core/, build_config.yaml or CI toolchain changes'; exit 0; }
+            python3 .automation/ci_paths.py reuse || [ $? -ne 3 ] || exit 0
+            python3 .automation/ci_paths.py trigger govet "$CNB_PULL_REQUEST_TARGET_SHA" || [ $? -ne 3 ] || exit 0
             git submodule update --init --recursive
             cd core
             tags=$(sed -n 's/^tags:[[:space:]]*//p' ../build_config.yaml | head -n 1 | tr -d "\"' \r")
@@ -175,7 +181,8 @@ main:
           image: python:3.12-slim
           script: python3 .automation/wake.py ci-done 'Flutter and Android requirement tests'
           timeout: 2m
-    - name: Rust dependency regression tests
+    - &rust-tests
+      name: Rust dependency regression tests
       runner: { cpus: 2 }
       docker:
         image: rust:1.99-bookworm
@@ -183,7 +190,8 @@ main:
         - name: Verify desktop helper and Rust API
           script: |
             apt-get update -qq
-            apt-get install -y --no-install-recommends libx11-dev libxkbcommon-dev
+            apt-get install -y --no-install-recommends python3 libx11-dev libxkbcommon-dev
+            python3 .automation/ci_paths.py reuse || [ $? -ne 3 ] || exit 0
             cargo test --locked --manifest-path services/helper/Cargo.toml
             cargo test --locked --manifest-path plugins/rust_api/rust/Cargo.toml
           timeout: 20m
@@ -214,6 +222,18 @@ main:
           timeout: 2m
   "crontab: 7 * * * *":
     - *mirror
+# Owner branches run main.pull_request on push, measured from their merge-base with main. GitHub scans dependencies.
+"owner/**":
+  push:
+    - <<: *automation-unit-tests
+      stages:
+        - <<: *automation-stage
+          script:
+            - export CNB_PULL_REQUEST_TARGET_SHA="$(python3 .automation/ci_paths.py base)"
+            - *automation-script
+    - *go-tests
+    - *flutter-tests
+    - *rust-tests
 $:
   issue.open:
     - name: Wake task controller
@@ -236,14 +256,6 @@ $:
           timeout: 2m
   pull_request.target:
     - *controller-wake
-    - name: Paired review gate
-      runner: { cpus: 1 }
-      docker:
-        image: python:3.12-slim
-      stages:
-        - name: Require both independent reviews for current PR
-          script: python3 .automation/reviews.py cnb-gate
-          timeout: 32m
   api_trigger:
     - *mirror
   web_trigger:

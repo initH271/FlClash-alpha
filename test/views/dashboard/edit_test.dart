@@ -100,7 +100,7 @@ void main() {
       DashboardWidget.proxyGroups,
       DashboardWidget.networkSpeed,
     ]);
-    await pumpEditor(tester);
+    await pumpEditor(tester, size: const Size(412, 1800));
 
     expect(find.byType(DashboardEditor), findsOneWidget);
     final current = top(tester, find.byType(CurrentOutboundCard));
@@ -221,6 +221,8 @@ void main() {
       DashboardWidget.profiles,
       DashboardWidget.proxyGroups,
       DashboardWidget.serviceStatus,
+      // Keeps two addable rows above Network speed, as the offset assumes.
+      DashboardWidget.forkAutoPause,
     ]);
     await pumpEditor(tester, size: const Size(412, 700));
     final position = positionOf(tester);
