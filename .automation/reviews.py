@@ -13,6 +13,7 @@ GLM = ROLES[1]
 # Past either limit GLM gets one issue per file group; it rarely finished a larger diff in one summon.
 SHARD_FILES, SHARD_LINES = 6, 350
 SHARDS = re.compile(r'<!-- flclash-review-shards ([\d,]+) -->')
+SHARD_NOTICE = re.compile(r'GLM复核助手按文件分片审核：[^\n]*\n<!-- flclash-review-shards [\d,]+ -->')
 # The main.pull_request pipelines in .cnb.yml, and the only checks that gate a review. The paired review
 # gate runs under pull_request.target and waits for the review itself, so it must never be listed here.
 CI_PIPELINES = ('Dependency vulnerability gate', 'Automation unit tests', 'Go dependency regression tests',
@@ -110,19 +111,21 @@ def role_reports(request, issue, comments):
 
 
 def result(request, issue, comments, parts=None):
-    """With shard parts, GLM passes only when every shard passed; a closed or blocked shard fails it."""
+    """With shard parts, GLM passes only when every shard passed; a blocked shard fails it.
+
+    A missing or closed shard leaves GLM pending until ensure_request replaces it. The main issue never
+    summons GLM, so `parts` of [] must stay here and not fall back to reports on the main issue.
+    """
     if issue['state'] != 'open':
         return 'failure'
     latest = role_reports(request, issue, comments)
     if parts is not None:
         latest.pop(GLM, None)
-        verdicts = {part['shard']['index']: 'block' if found['state'] != 'open'
-                    else role_reports(part, found, notes).get(GLM) for part, found, notes in parts}
-        total = {part['shard']['total'] for part, _, _ in parts}
-        if any(value in ('block', 'malformed') for value in verdicts.values()):
+        verdicts = [role_reports(part, found, notes).get(GLM) for part, found, notes in parts
+                    if found['state'] == 'open']
+        if any(value in ('block', 'malformed') for value in verdicts):
             latest[GLM] = 'block'
-        elif (len(total) == 1 and set(verdicts) == set(range(1, total.pop() + 1))
-              and all(value == 'pass' for value in verdicts.values())):
+        elif shards_complete(parts) and all(value == 'pass' for value in verdicts):
             latest[GLM] = 'pass'
     if any(value in ('block', 'malformed') for value in latest.values()):
         return 'failure'
@@ -146,17 +149,27 @@ def state(request, signed=True):
 
 
 def shard_parts(request, issue, signed=True):
-    """Return (shard request, issue, comments) for each verified GLM shard the full review lists, or None."""
+    """Return (shard request, issue, comments) for each verified GLM shard the full review lists.
+
+    Closed shards stay in the list for their blocker quotes. None means the review has no shard marker.
+    """
     match = SHARDS.search(issue.get('body', ''))
     if not match:
         return None
     parts = []
-    for number in match[1].split(','):
+    for number in dict.fromkeys(match[1].split(',')):
         detail = api(f'{CNB}/issues/{number}', missing=True)
         part = request_from(detail, signed) if detail else None
         if isinstance(part, dict) and isinstance(part.get('shard'), dict) and unsharded(part) == request:
             parts.append((part, detail, list(pages(f'{CNB}/issues/{number}/comments'))))
     return parts
+
+
+def shards_complete(parts):
+    """True when the open shards cover every index of one grouping."""
+    live = [part['shard'] for part, found, _ in parts if found['state'] == 'open']
+    totals = {shard['total'] for shard in live}
+    return len(totals) == 1 and {shard['index'] for shard in live} == set(range(1, totals.pop() + 1))
 
 
 def review_title(request, title):
@@ -283,16 +296,15 @@ def prior_blockers(request, keep=4):
 def ensure_request(request, title, brief=''):
     issue = find_request(request)
     display_title = review_title(request, title)
-    if issue:
-        if issue['title'] != display_title:
-            api(f'{CNB}/issues/{issue["number"]}', 'PATCH', {'title': display_title})
-        return issue
     platform, number = request['platform'], request['number']
     url = (f'https://github.com/{POLICY["github"]}/pull/{number}' if platform == 'github'
            else f'https://cnb.cool/{POLICY["cnb"]}/-/pulls/{number}')
+    if issue:
+        if issue['title'] != display_title:
+            api(f'{CNB}/issues/{issue["number"]}', 'PATCH', {'title': display_title})
+        return heal_shards(request, issue, display_title, url)
     groups = shards(request)
     numbers = ensure_shards(request, groups, display_title, url) if groups else []
-    links = '、'.join(f'https://cnb.cool/{POLICY["cnb"]}/-/issues/{n}' for n in numbers)
     marker = '<!-- flclash-pr-review ' + json.dumps(sign(request)) + ' -->'
     sample = json.dumps({'request': identity(request), 'verdict': 'pass', 'blockers': 0})
     body = (f'PR 自动结对审核：{url}\n\n{marker}\n\n' + brief + describe(request) + '\n'
@@ -308,8 +320,7 @@ def ensure_request(request, title, brief=''):
             f'FLCLASH_REVIEW {sample}\n'
             '只有完成审查且没有阻断问题才能使用 pass / blockers=0；'
             '否则使用 verdict=block，blockers 为正整数。request 原样保留。\n\n'
-            + (f'GLM复核助手按文件分片审核：{links}。本 Issue 只召唤审查助手，全部分片通过才算 GLM 通过。\n'
-               f'<!-- flclash-review-shards {",".join(numbers)} -->\n\n' if numbers else '')
+            + (shard_notice(numbers) + '\n\n' if numbers else '')
             + '\n\n'.join(f'@{POLICY["cnb"]}({r}) 请独立审核上述 PR。'
                           for r in (ROLES[:1] if numbers else ROLES)))
     issue = api(f'{CNB}/issues', 'POST', {'title': display_title,
@@ -323,13 +334,38 @@ def ensure_request(request, title, brief=''):
     return issue
 
 
+def shard_notice(numbers):
+    links = '、'.join(f'https://cnb.cool/{POLICY["cnb"]}/-/issues/{n}' for n in numbers)
+    return (f'GLM复核助手按文件分片审核：{links}。本 Issue 只召唤审查助手，全部分片通过才算 GLM 通过。\n'
+            f'<!-- flclash-review-shards {",".join(numbers)} -->')
+
+
+def heal_shards(request, issue, title, url):
+    """Replace missing or closed shards of an open review, as a deleted main review is reopened on the next run.
+
+    A closed shard is left closed, like any manual closure, and surviving shards keep their reports. With no
+    groups (git cannot read the diff) nothing changes and GLM stays pending for the next run to retry.
+    """
+    parts = shard_parts(request, issue)
+    if issue['state'] != 'open' or parts is None or shards_complete(parts):
+        return issue
+    groups = shards(request)
+    if not groups:
+        return issue
+    notice = shard_notice(ensure_shards(request, groups, title, url))
+    body = SHARD_NOTICE.sub(lambda _: notice, issue['body'], count=1)
+    api(f'{CNB}/issues/{issue["number"]}', 'PATCH', {'body': body})
+    return dict(issue, body=body)
+
+
 def ensure_shards(request, groups, title, url):
-    """Open one GLM-only issue per file group, reusing any left by an earlier interrupted run."""
+    """Open one GLM-only issue per file group, reusing any open one left by an earlier run."""
     known = {}
     for item in all_issues():
         detail = api(f'{CNB}/issues/{item["number"]}')
         part = request_from(detail)
-        if isinstance(part, dict) and part.get('shard') in groups and unsharded(part) == request:
+        if (detail['state'] == 'open' and isinstance(part, dict) and part.get('shard') in groups
+                and unsharded(part) == request):
             known.setdefault(part['shard']['index'], str(detail['number']))
     for group in groups:
         if group['index'] in known:

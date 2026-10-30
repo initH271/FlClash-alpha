@@ -366,7 +366,8 @@ class NoticeTests(unittest.TestCase):
     def api(self, url, method='GET', data=None, missing=False, timeout=60):
         path = url.removeprefix(reviews.CNB + '/')
         if method == 'POST' and path == 'issues':
-            number = str(80 + len(self.issues))
+            self.serial = getattr(self, 'serial', 79) + 1  # never reuses the number of a deleted issue
+            number = str(self.serial)
             self.issues[number] = dict(data, number=number, state='open', created_at=stamp(1),
                                        author={'username': 'Aharon', 'is_npc': False})
             return self.issues[number]
@@ -591,7 +592,10 @@ class ShardTests(unittest.TestCase):
         if url.endswith('/pulls/12'):
             return self.pull
         if method == 'PATCH':
-            self.closed.append(url.rsplit('/', 1)[-1])
+            number = url.rsplit('/', 1)[-1]
+            if data.get('state') == 'closed':
+                self.closed.append(number)
+            self.issues[number].update(data)
             return {}
         return NoticeTests.api(self, url, method, data, missing, timeout)
 
@@ -683,6 +687,100 @@ class ShardTests(unittest.TestCase):
             blocked, text = requirements.review_block(self.pull)
         self.assertTrue(blocked)
         self.assertIn('core/big.go:3-5 漏了错误处理', text)
+
+    def listed(self, main):
+        return reviews.SHARDS.search(main['body'])[1].split(',')
+
+    def heal(self):
+        with self.network():
+            return reviews.ensure_request(self.request, '需求实现')
+
+    def test_every_shard_missing_stays_pending_then_is_reopened_and_glm_cannot_pass_on_the_main_issue(self):
+        main, parts = self.opened()
+        self.say(main, '审查助手', self.request)
+        self.say(main, 'GLM复核助手', self.request)
+        for _, issue in parts:
+            del self.issues[issue['number']]
+        with self.network():
+            self.assertEqual('pending', reviews.state(self.request))
+        healed = self.heal()
+        numbers = self.listed(healed)
+        self.assertEqual(3, len(numbers))
+        self.assertFalse(set(numbers) & {issue['number'] for _, issue in parts})
+        self.assertEqual(numbers, self.listed(self.issues[main['number']]))
+        for number in numbers:
+            self.assertIn(f'https://cnb.cool/{reviews.POLICY["cnb"]}/-/issues/{number}', healed['body'])
+        with self.network():
+            self.assertEqual('pending', reviews.state(self.request))
+            for number in numbers:
+                self.say(self.issues[number], 'GLM复核助手', reviews.request_from(self.issues[number]))
+            self.assertEqual('success', reviews.state(self.request))
+
+    def test_one_missing_or_closed_shard_behaves_the_same_and_only_it_is_replaced(self):
+        for gone in ('deleted', 'closed'):
+            with self.subTest(gone):
+                self.issues, self.comments = {}, {}
+                main, parts = self.opened()
+                self.say(main, '审查助手', self.request)
+                for part, issue in parts:
+                    self.say(issue, 'GLM复核助手', part)
+                old = parts[1][1]['number']
+                if gone == 'deleted':
+                    del self.issues[old]
+                else:
+                    self.issues[old]['state'] = 'closed'
+                with self.network():
+                    self.assertEqual('pending', reviews.state(self.request))
+                numbers = self.listed(self.heal())
+                self.assertEqual(parts[0][1]['number'], numbers[0])
+                self.assertEqual(parts[2][1]['number'], numbers[2])
+                self.assertNotEqual(old, numbers[1])
+                fresh = self.issues[numbers[1]]
+                self.assertEqual(parts[1][0], reviews.request_from(fresh))
+                self.assertEqual('open', fresh['state'])
+                self.assertIn('GLM复核助手', fresh['body'])
+                if gone == 'closed':
+                    self.assertEqual('closed', self.issues[old]['state'])
+                with self.network():
+                    self.assertEqual('pending', reviews.state(self.request))
+                    self.say(fresh, 'GLM复核助手', parts[1][0])
+                    self.assertEqual('success', reviews.state(self.request))
+                self.assertEqual(numbers, self.listed(self.heal()))
+
+    def test_healing_keeps_a_block_on_an_open_shard(self):
+        main, parts = self.opened()
+        self.say(main, '审查助手', self.request)
+        self.say(parts[0][1], 'GLM复核助手', parts[0][0], 'block')
+        del self.issues[parts[1][1]['number']]
+        self.heal()
+        with self.network():
+            self.assertEqual('failure', reviews.state(self.request))
+
+    def test_no_replacement_when_the_diff_is_unreadable_or_the_main_issue_is_closed(self):
+        main, parts = self.opened()
+        del self.issues[parts[0][1]['number']]
+        count, body = len(self.issues), main['body']
+        with patch.object(reviews, 'shards', return_value=[]):
+            self.heal()
+        self.assertEqual((count, body), (len(self.issues), self.issues[main['number']]['body']))
+        with self.network():
+            self.assertEqual('pending', reviews.state(self.request))
+        self.issues[main['number']]['state'] = 'closed'
+        self.heal()
+        self.assertEqual((count, body), (len(self.issues), self.issues[main['number']]['body']))
+        with self.network():
+            self.assertEqual('failure', reviews.state(self.request))
+
+    def test_a_repeated_number_in_the_marker_counts_once(self):
+        main, parts = self.opened()
+        self.say(main, '审查助手', self.request)
+        for part, issue in parts:
+            self.say(issue, 'GLM复核助手', part)
+        first = parts[0][1]['number']
+        main['body'] = main['body'].replace(f'shards {first},', f'shards {first},{first},')
+        with self.network():
+            self.assertEqual(3, len(reviews.shard_parts(self.request, main)))
+            self.assertEqual('success', reviews.state(self.request))
 
     def test_shards_close_with_their_head_but_not_before(self):
         shard = dict(self.request, shard={'index': 1, 'total': 2, 'paths': ['core/big.go']})
