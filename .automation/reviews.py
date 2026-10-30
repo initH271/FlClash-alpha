@@ -1,6 +1,5 @@
 import hashlib
 import json
-import os
 import re
 import subprocess
 import sys
@@ -582,9 +581,7 @@ def _owner_payload(pattern, item):
     if not match or author.get('username') != POLICY['approver'] or author.get('is_npc') is not False:
         return None
     try:
-        envelope = json.loads(match[1])
-        # The CNB gate runs without the key and, as with request_from(signed=False), trusts the owner author.
-        return verify(envelope) if os.environ.get('UPSTREAM_APPROVAL_KEY') else envelope['payload']
+        return verify(json.loads(match[1]))
     except (ValueError, KeyError, TypeError):
         return None
 

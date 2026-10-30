@@ -333,7 +333,7 @@ class ReconcileTests(unittest.TestCase):
               patch('security_finish.mirror_record', return_value=None),
               patch.object(reviews, 'ensure_request', return_value={'number': '8', 'state': 'closed'}),
               patch.object(reviews, 'withhold'), patch.object(reviews, 'result', return_value='success'),
-              patch.object(reviews, 'close_finished_reviews'),
+              patch.object(reviews, 'remember'), patch.object(reviews, 'close_finished_reviews'),
               patch.object(reviews, 'requirement_brief', return_value=''), _capture()):
             reviews.reconcile()
         ((url, data),) = posts

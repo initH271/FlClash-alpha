@@ -188,14 +188,17 @@ class ReuseTests(unittest.TestCase):
             self.assert_full(server, label)
             self.assertNotEqual('success', server.github[self.repo.h2][reviews.CONTEXT]['state'], label)
 
-    def test_cnb_reuse_waits_for_fresh_ci_and_the_keyless_gate_reads_it(self):
+    def test_cnb_reuse_waits_for_fresh_ci_and_only_a_verified_marker_passes(self):
         server, _, printed = self.scenario(self.repo.b2, self.repo.h2, platform='cnb',
                                            ref='refs/heads/automation/req-9')
         self.assertEqual([], server.full)
         self.assertIn('cnb PR #12: success', printed)
         (issue,) = self.reused(server)
+        self.assertEqual('success', reviews.result(reviews.scope('cnb', server.pull), issue, []))
         with patch.dict(os.environ, {}, clear=True):
-            self.assertEqual('success', reviews.result(reviews.scope('cnb', server.pull), issue, []))
+            self.assertEqual('pending', reviews.result(reviews.scope('cnb', server.pull), issue, []))
+        with patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'another-key'}):
+            self.assertEqual('pending', reviews.result(reviews.scope('cnb', server.pull), issue, []))
 
     def test_a_changed_line_gets_the_full_review(self):
         self.assert_full(self.scenario(self.repo.b2, self.repo.h3)[0])
