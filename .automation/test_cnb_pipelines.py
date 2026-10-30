@@ -172,6 +172,29 @@ def without_yaml():
     return patch.object(sys.modules[__name__], 'yaml', None)
 
 
+def text_event(source, event):
+    """Name the jobs of one event under `$` without yaml, following an alias to its anchor's `name:`."""
+    _, body = _top(source, '$')
+    start = body.index(f'  {event}:') + 1
+    end = next((i for i in range(start, len(body)) if body[i].strip() and _indent(body[i]) <= 2), len(body))
+    names = []
+    for line in body[start:end]:
+        item = line.strip()[2:]
+        if _indent(line) != 4 or not line.strip().startswith('- '):
+            continue
+        if item.startswith('*'):
+            item = re.search(r'^\.[\w-]+: &' + re.escape(item[1:]) + r'\n  (name: .+)$', source, re.M).group(1)
+        names.append(_key(item)[1])
+    return names
+
+
+def event_jobs(event):
+    source = CNB.read_text(encoding='utf-8')
+    if yaml is None:
+        return text_event(source, event)
+    return [job['name'] for job in yaml.safe_load(source)['$'][event]]
+
+
 class CnbPipelineTests(unittest.TestCase):
     """Every structural check runs through yaml when it is installed and again with yaml hidden."""
 
@@ -236,17 +259,15 @@ class CnbPipelineTests(unittest.TestCase):
             self.assertIn(DISCOVER, stage['script'])
         self.both(check)
 
-    def test_ci_pipelines_are_exactly_the_pull_request_jobs_and_never_wait_for_the_gate(self):
+    def test_ci_pipelines_are_exactly_the_pull_request_jobs(self):
         import reviews
         self.both(lambda: self.assertEqual([entry['name'] for entry in pipelines()], list(reviews.CI_PIPELINES)))
         self.assertNotIn(GATE, reviews.CI_PIPELINES)
-        # The gate is a pull_request.target job: it sits in that block, before the next event key.
-        self.assertRegex(self.source, r'\n  pull_request\.target:\n(    .*\n|      .*\n)*?    - name: ' + GATE + r'\n')
         pull = {'number': '12', 'base': {'sha': 'a' * 40},
                 'head': {'sha': 'b' * 40, 'ref': 'refs/heads/automation/req-9'}}
         five = [{'context': f'cnb/pipeline-{i}({name})', 'state': 'success', 'created_at': '2026-10-30T00:00:00Z'}
                 for i, name in enumerate(reviews.CI_PIPELINES)]
-        # The gate starts with the PR and only passes after the review it is waiting for, so it is pending or absent.
+        # A head pushed before the gate pipeline was removed may still carry its row; it never holds CI.
         for gate in ([], [{'context': f'cnb/pipeline-9({GATE})', 'state': 'pending',
                            'created_at': '2026-10-30T00:00:00Z'}]):
             checks = {'statuses': five + gate}
@@ -258,6 +279,16 @@ class CnbPipelineTests(unittest.TestCase):
             with (patch.object(reviews, 'api', side_effect=api),
                   patch.object(reviews, 'pages', side_effect=lambda url, page_key='page', size_key='page_size': iter([]))):
                 self.assertEqual((False, False), reviews.ci_hold(pull))
+
+    def test_the_paired_review_gate_pipeline_is_gone(self):
+        # 2-1c: the 32-minute polling job only produced timeouts; the review verdict decides on its own.
+        self.assertNotIn(GATE, self.source)
+        self.assertNotIn('cnb-gate', self.source)
+        target = 'pull_request.target'
+        if yaml is not None:
+            self.assertEqual([job['name'] for job in yaml.safe_load(self.source)['$'][target]],
+                             text_event(self.source, target))
+        self.both(lambda: self.assertEqual(['Wake task controller'], event_jobs(target)))
 
     def test_every_pipeline_wakes_the_controller_when_it_ends(self):
         job = "python3 .automation/wake.py ci-done '{}'"
