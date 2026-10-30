@@ -1,0 +1,460 @@
+import contextlib
+import datetime
+import io
+import json
+import os
+import unittest
+from unittest.mock import patch
+
+import npc_recovery as recovery
+import pause
+import reviews
+
+UTC = datetime.timezone.utc
+OPENED = datetime.datetime(2026, 10, 30, 13, 0, 0, tzinfo=UTC)
+REPO = reviews.POLICY['cnb']
+SCOUT, GLM = reviews.ROLES
+OWNER = {'username': reviews.POLICY['approver'], 'is_npc': False}
+
+
+def stamp(minutes):
+    return (OPENED + datetime.timedelta(minutes=minutes)).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+def at(minutes):
+    return OPENED + datetime.timedelta(minutes=minutes)
+
+
+def attempt(role, sn):
+    return {'context': {'npc.slug': REPO, 'npc.name': role, 'sn': sn, 'pipeline_id': f'{sn}-001'},
+            'statuses': [{'state': 'success'}]}
+
+
+def npc_note(role, minutes, body):
+    return {'id': str(1000 + minutes), 'created_at': stamp(minutes), 'body': body,
+            'author': {'username': f'{REPO}({role})', 'is_npc': True}}
+
+
+def owner_note(minutes, body, attempts=()):
+    return {'id': str(2000 + minutes), 'created_at': stamp(minutes), 'body': body, 'author': OWNER,
+            'statuses': {'npc': list(attempts)} if attempts else {}}
+
+
+def stage_log(body, end=stamp(1), finish='stop'):
+    """A stage as CNB's logs endpoint returns it: colored lines, with the closing message in the last turn."""
+    lines = body.splitlines()
+    ended = datetime.datetime.fromisoformat(end.replace('Z', '+00:00'))
+    return {'id': 'stage-0', 'status': 'success', 'error': '', 'endTime': int(ended.timestamp() * 1000), 'content': [
+        '\x1b[32mRunner[10.0.0.1][docker] 2026-10-30 21:02:00 $\x1b[0m echo',
+        'Master[agent][13] 2026-10-30 21:02:35 Comment sent successfully to Issue.',
+        '\x1b[37mMaster[agent][14] 2026-10-30 21:02:37 started\x1b[0m',
+        f'Master[agent][14] 2026-10-30 21:02:37 {lines[0]}', *lines[1:],
+        f'\x1b[37mMaster[agent][14] 2026-10-30 21:02:41 finish with {finish}, in=1 out=1\x1b[0m',
+        'Master[agent] 2026-10-30 21:02:41 done. 14 turns, 37 messages']}
+
+
+def build(status='success', role=SCOUT):
+    return {'status': status, 'pipelinesStatus': {'p': {'id': 'p', 'status': status, 'stages': [
+        {'id': 'prepare', 'status': 'success'}, {'id': 'stage-0', 'status': 'skipped' if role == GLM else status},
+        {'id': 'stage-1', 'status': 'skipped' if role == SCOUT else status}, {'id': 'end', 'status': 'success'}]}}}
+
+
+class ReviewRecoveryCase(unittest.TestCase):
+    request = {'platform': 'github', 'number': '125', 'base': 'a' * 40, 'head': 'b' * 40}
+
+    def setUp(self):
+        env = patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'})
+        env.start()
+        self.addCleanup(env.stop)
+        self.issue = self.review(self.request, f'@{REPO}({SCOUT}) 请审。\n\n@{REPO}({GLM}) 请审。')
+        self.builds = {}
+        self.stages = {}
+        self.stopped = []
+        self.ref = 'fix/owner-branch'
+        self.requirement = []
+        self.pull_reads = []
+
+    def review(self, request, summons, number='363', attempts=(attempt(SCOUT, 'cnb-first'),)):
+        return {'number': number, 'state': 'open', 'title': '[PR审核] GitHub #125：x', 'created_at': stamp(0),
+                'author': OWNER, 'statuses': {'npc': list(attempts)},
+                'body': '<!-- flclash-pr-review ' + json.dumps(reviews.sign(request)) + ' -->\n\n' + summons}
+
+    def conclusion(self, verdict='pass', request=None):
+        return 'FLCLASH_REVIEW ' + json.dumps({'request': reviews.identity(request or self.request),
+                                               'verdict': verdict, 'blockers': 0 if verdict == 'pass' else 1})
+
+    def answer(self, role, minutes=2):
+        return npc_note(role, minutes, self.conclusion())
+
+    def run_pass(self, comments, minutes, issues=None):
+        """One recovery pass; return the bodies it posted."""
+        issues = issues if issues is not None else [self.issue]
+        posted = []
+
+        def api(url, method='GET', data=None, missing=False, timeout=60):
+            if '/pulls/' in url:
+                self.pull_reads.append(url)
+                return {'head': {'ref': self.ref}}
+            if '/build/stop/' in url:
+                self.stopped.append(url.rsplit('/', 1)[-1])
+                return {}
+            if '/build/status/' in url:
+                return self.builds.get(url.rsplit('/', 1)[-1], build())
+            if '/build/logs/stage/' in url:
+                return self.stages.get(url.split('/build/logs/stage/')[1])
+            return next(item for item in issues if url.endswith(f'/issues/{item["number"]}'))
+
+        def pages(url):
+            return comments if url.endswith('/comments') else issues
+        with (patch.object(recovery, 'api', side_effect=api), patch.object(recovery, 'pages', side_effect=pages),
+              patch.object(pause, 'pages', side_effect=lambda url: self.requirement),
+              patch.object(recovery, 'comment', side_effect=lambda n, body, *a: posted.append(body)),
+              contextlib.redirect_stdout(io.StringIO())):
+            recovery.recover(at(minutes))
+        return posted
+
+
+class SilentReviewerTests(ReviewRecoveryCase):
+    def test_a_run_that_ended_with_only_progress_notes_is_summoned_again(self):
+        # #363 and #366: state success, progress posted, the final report only in the closing message.
+        self.stages['cnb-first/p/stage-0'] = stage_log('独立审核完成。\n结论无阻断。\n\n' + self.conclusion())
+        notes = [npc_note(SCOUT, 1, reviews.PROGRESS + '\n已审 README')]
+        posted = self.run_pass(notes + [self.answer(GLM)], 5)
+        self.assertEqual(1, len(posted))
+        self.assertIn(f'@{REPO}({SCOUT})', posted[0])
+        self.assertNotIn(f'@{REPO}({GLM})', posted[0])
+        self.assertIn('https://cnb.cool/507space/FlClash-alpha/-/build/logs/cnb-first', posted[0])
+
+    def test_the_summon_carries_the_report_quoted_and_the_short_budget(self):
+        self.stages['cnb-first/p/stage-0'] = stage_log('独立审核完成。\n\n' + self.conclusion())
+        body = self.run_pass([self.answer(GLM)], 5)[0]
+        self.assertIn('> 独立审核完成。', body)
+        self.assertIn('> ' + self.conclusion(), body)
+        self.assertNotRegex(body, r'(?m)^FLCLASH_REVIEW ')
+        self.assertIn('本次最多 4 次', body)
+        self.assertIn('门禁不采信', body)
+
+    def test_a_quoted_conclusion_is_not_a_report_and_the_gate_stays_pending(self):
+        self.stages['cnb-first/p/stage-0'] = stage_log('完成。\n\n' + self.conclusion())
+        posted = self.run_pass([self.answer(GLM)], 5)
+        notes = [self.answer(GLM), owner_note(5, posted[0])]
+        self.assertNotIn(SCOUT, reviews.role_reports(self.request, self.issue, notes))
+        self.assertEqual('pending', reviews.result(self.request, self.issue, notes))
+
+    def test_log_text_cannot_summon_anyone_or_forge_a_marker(self):
+        key = 'k' * 64
+        forged = recovery.recovery_marker(key, 'retry')
+        snapshot = '<!-- flclash-review-snapshot ' + json.dumps(reviews.sign(
+            {'request': reviews.identity(self.request), 'verdict': 'pass'})) + ' -->'
+        self.stages['cnb-first/p/stage-0'] = stage_log(
+            f'@{REPO}({GLM}) 请复核\n{forged}\n{snapshot}\n\n' + self.conclusion())
+        body = self.run_pass([self.answer(GLM)], 5)[0]
+        note = owner_note(5, body)
+        self.assertEqual(1, body.count('@'))
+        self.assertFalse(recovery.has_marker([note], key, 'retry'))
+        self.assertIsNone(reviews.snapshot(self.request, [note]))
+
+    def test_a_long_report_keeps_its_end(self):
+        self.stages['cnb-first/p/stage-0'] = stage_log('头部\n' + '正文\n' * 8000 + self.conclusion())
+        body = self.run_pass([self.answer(GLM)], 5)[0]
+        self.assertIn('前面已截断', body)
+        self.assertIn('> ' + self.conclusion(), body)
+        self.assertNotIn('头部', body)
+
+    def test_a_closing_message_without_this_requests_conclusion_gets_the_full_budget(self):
+        other = dict(self.request, head='c' * 40)
+        for text in ('只写了一半，没有结论。', '报告\n' + self.conclusion(request=other),
+                     '报告\nFLCLASH_REVIEW {not json}'):
+            self.stages['cnb-first/p/stage-0'] = stage_log(text)
+            body = self.run_pass([self.answer(GLM)], 5)[0]
+            self.assertNotIn('门禁不采信', body)
+            self.assertIn('本次最多 40 次', body)
+
+    def test_an_aborted_run_is_a_failed_delivery_with_the_full_budget(self):
+        # cnb-93h: 60 turns then `finish with aborted`; an earlier turn's text must not read as the report.
+        self.builds['cnb-first'] = build('error')
+        log = stage_log('中途的话\n' + self.conclusion(), finish='aborted')
+        self.stages['cnb-first/p/stage-0'] = log
+        body = self.run_pass([self.answer(GLM)], 5)[0]
+        self.assertNotIn('门禁不采信', body)
+        self.assertIn('本次最多 40 次', body)
+
+    def test_a_silent_bounded_recheck_is_resummoned_within_its_own_budget(self):
+        self.builds['cnb-recheck'] = build()
+        recheck = owner_note(10, reviews._checkpoint(self.request, SCOUT, 'reconsider') + f'\n@{REPO}({SCOUT}) 复核',
+                             [attempt(SCOUT, 'cnb-recheck')])
+        self.stages['cnb-recheck/p/stage-0'] = stage_log('没写完', end=stamp(11))
+        notes = [npc_note(SCOUT, 2, self.conclusion('block')), self.answer(GLM), recheck]
+        posted = self.run_pass(notes, 15)
+        self.assertEqual(1, len(posted))
+        self.assertIn('本次最多 12 次', posted[0])
+
+    def test_a_shard_resummon_names_its_files_and_only_its_reviewer(self):
+        part = dict(self.request, shard={'index': 1, 'total': 2, 'paths': ['core/a.go', 'core/b.go']})
+        shard = self.review(part, f'@{REPO}({GLM}) 请审核本分片。', '364', [attempt(GLM, 'cnb-shard')])
+        self.builds['cnb-shard'] = build('error', GLM)
+        posted = self.run_pass([], 11, [shard])
+        self.assertEqual(1, len(posted))
+        self.assertIn(f'@{REPO}({GLM})', posted[0])
+        self.assertIn('`core/a.go`、`core/b.go`', posted[0])
+        self.assertIn(reviews.identity(part), posted[0])
+
+    def test_the_main_issue_of_a_sharded_review_does_not_summon_glm(self):
+        main = self.review(self.request, f'@{REPO}({SCOUT}) 请审。', '363')
+        posted = self.run_pass([self.answer(SCOUT)], 120, [main])
+        self.assertEqual([], posted)
+
+
+class NothingToRecoverTests(ReviewRecoveryCase):
+    def test_a_report_ends_the_summon(self):
+        self.stages['cnb-first/p/stage-0'] = stage_log('完成', end=stamp(1))
+        for verdict in ('pass', 'block'):
+            notes = [npc_note(SCOUT, 2, self.conclusion(verdict)), self.answer(GLM)]
+            self.assertEqual([], self.run_pass(notes, 90))
+        self.assertEqual([], self.run_pass([npc_note(SCOUT, 2, '没有机器结论行的报告'), self.answer(GLM)], 90))
+
+    def test_a_report_for_another_request_does_not_end_it(self):
+        other = dict(self.request, head='c' * 40)
+        notes = [npc_note(SCOUT, 2, self.conclusion(request=other)), self.answer(GLM)]
+        self.assertEqual(1, len(self.run_pass(notes, 5)))
+
+    def test_a_pass_is_never_followed_up_even_after_a_later_summon(self):
+        notes = [self.answer(SCOUT), self.answer(GLM), owner_note(10, f'@{REPO}({SCOUT}) 再看一眼',
+                                                                   [attempt(SCOUT, 'cnb-late')])]
+        self.assertEqual([], self.run_pass(notes, 90))
+
+    def test_the_run_is_given_three_minutes_after_it_ended(self):
+        self.stages['cnb-first/p/stage-0'] = stage_log('没写完', end=stamp(1))
+        self.assertEqual([], self.run_pass([self.answer(GLM)], 3.9))
+        self.assertEqual(1, len(self.run_pass([self.answer(GLM)], 4.1)))
+
+    def test_a_running_review_is_not_summoned_twice(self):
+        self.builds['cnb-first'] = build('running')
+        self.assertEqual([], self.run_pass([self.answer(GLM)], 20))
+        self.assertEqual([], self.stopped)
+
+    def test_a_reuse_issue_summons_no_one(self):
+        reuse = self.review(self.request, '沿用', '373', ())
+        self.assertEqual([], self.run_pass([], 500, [reuse]))
+
+    def test_a_closed_review_is_left_alone(self):
+        self.issue['state'] = 'closed'
+        self.assertEqual([], self.run_pass([], 500))
+
+
+class OverdueTests(ReviewRecoveryCase):
+    def test_a_first_summons_run_is_stopped_after_forty_minutes_and_not_summoned_over(self):
+        self.builds['cnb-first'] = build('running')
+        self.assertEqual([], self.run_pass([self.answer(GLM)], 39))
+        self.assertEqual([], self.stopped)
+        self.assertEqual([], self.run_pass([self.answer(GLM)], 41))
+        self.assertEqual(['cnb-first'], self.stopped)
+
+    def test_a_later_summons_run_is_stopped_after_twenty_minutes(self):
+        self.builds['cnb-recheck'] = build('running')
+        recheck = owner_note(30, f'@{REPO}({SCOUT}) 复核', [attempt(SCOUT, 'cnb-recheck')])
+        notes = [npc_note(SCOUT, 2, self.conclusion('block')), self.answer(GLM), recheck]
+        self.assertEqual([], self.run_pass(notes, 49))
+        self.assertEqual([], self.stopped)
+        self.assertEqual([], self.run_pass(notes, 51))
+        self.assertEqual(['cnb-recheck'], self.stopped)
+
+    def test_a_stopped_run_is_summoned_again_on_the_next_pass(self):
+        self.builds['cnb-first'] = build('cancel')
+        self.stages['cnb-first/p/stage-0'] = stage_log('没写完', end=stamp(41), finish='aborted')
+        self.assertEqual(1, len(self.run_pass([self.answer(GLM)], 45)))
+
+    def test_a_summon_no_run_picked_up_counts_as_undelivered_only_once_overdue(self):
+        # A first summon with no status at all for the role.
+        self.issue['statuses'] = {'npc': []}
+        self.assertEqual([], self.run_pass([self.answer(GLM)], 39))
+        posted = self.run_pass([self.answer(GLM)], 41)
+        self.assertEqual(1, len(posted))
+        self.assertNotIn('日志：', posted[0])
+        self.assertEqual([], self.stopped)
+        # The same goes for a resend no run picked up, on its shorter clock.
+        notes = [self.answer(GLM), owner_note(41, posted[0])]
+        self.assertEqual([], self.run_pass(notes, 60))
+        self.assertEqual(1, len(self.run_pass(notes, 62)))
+
+
+class ResendLimitTests(ReviewRecoveryCase):
+    def test_two_resends_then_one_visible_stop_and_nothing_more(self):
+        notes = [self.answer(GLM)]
+        first = self.run_pass(notes, 5)
+        self.assertEqual(1, len(first))
+        notes.append(owner_note(5, first[0]))
+        self.assertEqual([], self.run_pass(notes, 6), 'a resend still queued must not be repeated')
+        notes[-1] = owner_note(5, first[0], [attempt(SCOUT, 'cnb-second')])
+        self.stages['cnb-second/p/stage-0'] = stage_log('又没发', end=stamp(7))
+        second = self.run_pass(notes, 11)
+        self.assertEqual(1, len(second))
+        self.assertIn(f'@{REPO}({SCOUT})', second[0])
+        notes.append(owner_note(11, second[0], [attempt(SCOUT, 'cnb-third')]))
+        self.stages['cnb-third/p/stage-0'] = stage_log('还是没发', end=stamp(13))
+        stopped = self.run_pass(notes, 17)
+        self.assertEqual(1, len(stopped))
+        self.assertIn('自动补召已用完', stopped[0])
+        self.assertIn('未作通过判定', stopped[0])
+        self.assertNotIn(f'@{REPO}', stopped[0])
+        notes.append(owner_note(17, stopped[0]))
+        self.assertEqual([], self.run_pass(notes, 200))
+        self.assertEqual('pending', reviews.result(self.request, self.issue, notes))
+
+    def test_a_report_on_the_resend_ends_it(self):
+        first = self.run_pass([self.answer(GLM)], 5)
+        notes = [self.answer(GLM), owner_note(5, first[0], [attempt(SCOUT, 'cnb-second')]), self.answer(SCOUT, 7)]
+        self.assertEqual([], self.run_pass(notes, 200))
+
+    def test_each_role_has_its_own_limit(self):
+        self.issue['statuses'] = {'npc': [attempt(SCOUT, 'cnb-a'), attempt(GLM, 'cnb-b')]}
+        self.builds['cnb-b'] = build('error', GLM)
+        posted = self.run_pass([], 5)
+        self.assertEqual({SCOUT, GLM}, {role for role in reviews.ROLES for body in posted if f'@{REPO}({role})' in body})
+
+    def test_a_pass_sends_at_most_two_across_issues_and_the_rest_wait(self):
+        issues = [dict(self.issue, number=str(n)) for n in (1, 2, 3)]
+        self.assertEqual(2, len(self.run_pass([self.answer(GLM)], 5, issues)))
+
+    def test_a_resend_leaves_the_bounded_recheck_available(self):
+        first = self.run_pass([self.answer(GLM)], 5)
+        notes = [npc_note(SCOUT, 8, self.conclusion('block')), self.answer(GLM), owner_note(5, first[0])]
+        with (patch.object(reviews, 'describe', return_value=''), patch.object(reviews, 'diff_scope', return_value=''),
+              patch.object(reviews, 'api', return_value={'status': 'success'}) as api):
+            reviews.reconsider(self.request, self.issue, notes)
+        self.assertEqual(1, sum(call.args[1:2] == ('POST',) for call in api.call_args_list))
+
+    def test_a_cancelled_run_does_not_hold_the_bounded_recheck_forever(self):
+        notes = [npc_note(SCOUT, 2, self.conclusion('block')), self.answer(GLM)]
+        with (patch.object(reviews, 'describe', return_value=''), patch.object(reviews, 'diff_scope', return_value=''),
+              patch.object(reviews, 'api', return_value={'status': 'cancel'}) as api):
+            reviews.reconsider(self.request, self.issue, notes)
+        self.assertEqual(1, sum(call.args[1:2] == ('POST',) for call in api.call_args_list))
+
+
+class RateLimitTests(ReviewRecoveryCase):
+    def limited(self, end):
+        return dict(stage_log('x', end=end, finish='error'), error=(
+            '[LLM request error model=glm-5.3-flash path=/x/chat/completions] 429 status code (no body)'))
+
+    def test_a_429_waits_longer_each_time_and_has_the_same_limit(self):
+        self.issue['statuses'] = {'npc': [attempt(GLM, 'cnb-a')]}
+        self.builds['cnb-a'] = build('error', GLM)
+        self.stages['cnb-a/p/stage-1'] = self.limited(stamp(1))
+        notes = [self.answer(SCOUT)]
+        self.assertEqual([], self.run_pass(notes, 15.9), 'first backoff is 15 minutes')
+        first = self.run_pass(notes, 16.1)
+        self.assertEqual(1, len(first))
+        self.assertNotIn('门禁不采信', first[0])
+        self.assertIn('本次最多 40 次', first[0])
+        notes.append(owner_note(17, first[0], [attempt(GLM, 'cnb-b')]))
+        self.builds['cnb-b'] = build('error', GLM)
+        self.stages['cnb-b/p/stage-1'] = self.limited(stamp(18))
+        self.assertEqual([], self.run_pass(notes, 47.9), 'second backoff is 30 minutes')
+        second = self.run_pass(notes, 48.1)
+        self.assertEqual(1, len(second))
+        notes.append(owner_note(49, second[0], [attempt(GLM, 'cnb-c')]))
+        self.builds['cnb-c'] = build('error', GLM)
+        self.stages['cnb-c/p/stage-1'] = self.limited(stamp(50))
+        stopped = self.run_pass(notes, 54)
+        self.assertEqual(1, len(stopped), 'past the limit it stops at once, without another wait')
+        self.assertIn('自动补召已用完', stopped[0])
+        self.assertEqual('pending', reviews.result(self.request, self.issue, notes))
+
+    def test_only_a_429_from_the_model_backs_off(self):
+        self.assertTrue(recovery.rate_limited(self.limited(stamp(1))))
+        for error in ('Agent aborted: reached maxTurns limit (60)', '', None, 'HTTP 429 while cloning'):
+            self.assertFalse(recovery.rate_limited({'error': error}))
+
+
+class HoldTests(ReviewRecoveryCase):
+    def setUp(self):
+        super().setUp()
+        self.ref = 'refs/heads/automation/req-291'
+        self.requirement = [owner_note(1, 'HOLD')]
+        self.logged = stage_log('完成。\n\n' + self.conclusion())
+        self.stages['cnb-first/p/stage-0'] = self.logged
+
+    def test_a_silent_reviewer_is_not_resummoned_and_its_log_is_not_posted(self):
+        self.assertEqual([], self.run_pass([self.answer(GLM)], 5))
+
+    def test_a_rate_limited_reviewer_is_not_resummoned_past_its_backoff(self):
+        self.stages['cnb-first/p/stage-0'] = dict(stage_log('x', finish='error'), error=(
+            '[LLM request error model=glm-5.3-flash path=/x] 429 status code (no body)'))
+        self.assertEqual([], self.run_pass([self.answer(GLM)], 200))
+
+    def test_an_overdue_run_is_left_running(self):
+        self.builds['cnb-first'] = build('running')
+        self.assertEqual([], self.run_pass([self.answer(GLM)], 200))
+        self.assertEqual([], self.stopped)
+
+    def test_no_stop_notice_is_written_past_the_limit_and_the_gate_stays_pending(self):
+        key = recovery.hashlib.sha256(f'363:{reviews.identity(self.request)}:{SCOUT}'.encode()).hexdigest()
+        retry = recovery.recovery_marker(key, 'retry')
+        notes = [self.answer(GLM), owner_note(5, retry), owner_note(10, retry)]
+        self.assertEqual([], self.run_pass(notes, 200))
+        self.assertEqual('pending', reviews.result(self.request, self.issue, notes))
+
+    def test_a_shard_of_a_held_requirement_waits_too(self):
+        part = dict(self.request, shard={'index': 1, 'total': 2, 'paths': ['core/a.go']})
+        shard = self.review(part, f'@{REPO}({GLM}) 请审核本分片。', '364', [attempt(GLM, 'cnb-shard')])
+        self.assertEqual([], self.run_pass([], 200, [shard]))
+
+    def test_release_lets_the_resend_go_on_the_next_pass(self):
+        self.requirement.append(owner_note(3, 'RELEASE'))
+        self.assertEqual(1, len(self.run_pass([self.answer(GLM)], 5)))
+
+    def test_only_a_comment_that_is_exactly_hold_counts(self):
+        self.requirement = [owner_note(1, 'HOLD 一下')]
+        self.assertEqual(1, len(self.run_pass([self.answer(GLM)], 5)))
+
+    def test_nothing_is_read_for_a_review_with_nothing_to_do(self):
+        self.assertEqual([], self.run_pass([self.answer(SCOUT), self.answer(GLM)], 200))
+        self.assertEqual([], self.pull_reads)
+
+    def test_a_pull_that_cannot_be_read_sends_nothing(self):
+        def api(url, method='GET', data=None, missing=False, timeout=60):
+            if '/pulls/' in url:
+                raise RuntimeError('HTTP 500')
+            return self.issue
+        posted = []
+        with (patch.object(recovery, 'api', side_effect=api),
+              patch.object(recovery, 'pages', side_effect=lambda url: [self.answer(GLM)] if url.endswith('/comments') else [self.issue]),
+              patch.object(recovery, 'comment', side_effect=lambda *a: posted.append(a)),
+              contextlib.redirect_stdout(io.StringIO()), self.assertRaises(RuntimeError)):
+            recovery.recover(at(5))
+        self.assertEqual([], posted)
+
+    def test_a_hold_does_not_reach_a_pull_that_is_not_a_requirement(self):
+        # pause.paused only covers automation/req-*: an owner pull has no requirement issue to hold.
+        self.ref = 'fix/owner-branch'
+        self.assertEqual(1, len(self.run_pass([self.answer(GLM)], 5)))
+        self.assertEqual(1, len(self.run_pass([self.answer(GLM), owner_note(4, 'HOLD')], 5)))
+
+
+class PassIsolationTests(ReviewRecoveryCase):
+    def test_one_issue_failing_leaves_the_rest_handled_and_the_step_red(self):
+        issues = [dict(self.issue, number='1'), dict(self.issue, number='2')]
+        posted = []
+        printed = io.StringIO()
+
+        def api(url, method='GET', data=None, missing=False, timeout=60):
+            if url.endswith('/issues/1'):
+                raise recovery_error
+            if '/pulls/' in url:
+                return {'head': {'ref': 'feature'}}
+            if '/build/status/' in url:
+                return build()
+            if '/build/logs/stage/' in url:
+                return None
+            return issues[1]
+        from control import HttpStatusError
+        recovery_error = HttpStatusError('GET returned HTTP 500: ', 500)
+        with (patch.object(recovery, 'api', side_effect=api),
+              patch.object(recovery, 'pages', side_effect=lambda url: [self.answer(GLM)] if url.endswith('/comments') else issues),
+              patch.object(recovery, 'comment', side_effect=lambda n, body, *a: posted.append(n)),
+              contextlib.redirect_stdout(printed), self.assertRaises(RuntimeError) as raised):
+            recovery.recover(at(5))
+        self.assertEqual(['2'], posted)
+        self.assertIn('#1', printed.getvalue())
+        self.assertIn('1', str(raised.exception))
