@@ -183,8 +183,9 @@ class ReconcileTests(unittest.TestCase):
         return {'state': 'open', 'number': '12', 'title': '需求实现', 'base': {'sha': 'a' * 40},
                 'head': {'sha': 'b' * 40, 'ref': ref}}
 
-    def reconcile(self, checks, ref='refs/heads/automation/req-9', notices=(), issue=None):
+    def reconcile(self, checks, ref='refs/heads/automation/req-9', notices=(), issue=None, listed=None):
         pull = self.pull(ref)
+        listed = pull if listed is None else listed
         with patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'}):
             signed = json.dumps(reviews.sign(reviews.scope('cnb', pull)))
         issue = issue or {'number': '77', 'state': 'open', 'created_at': stamp(120),
@@ -204,7 +205,7 @@ class ReconcileTests(unittest.TestCase):
 
         def pages(url, page_key='page', size_key='page_size'):
             if url.startswith('https://api.cnb.cool/') and '/pulls?' in url:
-                return iter([pull])
+                return iter([listed])
             if url.endswith('/pulls/12/comments'):
                 return iter([{'id': str(100 + i), 'body': body} for i, body in enumerate(notices)])
             return iter([])
@@ -222,6 +223,37 @@ class ReconcileTests(unittest.TestCase):
         self.assertIn('waiting for CI', printed)
         ensure, printed = self.reconcile({'statuses': [{'context': 'cnb/pipeline-0(Paired review gate)',
                                                        'state': 'pending', 'created_at': stamp(10)}]})
+        ensure.assert_not_called()
+        self.assertIn('waiting for CI', printed)
+
+    def test_a_pr_without_any_ci_status_waits_inside_the_grace(self):
+        # 2-1a: an empty status list used to fall straight through to the review.
+        ensure, printed = self.reconcile({'statuses': []}, listed=dict(self.pull(), created_at=stamp(5)))
+        ensure.assert_not_called()
+        self.assertIn('waiting for CI', printed)
+
+    def test_a_pr_without_a_creation_time_says_so_instead_of_waiting_silently(self):
+        ensure, printed = self.reconcile({'statuses': []})
+        ensure.assert_not_called()
+        self.assertIn('waiting for CI (no PR created_at)', printed)
+
+    def test_the_list_creation_time_survives_the_detail_overwrite(self):
+        # CNB's `/pulls/{n}` carries no time field at all; only the list entry does.
+        detail = {key: value for key, value in self.pull().items() if key != 'created_at'}
+        ensure, printed = self.reconcile({'statuses': []}, listed=dict(detail, created_at=stamp(81)))
+        ensure.assert_called_once()
+        self.assertIn('CI unsettled after 80m, review opened', printed)
+
+    def test_an_empty_status_list_past_the_grace_opens_without_ci_evidence(self):
+        ensure, _ = self.reconcile({'statuses': []}, listed=dict(self.pull(), created_at=stamp(81)))
+        brief = ensure.call_args.args[2]
+        self.assertIn('没有 CI 证据', brief)
+        for name in FIVE:
+            self.assertNotIn(name, brief)
+
+    def test_one_young_status_outweighs_an_old_pr(self):
+        ensure, printed = self.reconcile(statuses(('pending',) * 5, minutes=10),
+                                         listed=dict(self.pull(), created_at=stamp(120)))
         ensure.assert_not_called()
         self.assertIn('waiting for CI', printed)
 
