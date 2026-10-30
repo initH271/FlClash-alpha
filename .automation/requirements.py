@@ -7,7 +7,7 @@ import env_failure
 import pause
 import control
 from control import CNB, GH, POLICY
-from reviews import find_request, reconcile as review_reconcile, scope, state
+from reviews import ci_state, find_request, reconcile as review_reconcile, scope, state
 from security_finish import ensure_branch_scan, merge_ready, push_github
 
 HEADINGS = ('要改什么', '验收标准', '不做什么', '影响范围', '允许改自动化配置', '相关文件或界面')
@@ -339,8 +339,10 @@ def check_state(number, pull=None):
         # The gate only polls for 32 minutes; a review that finishes later must still count.
         if state(scope('cnb', pull)) == 'success':
             statuses = [item for item in statuses if control.check_name(item) != REVIEW_GATE]
-    failed = any(item['state'] in {'error', 'failure'} for item in statuses)
-    green = bool(statuses) and all(item['state'] == 'success' for item in statuses)
+    # A review opened before CI settled never counts as green: merge waits for every evidence pipeline.
+    ci = ci_state(control.api(f'{CNB}/pulls/{number}/commit-statuses'))
+    failed = any(item['state'] in {'error', 'failure'} for item in statuses) or ci == 'failure'
+    green = bool(statuses) and ci == 'success' and all(item['state'] == 'success' for item in statuses)
     return green, failed
 
 

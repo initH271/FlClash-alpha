@@ -30,6 +30,14 @@ class CnbPipelineTests(unittest.TestCase):
             return
         self.assertIn(PIPELINE, [entry.get('name') for entry in entries])
 
+    def test_pull_request_pipelines_settle_in_a_final_stage(self):
+        entries = pipelines()
+        if entries is None:
+            return
+        for entry in entries:
+            # The paired review gate is a pull_request.target job and has no end stage of its own.
+            self.assertEqual(0 if entry['name'] == 'Paired review gate' else 1, len(entry.get('endStages', [])))
+
     def test_pipeline_skips_unrelated_pull_requests(self):
         self.assertIn(FILTER, self.source)
         self.assertIn("echo 'Skipped: no automation changes'", self.source)
@@ -55,6 +63,65 @@ class CnbPipelineTests(unittest.TestCase):
         self.assertIn(FILTER, stage['script'])
         self.assertIn(DISCOVER, stage['script'])
 
+
+    def schedules(self):
+        if yaml is None:
+            return None
+        return yaml.safe_load(CNB.read_text(encoding='utf-8'))['main']
+
+    def test_ci_pipelines_match_the_pull_request_jobs(self):
+        import sys
+        sys.path.insert(0, str(CNB.parent / '.automation'))
+        import reviews
+        entries = pipelines()
+        if entries is None:
+            for name in reviews.CI_PIPELINES:
+                self.assertIn(f'    - name: {name}\n', self.source)
+            return
+            self.assertEqual(list(reviews.CI_PIPELINES[:-1]),
+                             [entry['name'] for entry in entries if entry['name'] != 'Paired review gate'])
+
+    def test_every_pipeline_wakes_the_controller_when_it_ends(self):
+        import sys
+        sys.path.insert(0, str(CNB.parent / '.automation'))
+        import reviews
+        job = "python3 .automation/wake.py ci-done '{}'"
+        entries = pipelines()
+        # The paired review gate is a pull_request.target job, so it has no end stage of its own.
+        for name in reviews.CI_PIPELINES[:-1]:
+            self.assertIn(job.format(name), self.source)
+            if entries is None:
+                continue
+            entry = next(item for item in entries if item.get('name') == name)
+            (stage,) = entry['endStages']
+            self.assertEqual('python:3.12-slim', stage['image'])
+            self.assertEqual('2m', stage['timeout'])
+            self.assertEqual(job.format(name), stage['script'])
+
+    def test_the_sleeping_waker_and_the_five_minute_schedule_are_gone(self):
+        self.assertNotIn('Wake controller after checks', self.source)
+        self.assertNotIn('crontab: */5', self.source)
+        self.assertNotIn('wake.py settled', self.source)
+
+    def test_the_quarter_hour_schedule_watches_stalls_and_wakes_the_controller(self):
+        entries = self.schedules()
+        jobs = entries['crontab: */15 * * * *']
+        if entries is None:
+            return
+        self.assertIn('python3 .automation/wake.py watchdog', jobs[0]['stages'][0]['script'])
+        self.assertEqual('3m', jobs[0]['stages'][0]['timeout'])
+        self.assertIn('github-dispatch.yml', jobs[1]['stages'][0]['imports'])
+        self.assertEqual('python3 .automation/wake.py', jobs[1]['stages'][0]['script'])
+        self.assertEqual('2m', jobs[1]['stages'][0]['timeout'])
+
+    def test_the_mirror_runs_hourly(self):
+        entries = self.schedules()
+        if entries is None:
+            self.assertIn('"crontab: 7 * * * *":', self.source)
+            return
+        self.assertNotIn('*mirror', entries['crontab: */15 * * * *'])
+        self.assertEqual(['Mirror signed GitHub release to CNB'],
+                         [job['name'] for job in entries['crontab: 7 * * * *']])
 
 if __name__ == '__main__':
     unittest.main()

@@ -31,6 +31,11 @@ main:
           image: cnbcool/sca-vulnerability:latest
           settings:
             failOnSeverity: high
+      endStages:
+        - name: Wake controller when CI ends
+          image: python:3.12-slim
+          script: python3 .automation/wake.py ci-done 'Dependency vulnerability gate'
+          timeout: 2m
     - name: Automation unit tests
       runner: { cpus: 1 }
       docker:
@@ -42,6 +47,11 @@ main:
             printf '%s\n' "$changed" | grep -Eq '^(\.automation/|\.cnb/|\.cnb\.yml|\.github/|tool/)' || { echo 'Skipped: no automation changes'; exit 0; }
             python3 -m unittest discover -s .automation -p 'test_*.py'
           timeout: 10m
+      endStages:
+        - name: Wake controller when CI ends
+          image: python:3.12-slim
+          script: python3 .automation/wake.py ci-done 'Automation unit tests'
+          timeout: 2m
     - name: Go dependency regression tests
       runner: { cpus: 2 }
       docker:
@@ -74,6 +84,11 @@ main:
               *) python3 .automation/security_scan.py . /tmp/security-pr-report.json --repair-branch "$CNB_PULL_REQUEST_BRANCH" || exit $? ;;
             esac
           timeout: 20m
+      endStages:
+        - name: Wake controller when CI ends
+          image: python:3.12-slim
+          script: python3 .automation/wake.py ci-done 'Go dependency regression tests'
+          timeout: 2m
     - name: Flutter and Android requirement tests
       runner: { cpus: 4 }
       docker:
@@ -155,6 +170,11 @@ main:
             pkgs=". ./tun ./platform"
             [ -d mobile ] && pkgs="$pkgs ./mobile"
             CGO_ENABLED=1 GOOS=android GOARCH=arm64 CC="$CC" go vet -tags="$tags" $pkgs
+      endStages:
+        - name: Wake controller when CI ends
+          image: python:3.12-slim
+          script: python3 .automation/wake.py ci-done 'Flutter and Android requirement tests'
+          timeout: 2m
     - name: Rust dependency regression tests
       runner: { cpus: 2 }
       docker:
@@ -167,11 +187,14 @@ main:
             cargo test --locked --manifest-path services/helper/Cargo.toml
             cargo test --locked --manifest-path plugins/rust_api/rust/Cargo.toml
           timeout: 20m
+      endStages:
+        - name: Wake controller when CI ends
+          image: python:3.12-slim
+          script: python3 .automation/wake.py ci-done 'Rust dependency regression tests'
+          timeout: 2m
   push:
     - *mirror
   "crontab: */15 * * * *":
-    - *mirror
-  "crontab: */5 * * * *":
     - name: Wake stalled requirements
       runner: { cpus: 1 }
       docker:
@@ -180,6 +203,17 @@ main:
         - name: Bridge stalled requirements into comment wakes
           script: python3 .automation/wake.py watchdog
           timeout: 3m
+    - name: Wake task controller while work is open
+      runner: { cpus: 1 }
+      docker:
+        image: python:3.12-slim
+      stages:
+        - name: Dispatch reconciliation from trusted schedule
+          imports: https://cnb.cool/507space/FlClash-alpha-secrets/-/blob/main/github-dispatch.yml
+          script: python3 .automation/wake.py
+          timeout: 2m
+  "crontab: 7 * * * *":
+    - *mirror
 $:
   issue.open:
     - name: Wake task controller
@@ -210,15 +244,6 @@ $:
         - name: Require both independent reviews for current PR
           script: python3 .automation/reviews.py cnb-gate
           timeout: 32m
-    - name: Wake controller after checks
-      runner: { cpus: 1 }
-      docker:
-        image: python:3.12-slim
-      stages:
-        - name: Dispatch reconciliation once every check passes
-          imports: https://cnb.cool/507space/FlClash-alpha-secrets/-/blob/main/github-dispatch.yml
-          script: python3 .automation/wake.py settled
-          timeout: 55m
   api_trigger:
     - *mirror
   web_trigger:

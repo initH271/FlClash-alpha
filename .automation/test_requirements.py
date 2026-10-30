@@ -10,6 +10,7 @@ import control
 import env_failure
 import pause
 import requirements as req
+import reviews
 import security_finish
 
 
@@ -123,10 +124,10 @@ class RequirementTests(unittest.TestCase):
         stale = rows + [self.attempt('pending', '2026-09-22T02:40:00Z', sn='cnb-test-2')]
         self.assertEqual('forward', self.decide(comments, stale, tree='abc', checks_green=True)['kind'])
 
-    def test_green_checks_ignore_the_pending_waker(self):
-        statuses = {'state': 'pending', 'statuses': [
-            {'context': 'cnb/pipeline-1(Flutter and Android requirement tests)', 'state': 'success'},
-            {'context': 'cnb/pipeline-2(Wake controller after checks)', 'state': 'pending'}]}
+    def test_green_checks_ignore_the_review_grace_marker(self):
+        statuses = {'statuses': [{'context': f'cnb/pipeline-{i}({name})', 'state': 'success'}
+                                 for i, name in enumerate(reviews.CI_PIPELINES)]
+                    + [{'context': 'cnb/pipeline-9(FlClash/review-before-ci)', 'state': 'pending'}]}
         with patch.object(control, 'api', return_value=statuses):
             self.assertEqual((True, False), req.check_state('5'))
         statuses['statuses'][0]['state'] = 'error'
@@ -151,6 +152,67 @@ class RequirementTests(unittest.TestCase):
         quota = [self.marker('quota', 60, 'abc', '2026-09-22T02:30:00Z')]
         self.assertEqual('forward', self.decide(quota, tree='abc', checks_green=True)['kind'])
         self.assertEqual('wait', self.decide(quota, tree='abc', review_only=True, behind=True)['kind'])
+
+    def check_state(self, ci, review='success'):
+        """Run check_state with the given pipeline states and a settled review verdict."""
+        statuses = {'statuses': [{'context': f'cnb/pipeline-{i}({name})', 'state': state}
+                                 for i, (name, state) in enumerate(zip(reviews.CI_PIPELINES, ci))]}
+        with (patch.object(control, 'api', return_value=statuses),
+              patch.object(req, 'state', return_value=review)):
+            return req.check_state('5', {'number': '5', 'base': {'sha': 'b'}, 'head': {'sha': 'h'}})
+
+    def runtime_inputs(self, ci):
+        """Drive the real reconcile over a forwarded requirement PR and report what it reached for."""
+        issue = {'number': '9', 'state': 'open', 'title': '[需求] 导出', 'body': BODY,
+                 'author': {'username': 'Aharon', 'is_npc': False}, 'created_at': '2026-09-22T02:00:00Z'}
+        comments = [self.marker('dev', 60, '', '2026-09-22T02:01:00Z'),
+                    {'created_at': '2026-09-22T02:03:00Z', 'body': '提交 abc，等待自动化检查',
+                     'author': {'username': '507space/FlClash-alpha(开发助手)', 'is_npc': True}}]
+        pull = {'number': '5', 'state': 'open', 'title': '[需求] 导出',
+                'base': {'sha': 'b' * 40},
+                'head': {'sha': 'c' * 40, 'ref': 'refs/heads/automation/req-9',
+                         'repo': {'path': control.POLICY['cnb']}}}
+        statuses = {'statuses': [{'context': f'cnb/pipeline-{i}({name})', 'state': state}
+                                 for i, (name, state) in enumerate(zip(reviews.CI_PIPELINES, ci))]}
+        import security_finish
+        with (patch.object(req, 'merge_ready') as merge, patch.object(req, 'sync_main') as sync,
+              patch.object(req, 'forward') as forward, patch.object(req, 'act') as act,
+              patch.object(req, 'main_drift', return_value=(False, False)),
+              patch.object(req, 'review_block', return_value=(False, '')),
+              patch.object(security_finish, 'dispatch_workflow', return_value=None, create=True),
+              patch.object(control, 'pages', side_effect=lambda url: (
+                  [pull] if '/pulls?' in url else [issue] if '/issues?' in url else comments)),
+              patch.object(control, 'api', side_effect=lambda url, *a, **k: pull if '/pulls/5' in url
+                           and url.endswith('/pulls/5') else statuses if url.endswith('/commit-statuses')
+                           else issue if url.endswith('/issues/9') else {'object': {'sha': 'a' * 40}}),
+              patch.object(req, 'state', return_value='success'),
+              patch.object(req, 'pull_statuses', return_value=req.control.gating_statuses(statuses)),
+              patch.object(req, 'branch_sha', return_value='c' * 40),
+              patch.object(req, 'contained', return_value=False),
+              patch.object(req, 'foreign_commits', return_value=[]),
+              patch.object(req, 'attempts', return_value=[]),
+              patch.object(control, 'git', return_value='tree')):
+            req.reconcile()
+        return forward, sync, merge, act
+
+    def test_a_green_review_before_ci_settles_never_forwards(self):
+        for ci in (('success',) * 5 + ('pending',), ('success',) * 5 + ('failure',)):
+            green, failed = self.check_state(ci)
+            self.assertFalse(green)
+            self.assertEqual(ci[-1] == 'failure', failed)
+            forward, sync, merge, act = self.runtime_inputs(ci)
+            forward.assert_not_called()
+            sync.assert_not_called()
+            merge.assert_not_called()
+            for call in act.call_args_list:
+                self.assertNotEqual('forward', call.args[1]['kind'])
+
+    def test_a_req_pr_forwards_only_after_every_pipeline_succeeded(self):
+        self.assertEqual((True, False), self.check_state(('success',) * 6))
+        forward, sync, merge, act = self.runtime_inputs(('success',) * 6)
+        self.assertEqual('forward', act.call_args.args[1]['kind'])
+        forward.assert_not_called()
+        sync.assert_not_called()
 
     def test_main_drift_reports_behind_and_conflicts(self):
         main = {'object': {'sha': 'm' * 40}}
@@ -206,13 +268,17 @@ class RequirementTests(unittest.TestCase):
             git.assert_not_called()
 
     def test_a_timed_out_gate_counts_once_the_review_has_passed(self):
-        statuses = {'statuses': [
-            {'context': 'cnb/pipeline-1(Flutter and Android requirement tests)', 'state': 'success'},
-            {'context': 'cnb/pipeline-2(Paired review gate)', 'state': 'error'}]}
         pull = {'number': '5', 'base': {'sha': 'b'}, 'head': {'sha': 'h'}}
-        for review, expected in (('success', (True, False)), ('failure', (False, True))):
-            with patch.object(control, 'api', return_value=statuses), patch.object(req, 'state', return_value=review):
-                self.assertEqual(expected, req.check_state('5', pull))
+        statuses = {'statuses': [{'context': f'cnb/pipeline-{i}({name})', 'state': 'success'}
+                                 for i, name in enumerate(reviews.CI_PIPELINES[:-1])]
+                    + [{'context': 'cnb/pipeline-9(Paired review gate)', 'state': 'error'}]}
+        settled = ('success',) * 6
+        for ci, expected in ((settled, (True, False)), (settled[:5] + ('pending',), (False, False)),
+                             (settled[:5] + ('failure',), (False, True))):
+            with patch.object(control, 'api', return_value=statuses), patch.object(req, 'state', return_value='success'), \
+                    patch.object(req, 'ci_state', return_value=reviews.ci_state({'statuses': [
+                        {'context': name, 'state': found} for name, found in zip(reviews.CI_PIPELINES, ci)]})):
+                self.assertEqual(expected, req.check_state('5', pull), ci)
         with patch.object(control, 'api', return_value=statuses), patch.object(req, 'state') as review:
             self.assertEqual((False, True), req.check_state('5'))
             review.assert_not_called()

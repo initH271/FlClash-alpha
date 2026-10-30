@@ -1,3 +1,5 @@
+import contextlib
+import io
 import json
 import os
 import time
@@ -8,14 +10,26 @@ import reviews
 import wake
 
 
+class _capture:
+    """Capture what a command prints while a test runs it."""
+
+    def __enter__(self):
+        self.buffer = io.StringIO()
+        self.redirect = contextlib.redirect_stdout(self.buffer)
+        self.redirect.__enter__()
+        return self.buffer
+
+    def __exit__(self, *exc):
+        return self.redirect.__exit__(*exc)
+
+
 class LifecycleTests(unittest.TestCase):
-    def test_watchdog_and_trusted_pr_event_wake_full_controller(self):
-        for event in ('crontab: */15 * * * *', 'pull_request.target'):
-            with (patch.dict(os.environ, {'CNB_EVENT': event}),
-                  patch.object(wake, 'dispatch') as dispatch, patch.object(wake, 'api') as api):
-                wake.wake()
-                dispatch.assert_called_once()
-                api.assert_not_called()
+    def test_trusted_pr_event_wakes_full_controller_without_listing_anything(self):
+        with (patch.dict(os.environ, {'CNB_EVENT': 'pull_request.target'}),
+              patch.object(wake, 'dispatch') as dispatch, patch.object(wake, 'pages') as pages):
+            wake.wake()
+            dispatch.assert_called_once()
+            pages.assert_not_called()
 
     def test_security_developer_report_wakes_but_owner_dispatch_does_not_loop(self):
         issue = {'state': 'open', 'body': '<!-- flclash-security-group {} -->'}
@@ -185,30 +199,78 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual('green-abc', wake.stalled(issue, released, pull, green, now))
         self.assertEqual('idle-abc-1', wake.stalled(issue, released[:2], pull, red, now))
 
-    def test_waker_dispatches_only_after_every_other_check_passes(self):
-        pull = {'state': 'open', 'number': '5', 'base': {'sha': 'b'}, 'head': {'sha': 'h'}}
 
-        def checks(*states):
-            names = ('Paired review gate', 'Dependency vulnerability gate', 'Flutter and Android requirement tests')
-            statuses = [{'context': f'cnb/pipeline-{i}({name})', 'state': state}
-                        for i, (name, state) in enumerate(zip(names, states))]
-            statuses.append({'context': 'cnb/pipeline-9(Wake controller after checks)', 'state': 'pending'})
-            return {'state': 'pending', 'statuses': statuses}
+    def ci(self, *states, own='Automation unit tests'):
+        names = {'Dependency vulnerability gate': 'success', 'Automation unit tests': 'pending',
+                 'Go dependency regression tests': 'success', 'Flutter and Android requirement tests': 'success',
+                 'Rust dependency regression tests': 'success', 'Paired review gate': 'success'}
+        for name, state in zip([name for name in names if name != own], states):
+            names[name] = state
+        return {'statuses': [{'context': f'cnb/pipeline-{i}({name})', 'state': state}
+                             for i, (name, state) in enumerate(names.items())]}
 
-        def run(*responses, head='h'):
-            replies = iter(responses)
+    def run_ci(self, statuses, branch='automation/req-7', head='h' * 40, comments=(), state='open'):
+        pull = {'state': state, 'number': '5', 'base': {'sha': 'b' * 40},
+                'head': {'sha': head, 'ref': f'refs/heads/{branch}'}}
 
-            def api(url):
-                return {**pull, 'head': {'sha': head}} if url.endswith('/pulls/5') else next(replies)
-            with (patch.dict(os.environ, {'CNB_PULL_REQUEST_IID': '5', 'CNB_PULL_REQUEST_SHA': 'h'}),
-                  patch.object(wake, 'api', side_effect=api), patch.object(wake, 'dispatch') as dispatch):
-                wake.wake_when_green(attempts=3, pause=0)
-            return dispatch.call_count
+        def api(url, method='GET', data=None, missing=False):
+            return pull if url.endswith('/pulls/5') else statuses
+        with (patch.dict(os.environ, {'CNB_PULL_REQUEST_IID': '5', 'CNB_PULL_REQUEST_SHA': 'h' * 40,
+                                      'CNB_PULL_REQUEST_BRANCH': branch}),
+              patch.object(wake, 'api', side_effect=api), patch.object(wake, 'pages', return_value=list(comments)),
+              patch.object(wake, 'post_comment') as comment, patch.object(wake, 'dispatch') as dispatch):
+            wake.ci_done('Automation unit tests')
+        dispatch.assert_not_called()
+        return comment
 
-        self.assertEqual(1, run(checks('success', 'success', 'pending'), checks('success', 'success', 'success')))
-        self.assertEqual(0, run(checks('success', 'success', 'error')))
-        self.assertEqual(0, run(checks('success', 'success', 'success'), head='newer'))
-        self.assertEqual(0, run({'statuses': [{'context': 'x(Wake task controller)', 'state': 'success'}]}, {}, {}))
+    def test_ci_done_wakes_once_every_other_pipeline_is_settled(self):
+        comment = self.run_ci(self.ci('success', 'error', 'cancel', 'success', 'success'))
+        comment.assert_called_once()
+        self.assertEqual('7', comment.call_args.args[0])
+        self.assertIn('ci-' + 'h' * 40, comment.call_args.args[1])
+        self.run_ci(self.ci('success', 'success', 'success', 'success', 'pending')).assert_not_called()
+        self.run_ci(self.ci('success', 'success', 'success', 'success', 'success'), comments=[
+            {'body': f'<!-- flclash-requirement-wake ci-{"h" * 40} -->'}]).assert_not_called()
+
+    def test_ci_done_ignores_moved_prs_and_other_branches(self):
+        self.run_ci(self.ci('success', 'success', 'success', 'success', 'success'), head='other').assert_not_called()
+        self.run_ci(self.ci('success', 'success', 'success', 'success', 'success'), state='closed').assert_not_called()
+        for branch in ('security/group-x', 'sync/x', 'automation/req-x', 'refs/heads/main'):
+            with (patch.dict(os.environ, {'CNB_PULL_REQUEST_BRANCH': branch}),
+                  patch.object(wake, 'api') as api, patch.object(wake, 'post_comment') as comment):
+                wake.ci_done('Automation unit tests')
+                api.assert_not_called()
+                comment.assert_not_called()
+
+    def test_ci_done_never_fails_the_pipeline(self):
+        from control import HttpStatusError
+        for error in (HttpStatusError('boom', 500), RuntimeError('boom')):
+            with (patch.dict(os.environ, {'CNB_PULL_REQUEST_BRANCH': 'automation/req-7',
+                                          'CNB_PULL_REQUEST_IID': '5', 'CNB_PULL_REQUEST_SHA': 'h'}),
+                  patch.object(wake, 'api', side_effect=error), patch.object(wake, 'post_comment') as comment):
+                wake.ci_done('Automation unit tests')
+                comment.assert_not_called()
+
+    def test_the_quarter_hour_schedule_dispatches_only_while_work_is_open(self):
+        owner = {'number': '7', 'title': '[需求] 导出', 'body': '', 'author': {'username': 'Aharon', 'is_npc': False}}
+        review = {'number': '8', 'title': '[PR审核] CNB #1', 'body': '<!-- flclash-pr-review {} -->',
+                  'author': {'username': 'Aharon', 'is_npc': False}}
+
+        def run(issues, pulls):
+            def api(url, method='GET', data=None, missing=False):
+                return review
+            with (patch.dict(os.environ, {'CNB_EVENT': 'crontab: */15 * * * *'}),
+                  patch.object(wake, 'pages', side_effect=lambda url: pulls if '/pulls?' in url else issues),
+                  patch.object(wake, 'api', side_effect=api), patch.object(wake, 'dispatch') as dispatch,
+                  _capture() as printed):
+                wake.wake()
+            return dispatch.call_count, printed.getvalue()
+
+        self.assertEqual((0, 'idle\n'), run([], []))
+        self.assertEqual(1, run([owner], [])[0])
+        self.assertEqual(1, run([], [{'number': '1', 'head': {'ref': 'refs/heads/automation/req-3'}}])[0])
+        self.assertEqual(0, run([], [{'number': '1', 'head': {'ref': 'refs/heads/sync/x'}}])[0])
+        self.assertEqual(1, run([review], [])[0])
 
     def test_close_only_signed_reviews_of_finished_prs(self):
         with patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'}):

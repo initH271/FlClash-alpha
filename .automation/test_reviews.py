@@ -1,5 +1,8 @@
+import contextlib
+import io
 import json
 import os
+import time
 import unittest
 from unittest.mock import patch
 
@@ -142,6 +145,119 @@ class ReviewGateTests(unittest.TestCase):
                 reviews.require_candidate('b' * 40, 'a' * 40)
                 with self.assertRaises(ValueError):
                     reviews.require_candidate('c' * 40, 'a' * 40)
+
+
+class _capture:
+    """Capture what a command prints while a test runs it."""
+
+    def __enter__(self):
+        self.buffer = io.StringIO()
+        self.redirect = contextlib.redirect_stdout(self.buffer)
+        self.redirect.__enter__()
+        return self.buffer
+
+    def __exit__(self, *exc):
+        return self.redirect.__exit__(*exc)
+
+
+FIVE = ('Dependency vulnerability gate', 'Automation unit tests', 'Go dependency regression tests',
+        'Flutter and Android requirement tests', 'Rust dependency regression tests')
+
+
+def statuses(states, minutes=10, names=FIVE + ('Paired review gate',)):
+    return {'statuses': [{'context': f'cnb/pipeline-{i}({name})', 'state': state,
+                          'created_at': stamp(minutes)} for i, (name, state) in enumerate(zip(names, states))]}
+
+
+def stamp(minutes):
+    return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() - minutes * 60))
+
+
+class ReconcileTests(unittest.TestCase):
+    def pull(self, ref='refs/heads/automation/req-9'):
+        return {'state': 'open', 'number': '12', 'title': '需求实现', 'base': {'sha': 'a' * 40},
+                'head': {'sha': 'b' * 40, 'ref': ref}}
+
+    def reconcile(self, checks, ref='refs/heads/automation/req-9', review=None, issue=None):
+        pull = self.pull(ref)
+        with patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'}):
+            signed = json.dumps(reviews.sign(reviews.scope('cnb', pull)))
+        issue = issue or {'number': '77', 'state': 'open', 'created_at': stamp(120),
+                          'body': '<!-- flclash-pr-review ' + signed + ' -->'}
+
+        def api(url, method='GET', data=None, missing=False):
+            if url.endswith('/commit-statuses'):
+                return checks
+            if url.endswith('/status') or '/statuses/' in url:
+                return {'statuses': []}
+            if '/issues/' in url and url.endswith('/comments'):
+                return []
+            if url.endswith('/issues/77'):
+                return issue
+            return pull
+
+        def pages(url, page_key='page', size_key='page_size'):
+            return [pull] if url.startswith('https://api.cnb.cool/') and '/pulls?' in url else []
+        with (patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'}),
+              patch.object(reviews, 'api', side_effect=api), patch.object(reviews, 'pages', side_effect=pages),
+              patch.object(reviews, 'ensure_request', return_value=issue) as ensure,
+              patch.object(reviews, 'existing_review', return_value=review),
+              patch.object(reviews, 'close_finished_reviews'), patch.object(reviews, 'requirement_brief',
+                                                                            return_value=''), _capture() as printed):
+            reviews.reconcile()
+        return ensure, printed.getvalue()
+
+    def test_a_pending_pipeline_holds_the_review_inside_the_grace(self):
+        ensure, printed = self.reconcile(statuses(('success', 'pending', 'success', 'success', 'success', 'success')))
+        ensure.assert_not_called()
+        self.assertIn('waiting for CI', printed)
+        ensure, printed = self.reconcile({'statuses': [{'context': 'cnb/pipeline-0(Paired review gate)',
+                                                       'state': 'success', 'created_at': stamp(10)}]})
+        ensure.assert_not_called()
+        self.assertIn('waiting for CI', printed)
+
+    def test_a_failed_pipeline_defers_the_review(self):
+        ensure, printed = self.reconcile(statuses(('success', 'failure', 'success', 'success', 'success', 'success')))
+        ensure.assert_not_called()
+        self.assertIn('CI failed, review deferred', printed)
+
+    def test_every_pipeline_green_opens_the_review(self):
+        ensure, printed = self.reconcile(statuses(('success',) * 6))
+        ensure.assert_called_once()
+        self.assertEqual('', ensure.call_args.args[2])
+        self.assertNotIn('unsettled', printed)
+
+    def test_an_unsettled_pipeline_past_the_grace_opens_with_a_caveat(self):
+        ensure, printed = self.reconcile(statuses(('success', 'pending', 'success', 'success', 'success', 'success'),
+                                                  minutes=81))
+        ensure.assert_called_once()
+        brief = ensure.call_args.args[2]
+        self.assertIn('Automation unit tests', brief)
+        self.assertIn('未验证', brief)
+        self.assertIn('CI unsettled after 80m, review opened', printed)
+
+    def test_security_pulls_wait_but_other_branches_keep_their_timing(self):
+        ensure, _ = self.reconcile(statuses(('pending',) * 6), ref='refs/heads/security/group-rust-api')
+        ensure.assert_not_called()
+        ensure, _ = self.reconcile(statuses(('pending',) * 6), ref='refs/heads/sync/x')
+        ensure.assert_called_once()
+
+    def test_an_existing_review_keeps_the_reconsideration_path(self):
+        ensure, _ = self.reconcile(statuses(('pending',) * 6), review={'number': '77'})
+        ensure.assert_called_once()
+
+    def test_ci_state_only_looks_at_the_pull_request_pipelines(self):
+        self.assertEqual('pending', reviews.ci_state({'statuses': [
+            {'context': 'cnb/pipeline-1(Dependency vulnerability gate)', 'state': 'success'}]}))
+        self.assertEqual('pending', reviews.ci_state(statuses(('success', 'success', 'success', 'success',
+                                                              'success', 'pending'))))
+        self.assertEqual('failure', reviews.ci_state(statuses(('success', 'success', 'success', 'success',
+                                                              'success', 'error'))))
+        self.assertEqual('success', reviews.ci_state(statuses(('success', 'success', 'success', 'success',
+                                                              'success', 'success'))))
+        own = statuses(('success',) * 6)['statuses']
+        self.assertEqual('success', reviews.ci_state({'statuses': own + [
+            {'context': 'cnb/pipeline-9(FlClash/review-before-ci)', 'state': 'failure'}]}))
 
 
 if __name__ == '__main__':
