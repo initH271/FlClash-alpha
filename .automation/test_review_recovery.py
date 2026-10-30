@@ -322,3 +322,38 @@ class ResendLimitTests(ReviewRecoveryCase):
               patch.object(reviews, 'api', return_value={'status': 'cancel'}) as api):
             reviews.reconsider(self.request, self.issue, notes)
         self.assertEqual(1, sum(call.args[1:2] == ('POST',) for call in api.call_args_list))
+
+
+class RateLimitTests(ReviewRecoveryCase):
+    def limited(self, end):
+        return dict(stage_log('x', end=end, finish='error'), error=(
+            '[LLM request error model=glm-5.3-flash path=/x/chat/completions] 429 status code (no body)'))
+
+    def test_a_429_waits_longer_each_time_and_has_the_same_limit(self):
+        self.issue['statuses'] = {'npc': [attempt(GLM, 'cnb-a')]}
+        self.builds['cnb-a'] = build('error', GLM)
+        self.stages['cnb-a/p/stage-1'] = self.limited(stamp(1))
+        notes = [self.answer(SCOUT)]
+        self.assertEqual([], self.run_pass(notes, 15.9), 'first backoff is 15 minutes')
+        first = self.run_pass(notes, 16.1)
+        self.assertEqual(1, len(first))
+        self.assertNotIn('门禁不采信', first[0])
+        self.assertIn('本次最多 40 次', first[0])
+        notes.append(owner_note(17, first[0], [attempt(GLM, 'cnb-b')]))
+        self.builds['cnb-b'] = build('error', GLM)
+        self.stages['cnb-b/p/stage-1'] = self.limited(stamp(18))
+        self.assertEqual([], self.run_pass(notes, 47.9), 'second backoff is 30 minutes')
+        second = self.run_pass(notes, 48.1)
+        self.assertEqual(1, len(second))
+        notes.append(owner_note(49, second[0], [attempt(GLM, 'cnb-c')]))
+        self.builds['cnb-c'] = build('error', GLM)
+        self.stages['cnb-c/p/stage-1'] = self.limited(stamp(50))
+        stopped = self.run_pass(notes, 54)
+        self.assertEqual(1, len(stopped), 'past the limit it stops at once, without another wait')
+        self.assertIn('自动补召已用完', stopped[0])
+        self.assertEqual('pending', reviews.result(self.request, self.issue, notes))
+
+    def test_only_a_429_from_the_model_backs_off(self):
+        self.assertTrue(recovery.rate_limited(self.limited(stamp(1))))
+        for error in ('Agent aborted: reached maxTurns limit (60)', '', None, 'HTTP 429 while cloning'):
+            self.assertFalse(recovery.rate_limited({'error': error}))

@@ -15,6 +15,8 @@ RESEND_LIMIT = 2
 REVIEW_SECONDS, FOLLOWUP_SECONDS = 40 * 60, 20 * 60
 # A run's report goes up before the run ends, so a short wait is enough to see it.
 SETTLE_SECONDS = 3 * 60
+# Doubles with each resend: two rate-limited runs 90 seconds apart were not spaced out enough to recover (#296).
+RATE_LIMIT_SECONDS = 15 * 60
 FINISHED = ('success', 'error', 'failure', 'cancel', 'cancelled')
 EXCERPT_CHARS = 12000
 ANSI = re.compile(r'\x1b\[[0-9;]*m')
@@ -120,6 +122,10 @@ def _final_stage(sn, build, context):
     return api(f'{CNB}/build/logs/stage/{sn}/{pipeline["id"]}/{ran[-1]["id"]}', missing=True) or {}
 
 
+def rate_limited(stage):
+    return re.search(r'LLM request error.*\b429\b', str(stage.get('error') or '')) is not None
+
+
 def final_report(stage, request):
     """Return the closing message of a run that ended normally, if it holds this request's conclusion; else ''.
 
@@ -219,6 +225,8 @@ def recover_review(issue, request, comments, now, room):
                 comment(issue['number'], recovery_marker(key, 'stopped')
                         + f'\n\n{role} 连续 {retries + 1} 次召唤都没有交付报告，自动补召已用完，未作通过判定。'
                         '等待维护者处理，规程见 `.agents/rules.md` 的 Reviewer non-delivery。')
+            continue
+        if rate_limited(stage) and quiet is not None and quiet < RATE_LIMIT_SECONDS * 2 ** retries:
             continue
         if sent >= room:
             continue
