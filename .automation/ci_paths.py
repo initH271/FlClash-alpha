@@ -2,7 +2,8 @@
 
 `trigger` decides whether a stage of the Flutter pipeline runs; `reuse` lets a controller
 sync-main merge keep the CI verdict of the requirement head it merged. Both print why and
-exit with SKIP to skip; any other status, a crash included, runs the stage.
+exit with SKIP to skip; any other status, a crash included, runs the stage. `base` prints
+where an owner/** push build measures its changes from (see push_base).
 """
 import os
 import re
@@ -12,6 +13,8 @@ import sys
 CNB_YML = '.cnb.yml'
 FLUTTER = 'Flutter and Android requirement tests'
 SKIP = 3
+# git's empty tree: diffing from it lists every tracked path, so nothing can be skipped.
+EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 CONTROLLER = 'FlClash-Actor: controller'
 
 # Paths that start each Flutter pipeline stage; a trailing '/' names a directory.
@@ -64,6 +67,10 @@ def flutter_block(source):
     """Return the Flutter pipeline's lines of .cnb.yml, or None when it cannot be located."""
     lines = source.split('\n')
     start = next((i for i, line in enumerate(lines) if line.strip() == f'- name: {FLUTTER}'), None)
+    if start is None:
+        # An anchored entry puts `- &name` on its own line and the name on the next one.
+        start = next((i - 1 for i, line in enumerate(lines) if i and line.strip() == f'name: {FLUTTER}'
+                      and re.fullmatch(r'\s*- &[\w-]+', lines[i - 1])), None)
     if start is None:
         return None
     indent = len(lines[start]) - len(lines[start].lstrip())
@@ -129,10 +136,27 @@ def hooked(head, git):
     return shown.returncode == 0 and 'ci_paths.py reuse' in shown.stdout
 
 
+def push_base(git=run_git):
+    """Return the merge-base of HEAD with main for a push build, or EMPTY_TREE when it is unknown.
+
+    A push carries no pull request target. Its changes are measured against main, not against the
+    previous push, so a branch pushed in several steps still runs every stage its whole diff feeds.
+    """
+    try:
+        git('fetch', '--no-tags', 'origin', '+refs/heads/main:refs/remotes/origin/main')
+        return git('merge-base', 'refs/remotes/origin/main', 'HEAD') or EMPTY_TREE
+    except Exception:  # Without a base every path counts as changed.
+        return EMPTY_TREE
+
+
 def main(argv):
     try:
+        if argv[1:2] == ['base']:
+            print(push_base())
+            return 0
         if argv[1:2] == ['trigger']:
-            stage, base = argv[2], argv[3]
+            # A push build has no CNB_PULL_REQUEST_TARGET_SHA, so the stage passes an empty base.
+            stage, base = argv[2], argv[3] or push_base()
             changed = run_git('diff', '--name-only', base, 'HEAD').splitlines()
             old = run_git('show', f'{base}:{CNB_YML}', check=False)
             with open(CNB_YML, encoding='utf-8') as handle:
@@ -155,7 +179,7 @@ def main(argv):
     except Exception as error:  # A failed check must run the stage, never skip it.
         print(f'Path check failed ({type(error).__name__}); running the stage')
         return 0
-    print('usage: ci_paths.py trigger <flutter|android|govet> <base> | ci_paths.py reuse')
+    print('usage: ci_paths.py trigger <flutter|android|govet> <base> | ci_paths.py reuse | ci_paths.py base')
     return 0
 
 

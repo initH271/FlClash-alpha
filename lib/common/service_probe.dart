@@ -22,13 +22,23 @@ enum ServiceTarget {
   spotify('spotify', 'Spotify', 'spotify'),
   tiktok('tiktok', 'TikTok', 'tiktok'),
   discord('discord', 'Discord', 'discord'),
-  bilibili('bilibili', 'Bilibili', 'bilibili');
+  bilibili('bilibili', 'Bilibili', 'bilibili'),
+  telegram('telegram', 'Telegram', '', mark: 'TG'),
+  x('x', 'X', '', mark: 'X'),
+  instagram('instagram', 'Instagram', '', mark: 'IG'),
+  okx('okx', 'OKX', '', mark: 'OKX'),
+  binance('binance', 'Binance', '', mark: 'BN'),
+  bybit('bybit', 'Bybit', '', mark: 'BY'),
+  steam('steam', 'Steam', '', mark: 'ST');
 
-  const ServiceTarget(this.id, this.label, this.icon);
+  const ServiceTarget(this.id, this.label, this.icon, {this.mark});
 
   final String id;
   final String label;
   final String icon;
+
+  /// Letters a badge shows in place of an [icon] the app does not bundle.
+  final String? mark;
 
   static ServiceTarget? byId(String id) {
     for (final target in values) {

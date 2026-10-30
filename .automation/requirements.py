@@ -8,7 +8,7 @@ import env_failure
 import pause
 import control
 from control import CNB, GH, POLICY
-from reviews import ci_state, find_request, reconcile as review_reconcile, scope, state
+from reviews import ci_state, find_request, reconcile as review_reconcile, scope, shard_parts, state
 from security_finish import ensure_branch_scan, merge_ready, push_github
 
 HEADINGS = ('要改什么', '验收标准', '不做什么', '影响范围', '允许改自动化配置', '相关文件或界面')
@@ -26,6 +26,12 @@ REVIEW_GATE = 'Paired review gate'
 DEPENDENCY_GATE = 'Go dependency regression tests'
 RESCAN_STAGE = re.compile(r'^Rescan actual versions')
 BUILD_SN = re.compile(r'cnb-[a-z0-9-]+')
+BREAKER = '【熔断】'
+DIGEST_LIMIT = 1500
+DIGEST_FAILED = '日志摘要获取失败'
+DIGEST_HITS = re.compile(r'FAILED|Error|Traceback|aborted')
+SECRET = re.compile(r'(?i)((?:token|secret|password|passwd|authorization|api[_-]?key)["\']?\s*[:=]?\s*)'
+                    r'(?:bearer\s+)?\S+|\b(?:gh[pousr]_|glpat-)[A-Za-z0-9_-]{16,}')
 
 
 def owner(issue):
@@ -156,6 +162,12 @@ def instruction(parsed, rung, phase, tree, log, note, previous, sha=''):
     head = f'`{sha or tree}`' if sha or tree else '不存在（首次派发）'
     lines = [
         f'本轮只用 {rung} 轮。约第 {reserve} 轮起停止扩大调查。',
+        '你看不到自己用了多少轮，预算按能数的次数算：单测本轮最多跑 25 次，调试脚本最多写 5 个；测试逐条加，每加一条跑一次。',
+        f'熔断：同一个测试或同一条检查命令连续失败 3 次，就停止修改，先提交并推送当前进度（允许未完成，不新开 PR），'
+        f'再在需求 Issue #{number} 发阶段评论：第一行写 `{BREAKER}`，写明失败用例名、报错关键行和你的假设，然后结束本轮，由控制器转入诊断。'
+        '单测跑满 25 次或调试脚本写满 5 个时同样处理。',
+        '检查点：每让一组验收条目转绿，就 commit 并 push 一次，不要攒到最后。',
+        '一份需求只做一件事：正文里有「顺带修正」之类的附加项时，先完成主体并提交，附加项放到最后；预算不够就在阶段评论的未完成项里列出，不要硬做。',
         '本条末尾的「不做什么」优先于你的角色设定和一般习惯。',
         f'派发时远端分支头：{head}。开工前 git fetch；分支上已有提交时，先逐条核对验收标准，全部满足就不改代码，直接开 PR。已核实的事实不要重头搜索。',
         '把已改文件提交到指定分支，允许提交尚未完成的进度。每个提交信息末尾单独一段写 `FlClash-Actor: npc/开发助手`。',
@@ -179,7 +191,7 @@ def instruction(parsed, rung, phase, tree, log, note, previous, sha=''):
     if previous:
         lines.append('上一轮阶段评论：\n' + previous[:1500])
     if log:
-        lines.append(f'上一轮没有留下可用进度。先读构建日志：{log}')
+        lines.append(f'上一轮没有留下可用进度。构建日志网页 {log} 在开发环境里打不开，先看本条末尾的日志摘要。')
     if note:
         lines.append(note)
     if phase == 'diagnose':
@@ -189,6 +201,8 @@ def instruction(parsed, rung, phase, tree, log, note, previous, sha=''):
             '不改代码，不推分支，不合并，不发版，不召唤其他 NPC。最多 60 轮。',
             f'验收标准：{parsed["acceptance"]}',
         ]
+        if previous:
+            lines.append('上一档阶段评论：\n' + previous[:1500])
     return '\n'.join(lines)
 
 
@@ -198,7 +212,16 @@ def dispatch_action(parsed, phase, rung, tree, log, note, previous, role, sha=''
             'instruction': instruction(parsed, rung, phase, tree, log, note, previous, sha)}
 
 
-def decide(issue, comments, rows, tree, contained, checks_green, review_failed, review_text, now,
+def decide(issue, comments, rows, *args, **kwargs):
+    action = ladder(issue, comments, rows, *args, **kwargs)
+    if action.get('kind') == 'dispatch' and action['phase'] in ('retry', 'targeted'):
+        # act() turns this into a plain-text digest: the HTML log page is unreadable in the dev workspace.
+        action['sn'] = next((row['sn'] for row in reversed(rows) if row['role'] == '开发助手'
+                             and row.get('signed', True) and BUILD_SN.fullmatch(row['sn'] or '')), '')
+    return action
+
+
+def ladder(issue, comments, rows, tree, contained, checks_green, review_failed, review_text, now,
            has_pull=False, sha='', behind=False, review_only=False, hold='', env_failure=None):
     parsed = parse(issue.get('body', ''))
     parsed['number'] = str(issue['number'])
@@ -217,8 +240,10 @@ def decide(issue, comments, rows, tree, contained, checks_green, review_failed, 
         return {'kind': 'hold', 'ref': hold, 'sn': next(
             (row['sn'] for row in rows if row['state'] not in TERMINAL and row['role'] in ROLES), '')}
     scoped = [item for item in known if item.get('scope') == parsed['scope'] and item.get('phase') != 'invalid']
+    breaker = breaker_report(comments, scoped)
     # Quota and stuck stop spending developer rounds; they never hold back work that already passed.
-    if checks_green:
+    # A breaker is the developer admitting the work is unfinished, so green checks must not merge it.
+    if checks_green and not breaker:
         return {'kind': 'sync-main'} if behind else {'kind': 'forward'}
     stuck = any(item.get('phase') == 'stuck' for item in scoped)
     if stuck and review_only and behind:
@@ -274,6 +299,12 @@ def decide(issue, comments, rows, tree, contained, checks_green, review_failed, 
     current = later[-1] if later else None
     if current and current['state'] not in TERMINAL:
         return {'kind': 'wait'}
+    if current and breaker:
+        # The developer stopped on its own breaker; another developer round would repeat the same failure.
+        if sum(item.get('phase') == 'diagnose' for item in scoped) < 3:
+            return dispatch_action(parsed, 'diagnose', 60, tree, '', '', breaker, '审查助手', sha)
+        return {'kind': 'stop', 'phase': 'stuck', 'rung': last['rung'], 'tree': tree or '',
+                'body': '开发助手再次熔断，诊断已用满 3 次。停止派发，也不转发未完成的进度，交给 owner 处理。'}
     if current and current['state'] == 'success' and tree and not review_failed:
         if not has_pull:
             return {'kind': 'open-pr', 'tree': tree}
@@ -294,6 +325,18 @@ def decide(issue, comments, rows, tree, contained, checks_green, review_failed, 
             log = f'https://cnb.cool/{POLICY["cnb"]}/-/build/logs/{current["sn"]}'
         return dispatch_action(parsed, 'retry', last['rung'], tree, log, '', '', '开发助手', sha)
     return dispatch_action(parsed, 'diagnose', 60, tree, '', '', reported(comments, last['at'], '开发助手'), '审查助手', sha)
+
+
+def breaker_report(comments, scoped):
+    """Return the breaker stage comment since the last developer dispatch, or ''."""
+    rounds = [item for item in scoped if item.get('phase') in ('dev', 'retry', 'targeted')]
+    name = f'{POLICY["cnb"]}(开发助手)'
+    for item in comments:
+        author = item.get('author') or {}
+        if (rounds and item.get('created_at', '') >= rounds[-1]['at'] and author.get('is_npc') is True
+                and author.get('username') == name and BREAKER in (item.get('body') or '')):
+            return item['body']
+    return ''
 
 
 def _stamp(value):
@@ -367,6 +410,30 @@ def build_log(sn):
     return ''
 
 
+def log_digest(sn):
+    """Return the tail and failure lines of a build's stage logs as redacted text, or DIGEST_FAILED."""
+    lines = []
+    try:
+        if BUILD_SN.fullmatch(sn or ''):
+            status = control.api(f'{CNB}/build/status/{sn}', missing=True) or {}
+            for pipeline in (status.get('pipelines') or {}).values():
+                for stage in pipeline.get('stages') or []:
+                    body = control.api(f'{CNB}/build/logs/stage/{sn}/{pipeline["id"]}/{stage["id"]}',
+                                       missing=True) or {}
+                    content = (body.get('data') or {}).get('content') or []
+                    lines += content.splitlines() if isinstance(content, str) else [str(row) for row in content]
+    except (RuntimeError, OSError, ValueError, TypeError, KeyError, AttributeError):
+        return DIGEST_FAILED
+    lines = [SECRET.sub(lambda match: (match[1] or '') + '***', row) for row in lines if row.strip()]
+    if not lines:
+        return DIGEST_FAILED
+    tail = lines[-40:]
+    hits = '\n'.join(dict.fromkeys(row for row in lines[:-40] if DIGEST_HITS.search(row)))[-DIGEST_LIMIT // 2:]
+    room = DIGEST_LIMIT - len(hits) - 3
+    text = '\n'.join(tail)[-room:]
+    return f'{hits}\n…\n{text}' if hits else text
+
+
 def unreachable(pull, statuses):
     """Return {'kind', 'sha', 'sn'} when the only red check is an unreachable advisory source.
 
@@ -427,9 +494,30 @@ def env_retry(number, action):
     env_notice(number, ENV_RETRY, action['sn'], action.get('count', 1), head)
 
 
-def review_block(pull):
+REWORK = re.compile(r'REWORK:[ \t]*(.*)', re.S)
+
+
+def owner_rework(number, comments):
+    """Return the blocker list of the owner's newest `REWORK:` comment that no dispatch has answered yet.
+
+    Every later signed dispatch consumes it, so one ask moves the ladder once and never replays on a new head.
+    """
+    asks = [item for item in comments if owner(item) and REWORK.fullmatch(item.get('body', '').strip())]
+    if not asks:
+        return ''
+    ask = max(asks, key=lambda item: item.get('created_at', ''))
+    if any(item['at'] > ask.get('created_at', '') for item in known_marks(number, comments)):
+        return ''
+    blockers = REWORK.fullmatch(ask['body'].strip())[1].strip()
+    return ('owner 在需求 Issue 要求返工，逐条处理下列阻断后推同一分支：\n' + blockers)[:1500] if blockers else ''
+
+
+def review_block(pull, number='', comments=()):
     if not pull:
         return False, ''
+    rework = owner_rework(number, comments)
+    if rework:
+        return True, rework
     request = scope('cnb', pull)
     if state(request) != 'failure':
         return False, ''
@@ -437,6 +525,7 @@ def review_block(pull):
     if not issue:
         return True, '结对审核未通过。按阻断项修改后推同一分支。'
     comments = list(control.pages(f'{CNB}/issues/{issue["number"]}/comments'))
+    comments += [row for _, _, rows in shard_parts(request, issue) or () for row in rows]
     text = ''
     for item in comments:
         if 'FLCLASH_REVIEW' in item.get('body', '') and '"verdict":"block"' in item.get('body', '').replace(' ', ''):
@@ -481,8 +570,11 @@ def act(issue, action, sha):
         control.comment(number, envelope(payload) + '\n\n' + action['body'])
         return
     role = action['role']
+    text = action['instruction']
+    if action['phase'] in ('retry', 'targeted'):
+        text += '\n上一次开发构建的日志摘要：\n' + log_digest(action.get('sn', ''))
     body = (envelope(payload) + '\n\n'
-            f'@{POLICY["cnb"]}({role}) 分支 `{branch_name(number)}`。\n' + action['instruction'])
+            f'@{POLICY["cnb"]}({role}) 分支 `{branch_name(number)}`。\n' + text)
     control.comment(number, body, action['work_mode'])
 
 
@@ -712,7 +804,7 @@ def reconcile():
         if unvouched:
             green, failed = False, True
         scan_failed = unreachable(pull, pull_statuses(pull['number'])) if failed and not green and pull else None
-        blocked, text = review_block(pull) if failed or (pull and not green) else (False, '')
+        blocked, text = review_block(pull, number, issue_comments) if failed or (pull and not green) else (False, '')
         if failed and not text:
             text = REUSE_UNVOUCHED if unvouched else 'CI 未通过。先读失败日志，再推同一分支。'
             blocked = False
