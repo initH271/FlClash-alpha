@@ -100,8 +100,8 @@ void main() {
         .checkUpdateResultHandle(data: release(_bodyWith(_payload)));
     await tester.pumpAndSettle();
 
-    // Entry copy comes from the release payload and is English only; the group
-    // headings still follow the app locale.
+    // Entry copy comes from the release payload as written; the group headings
+    // still follow the app locale.
     expect(find.textContaining('新功能'), findsOneWidget);
     expect(find.textContaining('Override scripts'), findsOneWidget);
 

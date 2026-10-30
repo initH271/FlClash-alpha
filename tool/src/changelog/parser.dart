@@ -56,8 +56,8 @@ final _genericTrailerPattern = RegExp(
   caseSensitive: false,
 );
 
-/// The only suffixed trailer. The changelog ships English, and anything else
-/// belongs in a post-processing step, not in the commit message.
+/// The only suffixed trailer. One `Changelog:` line written to
+/// CHANGELOG_STYLE.md is the copy; translations do not live in commits.
 const _knownSuffixedTrailer = 'Changelog-Type';
 
 /// The parser is pure: it never touches git or the filesystem, so every rule
@@ -203,8 +203,8 @@ class ChangelogParser {
     }
     warnings.add(
       '${commit.shortHash} uses an unsupported changelog trailer: $key. '
-      'The changelog is English only; $_knownSuffixedTrailer is the only '
-      'suffixed trailer left.',
+      'Translations do not belong in commits; $_knownSuffixedTrailer is the '
+      'only suffixed trailer left.',
     );
   }
 }

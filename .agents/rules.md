@@ -659,18 +659,20 @@ feat(profiles): support per-profile override script
 Changelog: Per-profile override scripts
 ```
 
-- `Changelog:` is the English entry. `Changelog: skip` drops the commit from the changelog entirely.
-- The changelog is English only. A `Changelog-<locale>:` or `Breaking-<locale>:` trailer fails the hook, because
-  translated release copy does not belong in the commit history. Translate after the fact if ever needed, not in the
-  commit message.
+- `Changelog:` is the entry users read, written in Chinese to [CHANGELOG_STYLE.md](../CHANGELOG_STYLE.md).
+  `Changelog: skip` drops the commit from the changelog entirely.
+- A `Changelog-<locale>:` or `Breaking-<locale>:` trailer fails the hook, because translated release copy does not
+  belong in the commit history. Translate after the fact if ever needed, not in the commit message.
 - `Changelog-Type:` moves an entry into another group, for example to promote a `refactor` that users will notice. Valid
   values are `breaking`, `feat`, `fix`, `perf`, `revert`.
 - `BREAKING CHANGE:` is required whenever the subject carries `!`, and its text becomes the breaking entry. A `!` commit
   therefore needs two lines of copy: the footer for the breaking entry and `Changelog:` for the normal one.
 
-`feat`, `fix`, `perf`, `revert` and breaking commits are collected by default; every other type is dropped unless it
-carries a `Changelog:` trailer. Commits missing a trailer reuse their subject; for `feat`, `fix` and `perf` the hook
-says so without blocking.
+`feat`, `fix`, `perf`, `revert` and breaking commits are collected by default; every other type, and every scope in
+`internalChangelogScopes` (`tool/src/changelog/parser.dart`), is dropped unless it carries a `Changelog:` trailer. A
+collected commit missing a trailer reuses its subject: the generator warns and leaves a
+`<!-- changelog:needs-copy <id> -->` line in the release notes, and for `feat`, `fix` and `perf` the hook says so
+without blocking.
 
 ## Migrations
 
