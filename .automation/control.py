@@ -146,6 +146,34 @@ def paired_review(base, head, primary='审查助手'):
             f'@{POLICY["cnb"]}(GLM复核助手) 请独立复核同一范围，重点寻找遗漏和反例。')
 
 
+def in_progress(number, tag):
+    # Any doubt counts as in progress: an unreadable candidate or branch error keeps the issue open.
+    if any(approved(c, tag) for c in pages(f'{CNB}/issues/{number}/comments')):
+        return True
+    if api(f'{GH}/git/ref/heads/automation/upstream-{tag}', missing=True):
+        return True
+    path = ROOT / '.automation/candidate.json'
+    return path.exists() and verify(json.loads(path.read_text())).get('issue') == str(number)
+
+
+def supersede_older(tag, new_number):
+    try:
+        for old in pages(f'{CNB}/issues?state=open'):
+            match = re.fullmatch(r'\[上游升级\] FlClash (v?\d+\.\d+\.\d+)', old['title'])
+            if not match or not version(match[1]) < version(tag):
+                continue
+            try:
+                if in_progress(old['number'], match[1]):
+                    continue
+                comment(old['number'], f'已被 {tag} 取代（#{new_number}）。')
+                api(f'{CNB}/issues/{old["number"]}', 'PATCH', {'state': 'closed', 'state_reason': 'not_planned'})
+                print(f'Closed superseded CNB Issue #{old["number"]}')
+            except Exception as error:
+                print(f'Supersede check failed for #{old["number"]}: {error}')
+    except Exception as error:
+        print(f'Supersede scan failed: {error}')
+
+
 def watch():
     release = api(f'https://api.github.com/repos/{POLICY["upstream"]}/releases/latest')
     tag = release['tag_name']
@@ -172,6 +200,7 @@ def watch():
     issue = api(f'{CNB}/issues', 'POST', {'title': title, 'body': body,
                 'assignees': [POLICY['approver']], 'work_mode': False})
     print(f'Created CNB Issue #{issue["number"]}')
+    supersede_older(tag, issue['number'])
 
 
 def dispatch(source, reuse_run='', fallback='false'):
