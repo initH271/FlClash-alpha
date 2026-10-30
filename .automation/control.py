@@ -21,6 +21,9 @@ GH = 'https://api.github.com/repos/' + POLICY['github']
 CNB = 'https://api.cnb.cool/' + POLICY['cnb'] + '/-'
 # A review opened before CI settled counts as green only while the pipelines it could not see run.
 CI_GRACE = 'FlClash/review-before-ci'
+# A fetch of pinned commits during reconcile: seconds when healthy, and one hung remote must not hold the whole round.
+FETCH_TIMEOUT = 120
+GIT_TIMED_OUT = 124
 
 
 class HttpStatusError(RuntimeError):
@@ -76,9 +79,12 @@ def gating_statuses(checks):
     return [item for item in (checks or {}).get('statuses') or [] if check_name(item) != CI_GRACE]
 
 
-def git(*args, check=True, env=None):
-    result = subprocess.run(['git', *args], cwd=ROOT, env=env, text=True,
-                            capture_output=True, check=False)
+def git(*args, check=True, env=None, timeout=None):
+    try:
+        result = subprocess.run(['git', *args], cwd=ROOT, env=env, text=True,
+                                capture_output=True, check=False, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        result = subprocess.CompletedProcess(['git', *args], GIT_TIMED_OUT, '', f'timed out after {timeout}s')
     if check and result.returncode:
         raise RuntimeError(f'git {args[0]} failed: {result.stderr[-1500:]}')
     return result.stdout.strip() if check else result
@@ -178,6 +184,19 @@ def dispatch(source, reuse_run='', fallback='false'):
     api(f'{GH}/actions/workflows/build.yaml/dispatches', 'POST', {
         'ref': 'main', 'inputs': {'source_ref': source, 'reuse_run': str(reuse_run),
                                  'cnb_fallback': fallback}})
+
+
+def security_hold():
+    """True when this run's security finish step failed, so builds that lead to a release wait.
+
+    Only failure and cancelled hold. The step runs whenever these callers run, so skipped
+    never pairs with them in the workflow; a missing value means a local run outside it.
+    """
+    outcome = os.environ.get('FLCLASH_SECURITY_OUTCOME', '')
+    if outcome in ('failure', 'cancelled'):
+        print(f'Security finish {outcome}; build dispatch held until a later pass succeeds')
+        return True
+    return False
 
 
 def source_tree():
@@ -326,6 +345,8 @@ def resume_candidate(sha, branch, number):
         validate_source()
     except ValueError as error:
         print(f'Candidate waiting: {error}')
+        return
+    if security_hold():
         return
     dispatch(sha)
 

@@ -36,6 +36,24 @@ class ReviewEvidenceTests(unittest.TestCase):
         self.assertEqual('b' * 40, result['files'][0]['head_blob'])
         self.assertEqual('d' * 40, result['merged_tree'])
 
+    def test_only_commits_this_checkout_lacks_are_fetched_with_a_timeout(self):
+        request = {'platform': 'cnb', 'base': 'a' * 40, 'head': 'b' * 40}
+        fetched = []
+
+        def git(*args, **kwargs):
+            if args[0] == 'fetch':
+                fetched.append((args, kwargs))
+                return ''
+            if args[0] == 'cat-file':
+                return types.SimpleNamespace(returncode=1 if 'b' * 40 in args[-1] else 0)
+            return types.SimpleNamespace(returncode=0, stdout='d' * 40 + '\n') if kwargs else 'c' * 40
+        with patch.object(evidence, 'git', side_effect=git):
+            evidence.evidence(request)
+        self.assertEqual(1, len(fetched))
+        self.assertEqual('b' * 40, fetched[0][0][-1])
+        self.assertNotIn('a' * 40, fetched[0][0])
+        self.assertEqual(evidence.FETCH_TIMEOUT, fetched[0][1]['timeout'])
+
     def test_unpinned_reference_is_rejected_before_fetch(self):
         with patch.object(evidence, 'git') as git, self.assertRaises(ValueError):
             evidence.evidence({'platform': 'cnb', 'base': 'main', 'head': 'b' * 40})
@@ -44,7 +62,8 @@ class ReviewEvidenceTests(unittest.TestCase):
     def test_content_conflict_is_distinct_from_fatal_git_failure(self):
         request = {'platform': 'cnb', 'base': 'a' * 40, 'head': 'b' * 40}
         for code in (1, 128):
-            with patch.object(evidence, 'git', side_effect=['', 'c' * 40, '',
+            here = types.SimpleNamespace(returncode=0)
+            with patch.object(evidence, 'git', side_effect=[here, here, 'c' * 40, '',
                     types.SimpleNamespace(returncode=code, stdout='d' * 40 + '\n')]):
                 if code == 1:
                     result = evidence.evidence(request)

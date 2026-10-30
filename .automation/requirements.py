@@ -665,6 +665,48 @@ def foreign_commits(since, sha, limit=10):
     return [row[:3] for row in commit_rows(since, sha, limit, skip_actor=True)]
 
 
+WORKFLOWS = '.github/workflows/'
+WORKFLOW_STOP = ('本需求改到 `.github/workflows/`，控制器的 GitHub 凭据推不了 workflow 文件，已停止派发和转发。'
+                 '这类改动走 owner 通道（见 `.agents/rules.md`「Automation Changes」）：由 owner 本人推分支、开 PR 并合并。')
+PROTECTED_STOP = ('本需求改到受保护的自动化路径，但表单没有勾选「允许改自动化配置」，控制器拒绝转发到 GitHub。'
+                  'owner 勾选授权，或把这些改动从分支上撤掉后再推。')
+
+
+def changed_files(sha):
+    """Files the requirement commit changes since its merge-base with GitHub main."""
+    main = control.api(f'{GH}/git/ref/heads/main')['object']['sha']
+    control.git('fetch', '--no-tags', f'https://github.com/{POLICY["github"]}.git', main, check=False)
+    return [line for line in control.git('diff', '--name-only', f'{main}...{sha}').splitlines() if line]
+
+
+def path_stop(issue, number, sha, workflows_only=False):
+    """Stop a requirement whose diff the controller may not forward; True when it is stopped.
+
+    Workflow files are refused outright: the controller's GitHub token cannot push them. Other protected paths
+    need the form's authorization checkbox. The signed stop is posted once per head.
+    """
+    if not re.fullmatch(r'[a-f0-9]{40}', sha or ''):
+        return False
+    files = changed_files(sha)
+    guard, listed, body = 'workflows', [path for path in files if path.startswith(WORKFLOWS)], WORKFLOW_STOP
+    if not listed and not workflows_only and not parse(issue.get('body', ''))['allowed']:
+        guard, body = 'protected', PROTECTED_STOP
+        listed = [path for path in files if any(
+            path == item or (item.endswith('/') and path.startswith(item)) for item in POLICY['protected_paths'])]
+    if not listed:
+        return False
+    number = str(number)
+    marks = markers(list(control.pages(f'{CNB}/issues/{number}/comments')))
+    if any(item.get('issue') == number and item.get('phase') == 'stuck' and item.get('head') == sha
+           and item.get('guard') == guard for item in marks):
+        return True
+    payload = {'issue': number, 'scope': parse(issue.get('body', ''))['scope'], 'phase': 'stuck', 'rung': 0,
+               'tree': control.git('rev-parse', sha + '^{tree}'), 'head': sha, 'guard': guard}
+    control.comment(number, envelope(payload) + '\n\n' + body + '\n\n'
+                    + '\n'.join(f'- `{escaped(path)}`' for path in listed[:30]))
+    return True
+
+
 def forward(issue, number, sha):
     branch = branch_name(number)
     owner_name = POLICY['github'].split('/')[0]
@@ -682,6 +724,8 @@ def forward(issue, number, sha):
     existing = control.api(f'{GH}/git/ref/heads/{branch}', missing=True)
     if existing and existing['object']['sha'] != sha:
         print(f'{branch} points at a different commit; not overwriting it')
+        return
+    if path_stop(issue, number, sha):
         return
     if not existing:
         push_github(sha, branch)
@@ -708,7 +752,7 @@ def advance(issue, number, sha, pull):
         print(f'{branch_name(number)} on GitHub is not an ancestor of {sha}; not overwriting it')
         return
     source = pull_for(number, list(control.pages(f'{CNB}/pulls?state=open')))
-    if not source:
+    if not source or path_stop(issue, number, sha):
         return
     push_github(sha, branch_name(number))
     base = control.api(f'{GH}/git/ref/heads/main')['object']['sha']
@@ -829,6 +873,8 @@ def reconcile():
             if foreign:
                 action['instruction'] += '\n' + FOREIGN_NOTE + '；'.join(
                     f'{item[0][:8]} {item[1]} {item[2]}' for item in foreign) + '。先读这些提交，不要回退或覆盖。'
+        if action['kind'] == 'dispatch' and path_stop(issue, number, sha, workflows_only=True):
+            continue
         act(issue, action, sha)
 
 
