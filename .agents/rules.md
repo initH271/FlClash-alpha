@@ -574,6 +574,12 @@ branch the controller names; the controller merges the PR. The development NPC t
 it ignores every `@` in PR comments, the owner's included, so dispatch or rework by commenting on the requirement
 issue and letting the controller dispatch.
 
+`.github/workflows/` is the exception: the controller's GitHub token cannot push workflow files, so a change there
+always goes through the owner channel, where the owner pushes the branch, opens the pull request and merges it on GitHub.
+A requirement whose diff touches `.github/workflows/` gets one signed `stuck` stop and is neither dispatched nor
+forwarded. For the other protected paths the controller checks the diff against `protected_paths` in
+`.automation/policy.json` before forwarding and refuses it when 允许改自动化配置 is unchecked.
+
 Do not push a `fix/` branch for one of these changes and merge it by hand. Only
 `automation/req-*`, `automation/security-sync-*` and `automation/cnb-main-*` are auto-merged by the controller
 (`merge_ready` in `.automation/security_finish.py`), so a hand-pushed branch stays outside that gate entirely. Plain
