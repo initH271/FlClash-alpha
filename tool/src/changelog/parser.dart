@@ -9,6 +9,29 @@ class ChangelogItem {
 
 const _skipMarker = 'skip';
 
+/// Scopes users never feel; a `Changelog:` trailer still brings a commit back.
+/// `l10n` is here because its commits mostly fill in keys.
+const internalChangelogScopes = <String>{
+  'agents',
+  'automation',
+  'build',
+  'ci',
+  'cnb',
+  'deps',
+  'docs',
+  'hooks',
+  'l10n',
+  'lint',
+  'readme',
+  'release',
+  'security',
+  'site',
+  'test',
+  'tool',
+  'toolchain',
+  'upstream',
+};
+
 const _defaultTypes = <String, ChangelogType>{
   'feat': ChangelogType.feat,
   'fix': ChangelogType.fix,
@@ -33,8 +56,8 @@ final _genericTrailerPattern = RegExp(
   caseSensitive: false,
 );
 
-/// The only suffixed trailer. The changelog ships English, and anything else
-/// belongs in a post-processing step, not in the commit message.
+/// The only suffixed trailer. One `Changelog:` line written to
+/// CHANGELOG_STYLE.md is the copy; translations do not live in commits.
 const _knownSuffixedTrailer = 'Changelog-Type';
 
 /// The parser is pure: it never touches git or the filesystem, so every rule
@@ -65,8 +88,14 @@ class ChangelogParser {
       return const <ChangelogItem>[];
     }
 
-    final items = <ChangelogItem>[];
     final breakingText = trailers['BREAKING CHANGE'];
+    final hasCopy = changelog != null && changelog.isNotEmpty;
+    final internal = _isInternalScope(scope);
+    if (internal && !hasCopy && breakingText == null) {
+      return const <ChangelogItem>[];
+    }
+
+    final items = <ChangelogItem>[];
     if (bang || breakingText != null) {
       if (breakingText == null) {
         warnings.add(
@@ -87,7 +116,14 @@ class ChangelogParser {
     }
 
     final group = _resolveType(type, trailers, commit);
-    if (group != null) {
+    if (group != null && (hasCopy || !internal)) {
+      if (!hasCopy) {
+        warnings.add(
+          '${commit.shortHash} is user facing but has no "Changelog:" '
+          'trailer; the notes show its subject until one is written: '
+          '${commit.subject}',
+        );
+      }
       items.add(
         ChangelogItem(
           type: group,
@@ -95,6 +131,7 @@ class ChangelogParser {
             id: commit.shortHash,
             scope: _normalizeScope(scope),
             text: _text(changelog, description),
+            needsCopy: !hasCopy,
           ),
         ),
       );
@@ -166,8 +203,8 @@ class ChangelogParser {
     }
     warnings.add(
       '${commit.shortHash} uses an unsupported changelog trailer: $key. '
-      'The changelog is English only; $_knownSuffixedTrailer is the only '
-      'suffixed trailer left.',
+      'Translations do not belong in commits; $_knownSuffixedTrailer is the '
+      'only suffixed trailer left.',
     );
   }
 }
@@ -184,6 +221,15 @@ List<ChangelogGroup> groupItems(List<ChangelogItem> items) {
     }
   }
   return groups;
+}
+
+bool _isInternalScope(String? scope) {
+  final parts = (scope ?? '')
+      .split(',')
+      .map((part) => part.trim().toLowerCase())
+      .where((part) => part.isNotEmpty)
+      .toList();
+  return parts.isNotEmpty && parts.every(internalChangelogScopes.contains);
 }
 
 String? _normalizeScope(String? scope) {

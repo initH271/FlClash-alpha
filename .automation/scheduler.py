@@ -2,7 +2,7 @@ import datetime
 import json
 import re
 
-from control import GH, CNB, POLICY, api, dispatch, all_issues
+from control import GH, CNB, POLICY, api, dispatch, all_issues, security_hold
 from fallback import remaining_hours
 
 
@@ -86,6 +86,8 @@ def schedule():
                 continue
         if any(r['status'] != 'completed' and sha in r['display_title'] for r in runs):
             continue
+        if security_hold():
+            return
         api(f'{GH}/git/refs', 'POST', {'ref': 'refs/heads/' + lock, 'sha': sha})
         try:
             dispatch(sha, run['id'] if kind == 'reuse' else '', 'true' if kind == 'fallback' else 'false')

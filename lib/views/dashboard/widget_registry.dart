@@ -1,6 +1,7 @@
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/ui/icons/icons.dart';
+import 'package:fl_clash/views/dashboard/fork/fork_tiles.dart';
 import 'package:fl_clash/views/dashboard/widgets/widgets.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -17,6 +18,7 @@ extension DashboardWidgetView on DashboardWidget {
     DashboardWidget.connectionStats => const ConnectionStatsCard(),
     DashboardWidget.intranetIp => const IntranetIpCard(),
     DashboardWidget.memoryInfo => const MemoryInfo(),
+    _ => forkTileOf(this).card(),
   };
 
   Glyph get glyph => switch (this) {
@@ -31,6 +33,7 @@ extension DashboardWidgetView on DashboardWidget {
     DashboardWidget.connectionStats => AppGlyphs.connections,
     DashboardWidget.intranetIp => AppGlyphs.devices,
     DashboardWidget.memoryInfo => AppGlyphs.memory,
+    _ => forkTileOf(this).glyph,
   };
 
   String label(BuildContext context) {
@@ -47,6 +50,7 @@ extension DashboardWidgetView on DashboardWidget {
       DashboardWidget.connectionStats => appLocalizations.connectionStats,
       DashboardWidget.intranetIp => appLocalizations.intranetIP,
       DashboardWidget.memoryInfo => appLocalizations.memoryInfo,
+      _ => forkTileOf(this).label(appLocalizations),
     };
   }
 

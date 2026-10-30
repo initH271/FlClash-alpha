@@ -1,7 +1,9 @@
 import contextlib
+import hashlib
 import io
 import json
 import os
+import re
 import subprocess
 import time
 import unittest
@@ -165,8 +167,8 @@ FIVE = ('Dependency vulnerability gate', 'Automation unit tests', 'Go dependency
         'Flutter and Android requirement tests', 'Rust dependency regression tests')
 
 
-def statuses(states, minutes=10, names=FIVE, gate='pending'):
-    """CI rows as CNB lists them; the gate waits for the review, so before one opens it is pending."""
+def statuses(states, minutes=10, names=FIVE, gate=None):
+    """CI rows as CNB lists them; `gate` adds the row a head pushed before 2-1c may still carry."""
     rows = [{'context': f'cnb/pipeline-{i}({name})', 'state': state,
              'created_at': stamp(minutes)} for i, (name, state) in enumerate(zip(names, states))]
     if gate:
@@ -183,8 +185,10 @@ class ReconcileTests(unittest.TestCase):
         return {'state': 'open', 'number': '12', 'title': '需求实现', 'base': {'sha': 'a' * 40},
                 'head': {'sha': 'b' * 40, 'ref': ref}}
 
-    def reconcile(self, checks, ref='refs/heads/automation/req-9', notices=(), issue=None, requirement='open'):
+    def reconcile(self, checks, ref='refs/heads/automation/req-9', notices=(), issue=None, listed=None,
+                  requirement='open'):
         pull = self.pull(ref)
+        listed = pull if listed is None else listed
         with patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'}):
             signed = json.dumps(reviews.sign(reviews.scope('cnb', pull)))
         issue = issue or {'number': '77', 'state': 'open', 'created_at': stamp(120),
@@ -206,7 +210,7 @@ class ReconcileTests(unittest.TestCase):
 
         def pages(url, page_key='page', size_key='page_size'):
             if url.startswith('https://api.cnb.cool/') and '/pulls?' in url:
-                return iter([pull])
+                return iter([listed])
             if url.endswith('/pulls/12/comments'):
                 return iter([{'id': str(100 + i), 'body': body} for i, body in enumerate(notices)])
             return iter([])
@@ -222,6 +226,7 @@ class ReconcileTests(unittest.TestCase):
         ensure, printed = self.reconcile(statuses(('success', 'pending', 'success', 'success', 'success')))
         ensure.assert_not_called()
         self.assertIn('waiting for CI', printed)
+        # A leftover gate row alone is not CI evidence.
         ensure, printed = self.reconcile({'statuses': [{'context': 'cnb/pipeline-0(Paired review gate)',
                                                        'state': 'pending', 'created_at': stamp(10)}]})
         ensure.assert_not_called()
@@ -237,6 +242,37 @@ class ReconcileTests(unittest.TestCase):
             ensure, printed = self.reconcile(statuses(('success',) * 5), requirement=requirement)
             ensure.assert_called_once()
             self.assertNotIn('requirement closed', printed)
+
+    def test_a_pr_without_any_ci_status_waits_inside_the_grace(self):
+        # 2-1a: an empty status list used to fall straight through to the review.
+        ensure, printed = self.reconcile({'statuses': []}, listed=dict(self.pull(), created_at=stamp(5)))
+        ensure.assert_not_called()
+        self.assertIn('waiting for CI', printed)
+
+    def test_a_pr_without_a_creation_time_says_so_instead_of_waiting_silently(self):
+        ensure, printed = self.reconcile({'statuses': []})
+        ensure.assert_not_called()
+        self.assertIn('waiting for CI (no PR created_at)', printed)
+
+    def test_the_list_creation_time_survives_the_detail_overwrite(self):
+        # CNB's `/pulls/{n}` carries no time field at all; only the list entry does.
+        detail = {key: value for key, value in self.pull().items() if key != 'created_at'}
+        ensure, printed = self.reconcile({'statuses': []}, listed=dict(detail, created_at=stamp(81)))
+        ensure.assert_called_once()
+        self.assertIn('CI unsettled after 80m, review opened', printed)
+
+    def test_an_empty_status_list_past_the_grace_opens_without_ci_evidence(self):
+        ensure, _ = self.reconcile({'statuses': []}, listed=dict(self.pull(), created_at=stamp(81)))
+        brief = ensure.call_args.args[2]
+        self.assertIn('没有 CI 证据', brief)
+        for name in FIVE:
+            self.assertNotIn(name, brief)
+
+    def test_one_young_status_outweighs_an_old_pr(self):
+        ensure, printed = self.reconcile(statuses(('pending',) * 5, minutes=10),
+                                         listed=dict(self.pull(), created_at=stamp(120)))
+        ensure.assert_not_called()
+        self.assertIn('waiting for CI', printed)
 
     def test_a_failed_pipeline_defers_the_review(self):
         ensure, printed = self.reconcile(statuses(('success', 'failure', 'success', 'success', 'success')))
@@ -258,7 +294,7 @@ class ReconcileTests(unittest.TestCase):
         self.assertRegex(brief, r'^CI 未结束就开审的流水线：\S[^。]*。')
         (unsettled,) = FIVE[1:2]
         self.assertIn(unsettled, brief)
-        for name in FIVE[2:] + ('Paired review gate',):
+        for name in FIVE[2:]:
             self.assertNotIn(name, brief)
         self.assertIn('未验证', brief)
         self.assertIn('CI unsettled after 80m, review opened', printed)
@@ -288,6 +324,36 @@ class ReconcileTests(unittest.TestCase):
         ensure.assert_not_called()
         self.assertIn('waiting for CI', printed)
 
+    def test_github_heads_still_get_the_required_paired_review_status(self):
+        # 2-1c removed only the CNB polling job; GitHub branch protection still requires this context.
+        pull = {'state': 'open', 'number': '3', 'title': 'x', 'base': {'sha': 'a' * 40},
+                'head': {'sha': 'c' * 40, 'ref': 'feature'}}
+        posts = []
+
+        def api(url, method='GET', data=None, missing=False, timeout=60):
+            if method == 'POST':
+                posts.append((url, data))
+                return data
+            if url.endswith('/pulls/3'):
+                return pull
+            if url.endswith('/status'):
+                return {'statuses': []}
+            raise AssertionError(f'unexpected request {method} {url}')
+
+        def pages(url, page_key='page', size_key='page_size'):
+            return iter([pull] if url.startswith(reviews.GH) and '/pulls?' in url else [])
+        with (patch.object(reviews, 'api', side_effect=api), patch.object(reviews, 'pages', side_effect=pages),
+              patch('security_finish.mirror_attestation', return_value=None),
+              patch('security_finish.mirror_record', return_value=None),
+              patch.object(reviews, 'ensure_request', return_value={'number': '8', 'state': 'closed'}),
+              patch.object(reviews, 'withhold'), patch.object(reviews, 'result', return_value='success'),
+              patch.object(reviews, 'remember'), patch.object(reviews, 'close_finished_reviews'),
+              patch.object(reviews, 'requirement_brief', return_value=''), _capture()):
+            reviews.reconcile()
+        ((url, data),) = posts
+        self.assertEqual(f'{reviews.GH}/statuses/' + 'c' * 40, url)
+        self.assertEqual(('FlClash/paired-review', 'success'), (data['context'], data['state']))
+
     def test_ci_state_only_looks_at_the_pull_request_pipelines(self):
         self.assertEqual('pending', reviews.ci_state({'statuses': [
             {'context': 'cnb/pipeline-1(Dependency vulnerability gate)', 'state': 'success'}]}))
@@ -314,7 +380,8 @@ class NoticeTests(unittest.TestCase):
     def api(self, url, method='GET', data=None, missing=False, timeout=60):
         path = url.removeprefix(reviews.CNB + '/')
         if method == 'POST' and path == 'issues':
-            number = str(80 + len(self.issues))
+            self.serial = getattr(self, 'serial', 79) + 1  # never reuses the number of a deleted issue
+            number = str(self.serial)
             self.issues[number] = dict(data, number=number, state='open', created_at=stamp(1),
                                        author={'username': 'Aharon', 'is_npc': False})
             return self.issues[number]
@@ -379,6 +446,106 @@ class NoticeTests(unittest.TestCase):
             self.assertIsNone(reviews.existing_review(self.pull))
 
 
+DIFF = ('diff --git a/core/a.go b/core/a.go\nindex 1111111..2222222 100644\n--- a/core/a.go\n+++ b/core/a.go\n'
+        '@@ -10,2 +12,3 @@ func run()\n-old\n-old2\n+++ looks like a header\n+b\n+c\n@@ -40,0 +45 @@\n+d\n'
+        'diff --git a/gone.txt b/gone.txt\ndeleted file mode 100644\n--- a/gone.txt\n+++ /dev/null\n'
+        '@@ -1,2 +0,0 @@\n-x\n-y\n')
+
+
+class PromptTests(unittest.TestCase):
+    """What a summoned reviewer is told, built by the real prompt code over the HTTP and git layers only."""
+
+    api, pages = NoticeTests.api, NoticeTests.pages
+
+    def setUp(self):
+        env = patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'})
+        env.start()
+        self.addCleanup(env.stop)
+        self.pull = {'number': '12', 'base': {'sha': 'a' * 40}, 'head': {'sha': 'b' * 40, 'ref': 'automation/req-9'}}
+        self.request = reviews.scope('cnb', self.pull)
+        self.issues, self.comments = {}, {}
+
+    @staticmethod
+    def git(*args, check=True, env=None):
+        """Answer like control.git: stripped stdout with check=True, the finished process with check=False."""
+        stdout = {'merge-base': 'c' * 40, 'merge-tree': 'd' * 40, 'rev-parse': 'e' * 40}.get(args[0], '')
+        if args[0] == 'diff':
+            stdout = DIFF if '-U0' in args else 'core/a.go\0gone.txt\0'
+        if check:
+            return stdout.strip()
+        return subprocess.CompletedProcess(['git', *args], 0, stdout=stdout, stderr='')
+
+    def network(self):
+        stack = contextlib.ExitStack()
+        for target, fake in (('reviews.api', self.api), ('reviews.pages', self.pages), ('control.pages', self.pages),
+                             ('review_evidence.git', self.git), ('reviews.git', self.git)):
+            stack.enter_context(patch(target, side_effect=fake))
+        return stack
+
+    def earlier_round(self):
+        """An older head of the same pull whose GLM report blocked, announced on the pull like a real one."""
+        old = dict(self.request, head='9' * 40)
+        self.issues['41'] = {'number': '41', 'state': 'closed', 'author': {'username': 'Aharon', 'is_npc': False},
+                             'body': '<!-- flclash-pr-review ' + json.dumps(reviews.sign(old)) + ' -->'}
+        verdict = lambda v, n: 'FLCLASH_REVIEW ' + json.dumps({'request': reviews.identity(old), 'verdict': v,
+                                                               'blockers': n})
+        self.comments['issues/41/comments'] = [
+            {'id': '1', 'author': {'username': f'{reviews.POLICY["cnb"]}(GLM复核助手)', 'is_npc': True},
+             'body': '阻断 1：core/a.go:12-14 少了空值检查，＠审查助手 请看\n@someone\n' + verdict('block', 1)},
+            {'id': '2', 'author': {'username': f'{reviews.POLICY["cnb"]}(审查助手)', 'is_npc': True},
+             'body': '审查助手认为可以合并\n' + verdict('pass', 0)}]
+        self.comments['pulls/12/comments'] = [{'id': '3', 'body': '<!-- flclash-review-notice 41 -->'}]
+
+    def test_the_review_summon_reserves_posting_reports_progress_and_scopes_the_diff(self):
+        self.earlier_round()
+        with self.network():
+            issue = reviews.ensure_request(self.request, '需求实现')
+        body = issue['body']
+        for text in ('1 次留给发布最终报告', '取证和进度评论合计最多 39 次', '每审完一个文件或一组验收条目',
+                     reviews.PROGRESS, '用到第 38 次时停止取证', '「未完成」状态评论', '审到哪里、还差什么',
+                     'git show <head>:<路径>', '路径:起止行号', '上游原样', '不计入 blockers',
+                     '- `core/a.go`：12-14、45（+4/−2）', '- `gone.txt`：整个文件删除（+0/−2）',
+                     '前几轮的阻断清单', 'core/a.go:12-14 少了空值检查', '逐条对照验收标准原文',
+                     '测试替身和被替换函数的签名、返回类型一致', '单测不联网', '不要 mock 掉被测对象本身'):
+            self.assertIn(text, body)
+        self.assertNotIn('审查助手认为可以合并', body)
+        self.assertNotIn('@someone', body)
+        self.assertEqual(1, body.count('FLCLASH_REVIEW {'))
+
+    def test_the_bounded_recheck_uses_the_reconsider_budget_instead_of_eight_calls(self):
+        issue = {'number': '42', 'state': 'open', 'created_at': '2026-09-20T00:00:00Z'}
+        report = lambda role, verdict, n: {
+            'id': '1', 'created_at': '2026-09-20T00:01:00Z',
+            'author': {'username': f'{reviews.POLICY["cnb"]}({role})', 'is_npc': True},
+            'body': 'FLCLASH_REVIEW ' + json.dumps({'request': reviews.identity(self.request), 'verdict': verdict,
+                                                   'blockers': n})}
+        with self.network():
+            reviews.reconsider(self.request, issue, [report('审查助手', 'block', 1), report('GLM复核助手', 'pass', 0)])
+        (posted,) = self.comments['issues/42/comments']
+        for text in ('取证和进度评论合计最多 11 次', '1 次留给发布最终报告', 'git show <head>:<路径>',
+                     '- `core/a.go`：12-14、45（+4/−2）'):
+            self.assertIn(text, posted['body'])
+        self.assertNotIn('最多8次', posted['body'])
+
+    def test_a_progress_note_is_neither_a_verdict_nor_a_malformed_report(self):
+        issue = {'state': 'open', 'created_at': '2026-09-20T00:00:00Z'}
+        author = {'username': f'{reviews.POLICY["cnb"]}(GLM复核助手)', 'is_npc': True}
+        note = {'id': '1', 'created_at': '2026-09-20T00:01:00Z', 'author': author,
+                'body': reviews.PROGRESS + '\n已审 core/a.go，未完成：gone.txt'}
+        self.assertEqual({}, reviews.role_reports(self.request, issue, [note]))
+        self.assertEqual('pending', reviews.result(self.request, issue, [note]))
+        self.assertEqual({'GLM复核助手': 'malformed'},
+                         reviews.role_reports(self.request, issue, [dict(note, body='已审 core/a.go')]))
+
+    def test_the_recovery_summon_carries_the_same_budget_and_evidence_rules(self):
+        import npc_recovery
+        issue = {'title': '[PR审核] CNB #12：x', 'author': {'username': reviews.POLICY['approver'], 'is_npc': False},
+                 'body': '<!-- flclash-pr-review ' + json.dumps(reviews.sign(self.request)) + ' -->'}
+        instruction = npc_recovery.task(issue)[3]
+        for text in ('1 次留给发布最终报告', '取证和进度评论合计最多 11 次', 'git show <head>:<路径>', '上游原样'):
+            self.assertIn(text, instruction)
+
+
 class WithholdTests(unittest.TestCase):
     def run_withhold(self, ci, grace=(), ref='refs/heads/automation/req-9'):
         rows = statuses(ci)['statuses'] + [
@@ -408,6 +575,305 @@ class WithholdTests(unittest.TestCase):
         self.assertEqual(['success'], self.run_withhold(five, grace=('failure',)))
         self.assertEqual([], self.run_withhold(five, grace=('failure', 'success')))
         self.assertEqual([], self.run_withhold(five[:4] + ('pending',), ref='refs/heads/security/group-x'))
+
+
+def added(sizes):
+    """A -U0 diff where each path gains the given number of lines."""
+    return ''.join(f'diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -0,0 +1,{n} @@\n' + '+x\n' * n
+                   for path, n in sizes.items())
+
+
+BIG = dict({f'lib/a/f{i}.dart': 10 for i in range(1, 8)}, **{'lib/b/x.dart': 5, 'core/big.go': 400})
+# sha256 of the review body e1313d9e writes for the PromptTests diff; an unsharded PR must keep it.
+SMALL_BODY = 'e0d607cb03f4c1dcd824fbc8676ac14c99e61b865cf3efc2b7ea3535d9313489'
+
+
+class ShardTests(unittest.TestCase):
+    """GLM shards for an oversized diff, through the real review code over the HTTP and git layers only."""
+
+    pages = NoticeTests.pages
+
+    def setUp(self):
+        env = patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'})
+        env.start()
+        self.addCleanup(env.stop)
+        self.pull = {'number': '12', 'state': 'open', 'base': {'sha': 'a' * 40},
+                     'head': {'sha': 'b' * 40, 'ref': 'automation/req-9'}}
+        self.request = reviews.scope('cnb', self.pull)
+        self.issues, self.comments, self.closed, self.diff = {}, {}, [], added(BIG)
+
+    def api(self, url, method='GET', data=None, missing=False, timeout=60):
+        if url.endswith('/pulls/12'):
+            return self.pull
+        if method == 'PATCH':
+            number = url.rsplit('/', 1)[-1]
+            if data.get('state') == 'closed':
+                self.closed.append(number)
+            self.issues[number].update(data)
+            return {}
+        return NoticeTests.api(self, url, method, data, missing, timeout)
+
+    def git(self, *args, check=True, env=None):
+        """Answer like control.git: stripped stdout with check=True, the finished process with check=False."""
+        stdout = {'merge-base': 'c' * 40, 'merge-tree': 'd' * 40, 'rev-parse': 'e' * 40}.get(args[0], '')
+        if args[0] == 'diff':
+            names = re.findall(r'^diff --git a/\S+ b/(\S+)', self.diff, re.M)
+            stdout = self.diff if '-U0' in args else '\0'.join(names)
+        if check:
+            return stdout.strip()
+        return subprocess.CompletedProcess(['git', *args], 0, stdout=stdout, stderr='')
+
+    def network(self):
+        stack = contextlib.ExitStack()
+        for target, fake in (('reviews.api', self.api), ('reviews.pages', self.pages), ('control.pages', self.pages),
+                             ('review_evidence.git', self.git), ('reviews.git', self.git)):
+            stack.enter_context(patch(target, side_effect=fake))
+        return stack
+
+    def opened(self):
+        with self.network():
+            main = reviews.ensure_request(self.request, '需求实现')
+        parts = [(reviews.request_from(issue), issue) for issue in self.issues.values() if issue is not main]
+        return main, sorted(parts, key=lambda part: part[0]['shard']['index'])
+
+    def say(self, issue, role, part, verdict='pass', text=''):
+        rows = self.comments.setdefault(f'issues/{issue["number"]}/comments', [])
+        rows.append({'id': str(len(rows)), 'created_at': '9999-01-01T00:00:00Z',
+                     'author': {'username': f'{reviews.POLICY["cnb"]}({role})', 'is_npc': True},
+                     'body': text + '\nFLCLASH_REVIEW ' + json.dumps({
+                         'request': reviews.identity(part), 'verdict': verdict, 'blockers': int(verdict != 'pass')})})
+
+    def test_an_oversized_diff_is_grouped_by_directory_within_both_limits(self):
+        with self.network():
+            groups = reviews.shards(self.request)
+        self.assertEqual([['core/big.go'], [f'lib/a/f{i}.dart' for i in range(1, 7)],
+                          ['lib/a/f7.dart', 'lib/b/x.dart']], [group['paths'] for group in groups])
+        self.assertEqual([(1, 3), (2, 3), (3, 3)], [(group['index'], group['total']) for group in groups])
+
+    def test_a_small_diff_keeps_the_single_review_byte_for_byte(self):
+        self.diff = DIFF
+        with self.network():
+            issue = reviews.ensure_request(self.request, '需求实现')
+        self.assertEqual(1, len(self.issues))
+        self.assertIn('<!-- flclash-pr-review ' + json.dumps(reviews.sign(self.request)) + ' -->', issue['body'])
+        self.assertEqual(SMALL_BODY, hashlib.sha256(issue['body'].encode()).hexdigest())
+
+    def test_each_shard_summons_only_glm_over_its_own_files_under_a_signed_shard(self):
+        main, parts = self.opened()
+        self.assertEqual(3, len(parts))
+        summon = lambda role: f'@{reviews.POLICY["cnb"]}({role})'
+        self.assertIn(summon('审查助手'), main['body'])
+        self.assertNotIn(summon('GLM复核助手'), main['body'])
+        self.assertIn('<!-- flclash-review-shards ' + ','.join(issue['number'] for _, issue in parts) + ' -->',
+                      main['body'])
+        for part, issue in parts:
+            self.assertEqual(self.request, reviews.unsharded(part))
+            self.assertIn(summon('GLM复核助手'), issue['body'])
+            self.assertNotIn(summon('审查助手'), issue['body'])
+            self.assertIn(reviews.identity(part), issue['body'])
+            listed = re.findall(r'^- `([^`]+)`', issue['body'], re.M)
+            self.assertEqual(part['shard']['paths'], listed)
+            forged = issue['body'].replace(json.dumps(part['shard']['paths'])[1:-1], '"lib/b/x.dart"')
+            self.assertNotEqual(forged, issue['body'])
+            self.assertIsNone(reviews.request_from(dict(issue, body=forged)))
+        with self.network():
+            self.assertEqual(main, reviews.ensure_request(self.request, '需求实现'))
+        self.assertEqual(4, len(self.issues))
+
+    def test_glm_passes_only_when_every_shard_passes(self):
+        main, parts = self.opened()
+        self.say(main, '审查助手', self.request)
+        for part, issue in parts[:2]:
+            self.say(issue, 'GLM复核助手', part)
+        with self.network():
+            self.assertEqual('pending', reviews.state(self.request))
+            self.say(parts[2][1], 'GLM复核助手', parts[2][0])
+            self.assertEqual('success', reviews.state(self.request))
+            self.say(parts[1][1], 'GLM复核助手', parts[1][0], 'block')
+            self.assertEqual('failure', reviews.state(self.request))
+
+    def test_review_block_quotes_the_blocking_shard(self):
+        import requirements
+        main, parts = self.opened()
+        self.say(main, '审查助手', self.request)
+        self.say(parts[0][1], 'GLM复核助手', parts[0][0], 'block', 'core/big.go:3-5 漏了错误处理')
+        with self.network():
+            blocked, text = requirements.review_block(self.pull)
+        self.assertTrue(blocked)
+        self.assertIn('core/big.go:3-5 漏了错误处理', text)
+
+    def listed(self, main):
+        return reviews.SHARDS.search(main['body'])[1].split(',')
+
+    def heal(self):
+        with self.network():
+            return reviews.ensure_request(self.request, '需求实现')
+
+    def test_every_shard_missing_stays_pending_then_is_reopened_and_glm_cannot_pass_on_the_main_issue(self):
+        main, parts = self.opened()
+        self.say(main, '审查助手', self.request)
+        self.say(main, 'GLM复核助手', self.request)
+        for _, issue in parts:
+            del self.issues[issue['number']]
+        with self.network():
+            self.assertEqual('pending', reviews.state(self.request))
+        healed = self.heal()
+        numbers = self.listed(healed)
+        self.assertEqual(3, len(numbers))
+        self.assertFalse(set(numbers) & {issue['number'] for _, issue in parts})
+        self.assertEqual(numbers, self.listed(self.issues[main['number']]))
+        for number in numbers:
+            self.assertIn(f'https://cnb.cool/{reviews.POLICY["cnb"]}/-/issues/{number}', healed['body'])
+        with self.network():
+            self.assertEqual('pending', reviews.state(self.request))
+            for number in numbers:
+                self.say(self.issues[number], 'GLM复核助手', reviews.request_from(self.issues[number]))
+            self.assertEqual('success', reviews.state(self.request))
+
+    def test_one_missing_or_closed_shard_behaves_the_same_and_only_it_is_replaced(self):
+        for gone in ('deleted', 'closed'):
+            with self.subTest(gone):
+                self.issues, self.comments = {}, {}
+                main, parts = self.opened()
+                self.say(main, '审查助手', self.request)
+                for part, issue in parts:
+                    self.say(issue, 'GLM复核助手', part)
+                old = parts[1][1]['number']
+                if gone == 'deleted':
+                    del self.issues[old]
+                else:
+                    self.issues[old]['state'] = 'closed'
+                with self.network():
+                    self.assertEqual('pending', reviews.state(self.request))
+                numbers = self.listed(self.heal())
+                self.assertEqual(parts[0][1]['number'], numbers[0])
+                self.assertEqual(parts[2][1]['number'], numbers[2])
+                self.assertNotEqual(old, numbers[1])
+                fresh = self.issues[numbers[1]]
+                self.assertEqual(parts[1][0], reviews.request_from(fresh))
+                self.assertEqual('open', fresh['state'])
+                self.assertIn('GLM复核助手', fresh['body'])
+                if gone == 'closed':
+                    self.assertEqual('closed', self.issues[old]['state'])
+                with self.network():
+                    self.assertEqual('pending', reviews.state(self.request))
+                    self.say(fresh, 'GLM复核助手', parts[1][0])
+                    self.assertEqual('success', reviews.state(self.request))
+                self.assertEqual(numbers, self.listed(self.heal()))
+
+    def test_healing_keeps_a_block_on_an_open_shard(self):
+        main, parts = self.opened()
+        self.say(main, '审查助手', self.request)
+        self.say(parts[0][1], 'GLM复核助手', parts[0][0], 'block')
+        del self.issues[parts[1][1]['number']]
+        self.heal()
+        with self.network():
+            self.assertEqual('failure', reviews.state(self.request))
+
+    def test_closing_a_shard_cannot_shed_its_block_until_the_head_changes(self):
+        def block(issue, part):
+            self.say(issue, 'GLM复核助手', part, 'block')
+
+        def malformed(issue, part):
+            self.say(issue, 'GLM复核助手', part)
+            self.comments[f'issues/{issue["number"]}/comments'][-1]['body'] = '报告没有机器结论行'
+
+        for report in (block, malformed):
+            with self.subTest(report.__name__):
+                self.issues, self.comments = {}, {}
+                self.pull['head'] = {'sha': 'b' * 40, 'ref': 'automation/req-9'}
+                self.request = reviews.scope('cnb', self.pull)
+                main, parts = self.opened()
+                self.say(main, '审查助手', self.request)
+                report(parts[0][1], parts[0][0])
+                parts[0][1]['state'] = 'closed'
+                del self.issues[parts[1][1]['number']]
+                count, body = len(self.issues), main['body']
+                self.heal()
+                self.assertEqual((count, body), (len(self.issues), main['body']))
+                with self.network():
+                    self.assertEqual('failure', reviews.state(self.request))
+                self.pull['head'] = {'sha': 'f' * 40, 'ref': 'automation/req-9'}
+                self.request = reviews.scope('cnb', self.pull)
+                healed = self.heal()
+                self.assertNotEqual(main['number'], healed['number'])
+                self.assertEqual(3, len(self.listed(healed)))
+                with self.network():
+                    self.assertEqual('pending', reviews.state(self.request))
+
+    def test_a_closed_shard_without_a_real_verdict_is_replaced(self):
+        def nothing(issue, part):
+            pass
+
+        def outsider(issue, part):
+            self.say(issue, 'GLM复核助手', part, 'block')
+            self.comments[f'issues/{issue["number"]}/comments'][-1]['author']['is_npc'] = False
+
+        def other_request(issue, part):
+            self.say(issue, 'GLM复核助手', self.request, 'block')
+
+        def other_role(issue, part):
+            self.say(issue, '审查助手', part, 'block')
+
+        def only_pass(issue, part):
+            self.say(issue, 'GLM复核助手', part)
+
+        for report in (nothing, outsider, other_request, other_role, only_pass):
+            with self.subTest(report.__name__):
+                self.issues, self.comments = {}, {}
+                main, parts = self.opened()
+                self.say(main, '审查助手', self.request)
+                for part, issue in parts[1:]:
+                    self.say(issue, 'GLM复核助手', part)
+                old = parts[0][1]
+                report(old, parts[0][0])
+                old['state'] = 'closed'
+                with self.network():
+                    self.assertEqual('pending', reviews.state(self.request))
+                fresh = self.issues[self.listed(self.heal())[0]]
+                self.assertNotEqual(old['number'], fresh['number'])
+                self.assertEqual('closed', old['state'])
+                with self.network():
+                    self.assertEqual('pending', reviews.state(self.request))
+                    self.say(fresh, 'GLM复核助手', parts[0][0])
+                    self.assertEqual('success', reviews.state(self.request))
+
+    def test_no_replacement_when_the_diff_is_unreadable_or_the_main_issue_is_closed(self):
+        main, parts = self.opened()
+        del self.issues[parts[0][1]['number']]
+        count, body = len(self.issues), main['body']
+        with patch.object(reviews, 'shards', return_value=[]):
+            self.heal()
+        self.assertEqual((count, body), (len(self.issues), self.issues[main['number']]['body']))
+        with self.network():
+            self.assertEqual('pending', reviews.state(self.request))
+        self.issues[main['number']]['state'] = 'closed'
+        self.heal()
+        self.assertEqual((count, body), (len(self.issues), self.issues[main['number']]['body']))
+        with self.network():
+            self.assertEqual('failure', reviews.state(self.request))
+
+    def test_a_repeated_number_in_the_marker_counts_once(self):
+        main, parts = self.opened()
+        self.say(main, '审查助手', self.request)
+        for part, issue in parts:
+            self.say(issue, 'GLM复核助手', part)
+        first = parts[0][1]['number']
+        main['body'] = main['body'].replace(f'shards {first},', f'shards {first},{first},')
+        with self.network():
+            self.assertEqual(3, len(reviews.shard_parts(self.request, main)))
+            self.assertEqual('success', reviews.state(self.request))
+
+    def test_shards_close_with_their_head_but_not_before(self):
+        shard = dict(self.request, shard={'index': 1, 'total': 2, 'paths': ['core/big.go']})
+        self.issues['90'] = {'number': '90', 'state': 'open', 'author': {'username': 'Aharon', 'is_npc': False},
+                             'body': '<!-- flclash-pr-review ' + json.dumps(reviews.sign(shard)) + ' -->'}
+        with self.network():
+            reviews.close_finished_reviews()
+            self.assertEqual([], self.closed)
+            self.pull['head'] = {'sha': 'f' * 40, 'ref': 'automation/req-9'}
+            reviews.close_finished_reviews()
+        self.assertEqual(sorted(self.issues), sorted(self.closed))
 
 
 if __name__ == '__main__':
