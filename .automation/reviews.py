@@ -347,7 +347,7 @@ def heal_shards(request, issue, title, url):
     groups (git cannot read the diff) nothing changes and GLM stays pending for the next run to retry.
     """
     parts = shard_parts(request, issue)
-    if issue['state'] != 'open' or parts is None or shards_complete(parts):
+    if parts is None or issue['state'] != 'open' or shards_complete(parts):
         return issue
     groups = shards(request)
     if not groups:
