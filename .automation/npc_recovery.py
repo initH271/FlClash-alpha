@@ -3,7 +3,7 @@ import json
 import re
 
 from control import CNB, POLICY, api, comment, pages, parse_request, sign, verify
-from reviews import ROLES, identity, request_from
+from reviews import BUDGET, EVIDENCE_RULES, ROLES, budget_text, identity, progress, request_from
 from security_watch import record
 from security_groups import GROUPS, repair_branch
 
@@ -23,7 +23,8 @@ def task(issue):
             f'只审核固定 base `{request["base"]}`、head `{request["head"]}`。'
             '默认检出 main 不一定包含 PR 文件，请 git fetch 后用 git show 指定 head 读取；不要调查文件为何不在 main。'
             '只有完成审核且无阻断才能使用下面的 pass/0；否则改为 block 并列证据。'
-            f'最终必须单独一行输出，不放代码块：\nFLCLASH_REVIEW {sample}\n')
+            + EVIDENCE_RULES + budget_text(BUDGET['reconsider'])
+            + f'最终必须单独一行输出，不放代码块：\nFLCLASH_REVIEW {sample}\n')
     security = record(issue)
     if security and security.get('group') in GROUPS:
         return None
@@ -123,7 +124,7 @@ def recover(now=None):
                 continue
             if any(c.get('author', {}).get('username') == f'{POLICY["cnb"]}({role})'
                    and c.get('author', {}).get('is_npc') is True
-                   and c.get('created_at', '') >= started for c in comments):
+                   and c.get('created_at', '') >= started and not progress(c.get('body', '')) for c in comments):
                 continue
             key = hashlib.sha256(f'{issue["number"]}:{scope}:{role}'.encode()).hexdigest()
             if has_marker(comments, key, 'retry'):
@@ -146,8 +147,9 @@ def recover(now=None):
                 + f'\n\n上次 {role} 任务失败且没有留下报告，执行唯一一次自动恢复。'
                 f'日志：https://cnb.cool/{POLICY["cnb"]}/-/build/logs/{sn}\n\n'
                 f'@{POLICY["cnb"]}({role}) {instruction}'
-                '最多12次工具调用或5分钟后立即提交阶段报告；不必一次解决全部问题。'
-                '合并相关查询，不重复搜索已确认的信息，不sleep、不轮询另一位报告，不自动召唤任何 NPC。'
+                # A review instruction already carries its budget and the reserved posting call.
+                + ('' if request_from(issue) else '最多12次工具调用或5分钟后立即提交阶段报告；不必一次解决全部问题。')
+                + '合并相关查询，不重复搜索已确认的信息，不sleep、不轮询另一位报告，不自动召唤任何 NPC。'
                 '到预算前优先发布结论；未完成必须明确说明，不回复 OK，不合并、不发布、不忽略测试或告警。', work_mode)
             actions += 1
 

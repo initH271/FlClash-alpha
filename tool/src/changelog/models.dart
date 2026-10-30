@@ -39,11 +39,20 @@ class RawCommit {
 }
 
 class ChangelogEntry {
-  const ChangelogEntry({required this.id, required this.text, this.scope});
+  const ChangelogEntry({
+    required this.id,
+    required this.text,
+    this.scope,
+    this.needsCopy = false,
+  });
 
   final String id;
   final String? scope;
   final String text;
+
+  /// The text fell back to the commit subject. Release notes flag it so the
+  /// copy is written before publishing; it never reaches the JSON payload.
+  final bool needsCopy;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
     'id': id,

@@ -33,6 +33,10 @@ const safeModeBuild = bool.fromEnvironment('SAFE_MODE');
 
 const disclaimerVersion = 1;
 
+/// Fork-specific: the disclaimer is confirmed only once, so a later bump of
+/// [disclaimerVersion] upstream never asks again.
+bool disclaimerNeeded(int acceptedVersion) => acceptedVersion <= 0;
+
 String _randomPipeId() {
   final random = Random.secure();
   return List.generate(

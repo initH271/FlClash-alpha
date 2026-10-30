@@ -571,8 +571,11 @@ requirement form, selects 自动化配置 under 影响范围, and checks 允许�
 authorization: without it the requirement cannot modify those paths at all, and `.automation/requirements.py` rejects
 the form when the area is selected unchecked. The development NPC implements the change on the `automation/req-<n>`
 branch the controller names; the controller merges the PR. The development NPC takes work through no other door:
-it ignores every `@` in PR comments, the owner's included, so dispatch or rework by commenting on the requirement
-issue and letting the controller dispatch.
+it ignores every `@` in PR comments, the owner's included. To send it back, the owner posts a comment on the
+requirement issue whose first line starts with `REWORK:` followed by the blocker list; `owner_rework` in
+`.automation/requirements.py` reads only the owner's own comment, dispatches it once as a targeted round that raises
+the rung, and treats it as answered after the next signed dispatch. It acts while the pull request is open and not yet
+green; once the ladder has stopped as stuck, HOLD and push instead.
 
 `.github/workflows/` is the exception: the controller's GitHub token cannot push workflow files, so a change there
 always goes through the owner channel, where the owner pushes the branch, opens the pull request and merges it on GitHub.
@@ -598,6 +601,25 @@ commit passes CNB checks and paired review like any other, and the controller fo
 the next dispatch and in the mirrored GitHub pull request so the next agent reads them instead of reverting them. An
 agent may push on the owner's behalf only when the owner asked for it explicitly in that session; it never decides to
 push there on its own.
+
+### Owner pull requests: CNB CI first
+
+An owner pull request goes straight to GitHub, where only the dependency scan and the paired-review gate run; the five
+`main.pull_request` pipelines only start for a CNB pull request into `main`. Do not open a CNB pull request just to get
+them: `reviews.reconcile()` creates review issues and summons reviewers for every open CNB pull request, so it reviews
+the change twice. Use the `owner/**` push pipelines in `.cnb.yml` instead, which alias the same definitions
+minus the dependency gate. Dependency scanning is judged by the Dependency vulnerability scan on the GitHub pull
+request (`security.yaml`); the CNB owner branch only builds and tests, since a push has no diff base for the gate.
+
+1. Push the exact head to CNB as `owner/<name>`.
+2. Wait until all four pipelines (Automation unit tests, Go, Flutter and Android, Rust) pass for that commit.
+   `GET /{repo}/-/build/logs?sha=<head>&event=push` lists its builds;
+   `GET /{repo}/-/build/status/{sn}` gives each build's pipelines.
+3. Only then push the same head to GitHub, open the pull request and request review.
+4. Every later head goes through step 1 and 2 again before it reaches GitHub.
+
+On a push the path checks measure from the branch's merge-base with `main` (`ci_paths.py base`), and run everything when
+that cannot be found. The end-stage `wake.py ci-done` sees no requirement branch on a push and does nothing.
 
 ## Commit Messages
 
@@ -646,18 +668,23 @@ feat(profiles): support per-profile override script
 Changelog: Per-profile override scripts
 ```
 
-- `Changelog:` is the English entry. `Changelog: skip` drops the commit from the changelog entirely.
-- The changelog is English only. A `Changelog-<locale>:` or `Breaking-<locale>:` trailer fails the hook, because
-  translated release copy does not belong in the commit history. Translate after the fact if ever needed, not in the
-  commit message.
+- `Changelog:` is the entry users read, written in Chinese to [CHANGELOG_STYLE.md](../CHANGELOG_STYLE.md).
+  `Changelog: skip` drops the commit from the changelog entirely.
+- A `Changelog-<locale>:` or `Breaking-<locale>:` trailer fails the hook, because translated release copy does not
+  belong in the commit history. Translate after the fact if ever needed, not in the commit message.
 - `Changelog-Type:` moves an entry into another group, for example to promote a `refactor` that users will notice. Valid
   values are `breaking`, `feat`, `fix`, `perf`, `revert`.
 - `BREAKING CHANGE:` is required whenever the subject carries `!`, and its text becomes the breaking entry. A `!` commit
   therefore needs two lines of copy: the footer for the breaking entry and `Changelog:` for the normal one.
 
-`feat`, `fix`, `perf`, `revert` and breaking commits are collected by default; every other type is dropped unless it
-carries a `Changelog:` trailer. Commits missing a trailer reuse their subject; for `feat`, `fix` and `perf` the hook
-says so without blocking.
+`feat`, `fix`, `perf`, `revert` and breaking commits are collected by default; every other type, and every scope in
+`internalChangelogScopes` (`tool/src/changelog/parser.dart`), is dropped unless it carries a `Changelog:` trailer. A
+collected commit missing a trailer reuses its subject: the generator warns and leaves a
+`<!-- changelog:needs-copy <id> -->` line in the release notes, and for `feat`, `fix` and `perf` the hook says so
+without blocking.
+
+A `## <displayVersion>` section in `.github/release-notes.md` replaces the generated entries of that release; a
+malformed section fails the release. The format is in [CHANGELOG_STYLE.md](../CHANGELOG_STYLE.md).
 
 ## Migrations
 

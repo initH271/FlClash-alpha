@@ -45,15 +45,10 @@ func (th *TunHandler) start(fd int, stack, address, dns, options string) bool {
 	configMu.Lock()
 	defer configMu.Unlock()
 
-	th.mu.Lock()
+	// initHook and t.Start run outside th.mu on purpose: both protect sockets
+	// on this very goroutine, and protectSocket's RLock taken while this one
+	// holds the write lock deadlocks the start outright.
 	th.initHook()
-	th.mu.Unlock()
-
-	// t.Start runs outside th.mu on purpose. The hook is live from initHook
-	// onwards, and a socket opened anywhere inside Start reaches handleProtect
-	// on this very goroutine — an RLock taken while this one holds the write
-	// lock deadlocks the start outright. Nothing is lost by dropping it: both
-	// hooks return early until th.listener is set, which is below.
 	tunListener := t.Start(fd, stack, address, dns, options)
 
 	th.mu.Lock()
@@ -85,14 +80,15 @@ func (th *TunHandler) clear() {
 // A refused protect never fails the dial: mihomo's tunnel retries a failed
 // dial ten times, and Android refuses only after the VPN was revoked, when the
 // routes are gone and an unprotected socket takes the default network.
-func (th *TunHandler) handleProtect(fd int) {
+func (th *TunHandler) protectSocket(fd int) bool {
 	th.mu.RLock()
 	defer th.mu.RUnlock()
 
-	if th.listener == nil || th.callbacks == nil {
-		return
+	if th.callbacks == nil {
+		return false
 	}
 	th.callbacks.Protect(fd)
+	return true
 }
 
 func (th *TunHandler) handleResolveProcess(source, target net.Addr) (int, string) {
@@ -123,7 +119,7 @@ func (th *TunHandler) handleResolveProcess(source, target net.Addr) (int, string
 
 var (
 	installHooksOnce sync.Once
-	activeTunHandler atomic.Pointer[TunHandler]
+	tunSockets       socketGuard
 )
 
 func installHooks() {
@@ -132,16 +128,10 @@ func installHooks() {
 			if platform.ShouldBlockConnection() {
 				return errBlocked
 			}
-			th := activeTunHandler.Load()
-			if th == nil {
-				return nil
-			}
-			return conn.Control(func(fd uintptr) {
-				th.handleProtect(int(fd))
-			})
+			return tunSockets.protect(conn)
 		}
 		process.DefaultPackageNameResolver = func(metadata *constant.Metadata) (string, error) {
-			th := activeTunHandler.Load()
+			th, _ := tunSockets.current().(*TunHandler)
 			if th == nil {
 				return "", process.ErrInvalidNetwork
 			}
@@ -161,14 +151,14 @@ func installHooks() {
 
 func (th *TunHandler) initHook() {
 	installHooks()
-	activeTunHandler.Store(th)
+	tunSockets.activate(th)
 }
 
 // Swap the handler, never the hook: mihomo nil-checks DefaultSocketHook once and
 // dereferences it again when the socket is created, so clearing it mid-dial
 // calls a nil func value.
 func (th *TunHandler) removeHook() {
-	activeTunHandler.CompareAndSwap(th, nil)
+	tunSockets.deactivate(th)
 }
 
 var (
@@ -241,7 +231,10 @@ func handleUpdateDns(value string) {
 	})
 }
 
+// A hook installed only by the first tun start misses the sockets that the
+// profile setup before it opens, and those are never protected.
 func init() {
+	installHooks()
 	registerMethod(updateDnsMethod, withArguments(func(value string) bool {
 		handleUpdateDns(value)
 		return true
