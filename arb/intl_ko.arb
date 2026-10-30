@@ -1004,5 +1004,17 @@
   "forkRouteCheck": "라우팅 점검",
   "forkRouteCheckRun": "점검 실행",
   "forkRouteCheckIdle": "점검 안 함",
-  "forkRouteCheckHint": "HTTP(S)만 점검하며 FCM의 5228 같은 웹 외 포트는 점검하지 않습니다."
+  "forkRouteCheckHint": "HTTP(S)만 점검하며 FCM의 5228 같은 웹 외 포트는 점검하지 않습니다.",
+  "forkAutoPause": "자동 일시 중지",
+  "forkAutoPauseOff": "자동화 꺼짐",
+  "forkAutoPauseOffHint": "네트워크 도구에서 네트워크를 설정하면 해당 네트워크에서 프록시를 자동으로 중지합니다.",
+  "forkAutoPauseStoppedByRule": "네트워크 규칙으로 중지됨",
+  "forkAutoPauseStopped": "중지됨",
+  "forkAutoPauseRunning": "실행 중",
+  "forkAutoPauseOverridden": "수동으로 재정의됨",
+  "forkAutoPauseOverrideHint": "네트워크가 바뀔 때까지 수동으로 계속 실행합니다.",
+  "forkAutoPauseMatched": "{rule} 일치",
+  "forkAutoPauseNoMatch": "이 네트워크와 일치하는 규칙 없음",
+  "forkAutoPauseStartAnyway": "그래도 시작",
+  "forkAutoPauseResume": "자동으로 되돌리기"
 }

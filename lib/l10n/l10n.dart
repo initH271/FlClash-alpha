@@ -8453,6 +8453,126 @@ class AppLocalizations {
       args: [],
     );
   }
+
+  /// `Auto pause`
+  String get forkAutoPause {
+    return Intl.message(
+      'Auto pause',
+      name: 'forkAutoPause',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Automation off`
+  String get forkAutoPauseOff {
+    return Intl.message(
+      'Automation off',
+      name: 'forkAutoPauseOff',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Set networks in Network tools to stop the proxy on them.`
+  String get forkAutoPauseOffHint {
+    return Intl.message(
+      'Set networks in Network tools to stop the proxy on them.',
+      name: 'forkAutoPauseOffHint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Stopped by network rule`
+  String get forkAutoPauseStoppedByRule {
+    return Intl.message(
+      'Stopped by network rule',
+      name: 'forkAutoPauseStoppedByRule',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Stopped`
+  String get forkAutoPauseStopped {
+    return Intl.message(
+      'Stopped',
+      name: 'forkAutoPauseStopped',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Running`
+  String get forkAutoPauseRunning {
+    return Intl.message(
+      'Running',
+      name: 'forkAutoPauseRunning',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Overridden`
+  String get forkAutoPauseOverridden {
+    return Intl.message(
+      'Overridden',
+      name: 'forkAutoPauseOverridden',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Kept running by hand until the network changes.`
+  String get forkAutoPauseOverrideHint {
+    return Intl.message(
+      'Kept running by hand until the network changes.',
+      name: 'forkAutoPauseOverrideHint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Matches {rule}`
+  String forkAutoPauseMatched(Object rule) {
+    return Intl.message(
+      'Matches $rule',
+      name: 'forkAutoPauseMatched',
+      desc: '',
+      args: [rule],
+    );
+  }
+
+  /// `No rule matches this network`
+  String get forkAutoPauseNoMatch {
+    return Intl.message(
+      'No rule matches this network',
+      name: 'forkAutoPauseNoMatch',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Start anyway`
+  String get forkAutoPauseStartAnyway {
+    return Intl.message(
+      'Start anyway',
+      name: 'forkAutoPauseStartAnyway',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Resume automatic`
+  String get forkAutoPauseResume {
+    return Intl.message(
+      'Resume automatic',
+      name: 'forkAutoPauseResume',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<AppLocalizations> {

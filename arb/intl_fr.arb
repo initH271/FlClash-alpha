@@ -1004,5 +1004,17 @@
   "forkRouteCheck": "Vérification du routage",
   "forkRouteCheckRun": "Vérifier",
   "forkRouteCheckIdle": "Non vérifié",
-  "forkRouteCheckHint": "Teste uniquement HTTP(S) ; les ports non web comme le 5228 de FCM ne sont pas couverts."
+  "forkRouteCheckHint": "Teste uniquement HTTP(S) ; les ports non web comme le 5228 de FCM ne sont pas couverts.",
+  "forkAutoPause": "Pause auto",
+  "forkAutoPauseOff": "Automatisation désactivée",
+  "forkAutoPauseOffHint": "Définissez des réseaux dans Outils réseau pour y arrêter le proxy.",
+  "forkAutoPauseStoppedByRule": "Arrêté par une règle réseau",
+  "forkAutoPauseStopped": "Arrêté",
+  "forkAutoPauseRunning": "En cours",
+  "forkAutoPauseOverridden": "Forcé manuellement",
+  "forkAutoPauseOverrideHint": "Maintenu en marche à la main jusqu’au changement de réseau.",
+  "forkAutoPauseMatched": "Correspond à {rule}",
+  "forkAutoPauseNoMatch": "Aucune règle ne correspond à ce réseau",
+  "forkAutoPauseStartAnyway": "Démarrer quand même",
+  "forkAutoPauseResume": "Revenir à l’automatique"
 }

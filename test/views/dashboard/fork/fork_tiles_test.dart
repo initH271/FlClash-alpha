@@ -9,7 +9,11 @@ import 'package:material_ui/material_ui.dart';
 import '../../../helpers/test_app.dart';
 
 /// Saved layouts store these names; a shipped one is never renamed.
-const shippedForkTileNames = {'forkPushChannel', 'forkRouteCheck'};
+const shippedForkTileNames = {
+  'forkPushChannel',
+  'forkRouteCheck',
+  'forkAutoPause',
+};
 
 void main() {
   final forkValues = DashboardWidget.values.where(isForkTile).toSet();

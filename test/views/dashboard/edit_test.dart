@@ -221,6 +221,8 @@ void main() {
       DashboardWidget.profiles,
       DashboardWidget.proxyGroups,
       DashboardWidget.serviceStatus,
+      // Keeps two addable rows above Network speed, as the offset assumes.
+      DashboardWidget.forkAutoPause,
     ]);
     await pumpEditor(tester, size: const Size(412, 700));
     final position = positionOf(tester);

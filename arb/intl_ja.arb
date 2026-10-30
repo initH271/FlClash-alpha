@@ -1004,5 +1004,17 @@
   "forkRouteCheck": "ルーティング診断",
   "forkRouteCheckRun": "診断を実行",
   "forkRouteCheckIdle": "未チェック",
-  "forkRouteCheckHint": "HTTP(S) のみ確認します。FCM の 5228 などの Web 以外のポートは対象外です。"
+  "forkRouteCheckHint": "HTTP(S) のみ確認します。FCM の 5228 などの Web 以外のポートは対象外です。",
+  "forkAutoPause": "自動一時停止",
+  "forkAutoPauseOff": "自動化オフ",
+  "forkAutoPauseOffHint": "ネットワークツールでネットワークを設定すると、そのネットワークでプロキシを自動停止します。",
+  "forkAutoPauseStoppedByRule": "ネットワークルールで停止中",
+  "forkAutoPauseStopped": "停止中",
+  "forkAutoPauseRunning": "実行中",
+  "forkAutoPauseOverridden": "手動で上書き中",
+  "forkAutoPauseOverrideHint": "ネットワークが変わるまで手動で実行を維持します。",
+  "forkAutoPauseMatched": "{rule} に一致",
+  "forkAutoPauseNoMatch": "このネットワークに一致するルールなし",
+  "forkAutoPauseStartAnyway": "それでも開始",
+  "forkAutoPauseResume": "自動に戻す"
 }

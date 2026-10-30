@@ -3,6 +3,7 @@ import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/ui/icons/icons.dart';
 import 'package:material_ui/material_ui.dart';
 
+import 'auto_pause.dart';
 import 'push_channel.dart';
 import 'route_check.dart';
 
@@ -31,6 +32,11 @@ final Map<DashboardWidget, ForkTile> forkTiles = {
     card: RouteCheckCard.new,
     glyph: AppGlyphs.target,
     label: (appLocalizations) => appLocalizations.forkRouteCheck,
+  ),
+  DashboardWidget.forkAutoPause: ForkTile(
+    card: AutoPauseCard.new,
+    glyph: AppGlyphs.wifiOff,
+    label: (appLocalizations) => appLocalizations.forkAutoPause,
   ),
 };
 
