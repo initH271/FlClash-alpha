@@ -175,13 +175,13 @@ class _ServiceStatusCardState extends ConsumerState<ServiceStatusCard>
     final mobile = !density.isDesktop;
     final appLocalizations = context.appLocalizations;
     // At most four: what the Core checks at once (serviceCheckConcurrency).
-    final shownCount = (mobile ? 1 : 2) * widget.columns;
+    final shownCount = 2 * widget.columns;
     final stacked = widget.columns == 1;
-    final shown = ref
-        .watch(enabledServiceTargetsProvider)
-        .take(shownCount)
-        .toList();
-    _syncShown(shown.toSet(), shownCount);
+    final enabled = ref.watch(enabledServiceTargetsProvider);
+    // A phone card scrolls through every service; its strip reports the
+    // ones in view to check.
+    final shown = mobile ? enabled : enabled.take(shownCount).toList();
+    if (!mobile) _syncShown(shown.toSet(), shownCount);
     final state = ref.watch(serviceStatusProvider);
     final services = [
       for (final target in shown)
@@ -191,13 +191,20 @@ class _ServiceStatusCardState extends ConsumerState<ServiceStatusCard>
           shownPhase(state.entryOf(target)),
         ),
     ];
-    final problems = services.where((service) => service.abnormal).length;
+    final judged = mobile
+        ? services
+              .where(
+                (view) => view.check != null || _shown.contains(view.target),
+              )
+              .toList()
+        : services;
+    final problems = judged.where((service) => service.abnormal).length;
     final verdict = problems > 0
         ? DashboardChip(
             label: appLocalizations.serviceAbnormalCount(problems),
             tone: DashboardChipTone.warn,
           )
-        : services.every((service) => service.check != null)
+        : judged.isNotEmpty && judged.every((service) => service.check != null)
         ? DashboardChip(
             label: appLocalizations.serviceAllAvailable,
             tone: DashboardChipTone.ok,
@@ -205,22 +212,33 @@ class _ServiceStatusCardState extends ConsumerState<ServiceStatusCard>
         : null;
     Future<void> openSheet() => showServiceStatusSheet(context);
     final scale = DashboardDensityScope.scaleOf(context);
-    final grid = _ServiceGrid(
-      services: services,
-      columns: widget.columns,
-      fill: !mobile,
-      cellHeight:
-          (mobile
-              ? 44
-              : density.isCompact
-              ? 40
-              : 46) *
-          scale,
-      gap: density.isCompact ? 6 : 8,
-    );
+    final cellHeight =
+        (mobile
+            ? 44
+            : density.isCompact
+            ? 40
+            : 46) *
+        scale;
+    final gap = density.isCompact ? 6.0 : 8.0;
+    final grid = mobile
+        ? _ServiceStrip(
+            services: services,
+            cellHeight: cellHeight,
+            gap: gap,
+            bleed: dashboardCardPadding(density).left,
+            onShown: _syncShown,
+          )
+        : _ServiceGrid(
+            services: services,
+            columns: widget.columns,
+            fill: true,
+            cellHeight: cellHeight,
+            gap: gap,
+          );
     return DashboardCard(
       semanticLabel: appLocalizations.serviceStatus,
       onTap: mobile ? openSheet : null,
+      clipBehavior: mobile ? Clip.antiAlias : Clip.none,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: mobile ? MainAxisSize.min : MainAxisSize.max,
@@ -313,6 +331,88 @@ class _ServiceGrid extends StatelessWidget {
             ],
           ),
       ],
+    );
+  }
+}
+
+/// Two services and the edge of a third, so the row reads as scrollable.
+/// It runs to the card's edges and reports what is in view once it settles.
+class _ServiceStrip extends StatefulWidget {
+  const _ServiceStrip({
+    required this.services,
+    required this.cellHeight,
+    required this.gap,
+    required this.bleed,
+    required this.onShown,
+  });
+
+  static const _cellsInView = 2.3;
+
+  final List<_ServiceView> services;
+  final double cellHeight;
+  final double gap;
+  final double bleed;
+  final void Function(Set<ServiceTarget> shown, int resting) onShown;
+
+  @override
+  State<_ServiceStrip> createState() => _ServiceStripState();
+}
+
+class _ServiceStripState extends State<_ServiceStrip> {
+  var _offset = 0.0;
+
+  List<_ServiceView> _inView(double offset, double cell, double viewport) {
+    final services = widget.services;
+    final step = cell + widget.gap;
+    final start = offset - widget.bleed;
+    final first = max(0, ((start - cell) / step).floor() + 1);
+    final last = min(
+      services.length - 1,
+      ((start + viewport) / step).ceil() - 1,
+    );
+    return first > last ? const [] : services.sublist(first, last + 1);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final gap = widget.gap;
+    final bleed = widget.bleed;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final cell = (width - gap * 2) / _ServiceStrip._cellsInView;
+        final viewport = width + bleed * 2;
+        widget.onShown({
+          for (final service in _inView(_offset, cell, viewport))
+            service.target,
+        }, _inView(0, cell, viewport).length);
+        return SizedBox(
+          height: widget.cellHeight,
+          child: OverflowBox(
+            minWidth: viewport,
+            maxWidth: viewport,
+            child: NotificationListener<ScrollEndNotification>(
+              onNotification: (notification) {
+                setState(() => _offset = notification.metrics.pixels);
+                return false;
+              },
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: EdgeInsets.symmetric(horizontal: bleed),
+                itemCount: widget.services.length,
+                separatorBuilder: (_, _) => SizedBox(width: gap),
+                itemBuilder: (_, index) => SizedBox(
+                  width: cell,
+                  child: _ServiceCell(
+                    service: widget.services[index],
+                    height: widget.cellHeight,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
