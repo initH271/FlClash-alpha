@@ -3,6 +3,7 @@ import json
 import re
 import time
 
+import ci_paths
 import env_failure
 import pause
 import control
@@ -656,8 +657,22 @@ def sync_main(number, sha):
     commit = control.git('commit-tree', merged.stdout.splitlines()[0], '-p', sha, '-p', main,
                          '-m', f'Merge main into {branch}', '-m', 'FlClash-Actor: controller')
     control.sync_branch(branch, commit)
-    control.comment(number, f'分支落后 main，已把 main（`{main[:12]}`）合入 `{branch}`，新提交 `{commit[:12]}`。'
-                    '检查和结对审核会在新提交上重跑。')
+    # The signed record vouches that `sha` had passed CI, so pipelines on `commit` may keep that verdict.
+    rerun = ('main 带来的改动与需求改动没有共同构建输入，新提交上的流水线沿用上一轮 CI 结论；结对审核照常重跑。'
+             if ci_paths.reuse_claim(commit, control.git, branch) else '检查和结对审核会在新提交上重跑。')
+    control.comment(number, envelope({'issue': str(number), 'phase': 'sync', 'head': commit, 'from': sha})
+                    + f'\n\n分支落后 main，已把 main（`{main[:12]}`）合入 `{branch}`，新提交 `{commit[:12]}`。' + rerun)
+
+
+def reuse_unvouched(number, sha, comments):
+    """True when the head's pipelines may have reused CI but the controller never signed that merge."""
+    try:
+        if not ci_paths.sync_parents(sha, control.git, branch_name(number)) or not ci_paths.hooked(sha, control.git):
+            return False
+    except RuntimeError:  # an unreadable head cannot prove it ran its own CI
+        pass
+    return not any(item.get('phase') == 'sync' and item.get('head') == sha and item.get('issue') == str(number)
+                   for item in markers(comments))
 
 
 def merge_when_settled(number, attempts=12, pause=10):
@@ -693,10 +708,13 @@ def reconcile():
                 status = control.api(f'{CNB}/build/status/{row["sn"]}', missing=True) or {}
                 row['detail'] = (row['detail'] + '\n' + json.dumps(status, ensure_ascii=False))[:500]
         green, failed = check_state(pull['number'] if pull else '', pull)
+        unvouched = green and reuse_unvouched(number, sha, issue_comments)
+        if unvouched:
+            green, failed = False, True
         scan_failed = unreachable(pull, pull_statuses(pull['number'])) if failed and not green and pull else None
         blocked, text = review_block(pull) if failed or (pull and not green) else (False, '')
         if failed and not text:
-            text = 'CI 未通过。先读失败日志，再推同一分支。'
+            text = REUSE_UNVOUCHED if unvouched else 'CI 未通过。先读失败日志，再推同一分支。'
             blocked = False
         behind = review_only = False
         if green:
@@ -722,6 +740,8 @@ def reconcile():
         act(issue, action, sha)
 
 
+REUSE_UNVOUCHED = ('头提交形如控制器的同步合并，流水线可能沿用了上一轮 CI，但控制器没有签发这次合并，'
+                   '不能当作通过。推一个新提交让 CI 完整重跑。')
 FOREIGN_NOTE = '分支上有不是开发助手推的提交：'
 
 
