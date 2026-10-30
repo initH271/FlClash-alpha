@@ -560,6 +560,11 @@ class _ServiceBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = context.colorScheme;
+    final glyphColor =
+        ink ??
+        (enabled
+            ? colorScheme.onSurfaceVariant
+            : colorScheme.onSurfaceVariant.opacity38);
     return CustomPaint(
       size: Size.square(size),
       painter: _BadgePainter(
@@ -572,18 +577,56 @@ class _ServiceBadge extends StatelessWidget {
       child: SizedBox.square(
         dimension: size,
         child: Center(
-          child: SvgPicture.asset(
-            'assets/images/services/${target.icon}.svg',
-            width: size * _glyphShare,
-            height: size * _glyphShare,
-            excludeFromSemantics: true,
-            theme: SvgTheme(
-              currentColor:
-                  ink ??
-                  (enabled
-                      ? colorScheme.onSurfaceVariant
-                      : colorScheme.onSurfaceVariant.opacity38),
+          child: switch (target.mark) {
+            final mark? => _ServiceMark(
+              mark: mark,
+              size: size * _glyphShare,
+              color: glyphColor,
             ),
+            null => SvgPicture.asset(
+              'assets/images/services/${target.icon}.svg',
+              width: size * _glyphShare,
+              height: size * _glyphShare,
+              excludeFromSemantics: true,
+              theme: SvgTheme(currentColor: glyphColor),
+            ),
+          },
+        ),
+      ),
+    );
+  }
+}
+
+/// Sets [mark] in the square a bundled glyph would take, shrinking longer
+/// marks to fit.
+class _ServiceMark extends StatelessWidget {
+  const _ServiceMark({
+    required this.mark,
+    required this.size,
+    required this.color,
+  });
+
+  final String mark;
+  final double size;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return ExcludeSemantics(
+      child: SizedBox.square(
+        dimension: size,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            mark,
+            maxLines: 1,
+            textScaler: TextScaler.noScaling,
+            style: AppTextStyle.custom(
+              context,
+              size: size * 0.72,
+              leading: size * 0.72,
+              weight: FontWeight.w700,
+            ).copyWith(color: color, letterSpacing: -0.5),
           ),
         ),
       ),

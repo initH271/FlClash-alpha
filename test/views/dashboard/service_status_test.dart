@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/service_probe.dart';
@@ -1264,6 +1265,41 @@ void main() {
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull, reason: '$locale at $width');
       }
+    }
+  });
+
+  test('every service has a check registered in the Core', () {
+    final source = File('core/service_check.go').readAsStringSync();
+    final registered = {
+      for (final match in RegExp(
+        r'\{name: "([a-z-]+)", check:',
+      ).allMatches(source))
+        match.group(1),
+    };
+    expect(registered, {for (final target in ServiceTarget.values) target.id});
+  });
+
+  testWidgets('a service without a bundled icon shows its mark', (
+    tester,
+  ) async {
+    answer((_) => const []);
+    await tester.pumpWidget(
+      app(settings: only([ServiceTarget.telegram, ServiceTarget.binance])),
+    );
+    await tester.pumpAndSettle();
+
+    for (final target in [ServiceTarget.telegram, ServiceTarget.binance]) {
+      expect(
+        find.descendant(of: tile(target), matching: find.text(target.mark!)),
+        findsOneWidget,
+      );
+    }
+    for (final target in ServiceTarget.values) {
+      expect(
+        target.mark != null || target.icon.isNotEmpty,
+        isTrue,
+        reason: target.id,
+      );
     }
   });
 }
