@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/service_category.dart';
 import 'package:fl_clash/common/service_probe.dart';
 import 'package:fl_clash/core/controller.dart';
 import 'package:fl_clash/core/interface.dart';
@@ -670,7 +671,10 @@ void main() {
       ),
     );
     final delegate = list.delegate as SliverChildBuilderDelegate;
-    expect(delegate.childCount, ServiceTarget.values.length);
+    expect(
+      delegate.childCount,
+      ServiceTarget.values.length + ServiceCategory.values.length,
+    );
     for (final tooltip in ['Check all', 'Manage services']) {
       expect(
         find.ancestor(
@@ -763,13 +767,13 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(ServiceStatusSheet),
-        matching: find.text(ServiceTarget.chatgpt.label),
+        matching: find.text(ServiceTarget.github.label),
       ),
     );
     await tester.pumpAndSettle();
 
     expect(find.byType(ServiceStatusSheet), findsOneWidget);
-    expect(asked.skip(shownIds.length), [ServiceTarget.chatgpt.id]);
+    expect(asked.skip(shownIds.length), [ServiceTarget.github.id]);
   });
   testWidgets('a route change checks the shown service again once', (
     tester,
@@ -798,9 +802,9 @@ void main() {
   });
 
   testWidgets('a row keeps its height through a check', (tester) async {
-    final claude = Completer<void>();
+    final youtube = Completer<void>();
     answer((params) async {
-      if (params.names.contains('claude')) await claude.future;
+      if (params.names.contains('youtube')) await youtube.future;
       return [
         for (final name in params.names)
           _item(
@@ -821,17 +825,20 @@ void main() {
     await tester.tap(find.byType(ServiceStatusCard));
     await tester.pumpAndSettle();
 
-    final row = find.widgetWithText(ListTile, ServiceTarget.claude.label);
+    final row = find.widgetWithText(ListTile, ServiceTarget.youtube.label);
     await tester.ensureVisible(row);
     await tester.pumpAndSettle();
     final unchecked = tester.getSize(row).height;
     await tester.tap(
-      find.descendant(of: row, matching: find.text(ServiceTarget.claude.label)),
+      find.descendant(
+        of: row,
+        matching: find.text(ServiceTarget.youtube.label),
+      ),
     );
     await tester.pump();
     expect(tester.getSize(row).height, unchecked);
 
-    claude.complete();
+    youtube.complete();
     await tester.pumpAndSettle();
     expect(
       find.descendant(of: row, matching: find.text('203.0.113.7')),
@@ -917,7 +924,8 @@ void main() {
         )
         .map((text) => text.data)
         .take(3);
-    expect(labels, ['Claude', 'Google', 'YouTube']);
+    // Claude leads, so its category does, keeping the saved order inside.
+    expect(labels, ['Claude', 'ChatGPT', 'Gemini']);
     expect(find.text(ServiceTarget.github.label), findsNothing);
   });
 
@@ -1301,5 +1309,56 @@ void main() {
         reason: target.id,
       );
     }
+  });
+
+  testWidgets('the sheet lists each service under its category', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 2000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    answer((_) => const []);
+    await tester.pumpWidget(
+      app(
+        settings: only([
+          ServiceTarget.claude,
+          ServiceTarget.netflix,
+          ServiceTarget.okx,
+          ServiceTarget.chatgpt,
+        ]),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(ServiceStatusCard));
+    await tester.pumpAndSettle();
+    final sheet = find.byType(ServiceStatusSheet);
+    double top(String text) => tester
+        .getTopLeft(
+          find.descendant(
+            of: sheet,
+            matching: find.ancestor(
+              of: find.text(text),
+              matching: find.byWidgetPredicate(
+                (widget) => widget is ListTile || widget is ListHeader,
+              ),
+            ),
+          ),
+        )
+        .dy;
+
+    final headers = [
+      for (final title in ['AI', 'Streaming', 'Exchanges & finance'])
+        top(title),
+    ];
+    expect(headers, orderedEquals([...headers]..sort()));
+    for (final service in ['Claude', 'ChatGPT']) {
+      expect(top(service), inExclusiveRange(headers[0], headers[1]));
+    }
+    expect(top('Netflix'), inExclusiveRange(headers[1], headers[2]));
+    expect(top('OKX'), greaterThan(headers[2]));
+    expect(
+      find.descendant(of: sheet, matching: find.text('Social')),
+      findsNothing,
+    );
   });
 }

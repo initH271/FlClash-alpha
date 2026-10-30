@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/service_category.dart';
 import 'package:fl_clash/common/service_probe.dart';
 import 'package:fl_clash/features/features.dart';
 import 'package:fl_clash/models/models.dart';
@@ -704,6 +705,13 @@ class ServiceStatusSheet extends ConsumerWidget {
     final state = ref.watch(serviceStatusProvider);
     final services = ref.read(serviceStatusProvider.notifier);
     final localizations = context.appLocalizations;
+    final rows = <Object>[
+      for (final (category, members) in groupServiceTargets(targets)) ...[
+        category,
+        for (final (index, target) in members.indexed)
+          (target, ItemPosition.get(index, members.length)),
+      ],
+    ];
     return CommonScaffold(
       title: localizations.serviceStatus,
       iconActions: [
@@ -725,22 +733,26 @@ class ServiceStatusSheet extends ConsumerWidget {
         shrinkWrap: true,
         slivers: [
           SliverToBoxAdapter(
-            child: SizedBox(height: context.contentTopPadding),
+            child: SizedBox(height: context.sectionsTopPadding),
           ),
           SliverPadding(
             padding: EdgeInsets.fromLTRB(16, 0, 16, 16 + context.bottomInset),
             sliver: SliverList.builder(
-              itemCount: targets.length,
-              itemBuilder: (context, index) {
-                final target = targets[index];
-                return ItemPositionProvider(
-                  position: ItemPosition.get(index, targets.length),
-                  child: _ServiceRow(
-                    target: target,
-                    entry: state.entryOf(target),
-                    onCheck: () => services.refresh([target]),
+              itemCount: rows.length,
+              itemBuilder: (context, index) => switch (rows[index]) {
+                final ServiceCategory category => ListHeader(
+                  title: category.label(localizations),
+                ),
+                (final ServiceTarget target, final ItemPosition position) =>
+                  ItemPositionProvider(
+                    position: position,
+                    child: _ServiceRow(
+                      target: target,
+                      entry: state.entryOf(target),
+                      onCheck: () => services.refresh([target]),
+                    ),
                   ),
-                );
+                _ => const SizedBox.shrink(),
               },
             ),
           ),
