@@ -420,10 +420,66 @@ void main() {
       );
       expect(
         find.descendant(of: sheet, matching: find.text('HK-01')),
-        findsNothing,
+        findsWidgets,
       );
     },
   );
+
+  testWidgets('a sheet row puts the node after its address', (tester) async {
+    final sheet = await openCheckedSheet(
+      tester,
+      outboundIp: (_) => _address('203.0.113.7', 'US'),
+    );
+
+    final address = find.descendant(
+      of: sheet,
+      matching: find.text('203.0.113.7'),
+    );
+    final node = find.descendant(of: sheet, matching: find.text('HK-01'));
+    expect(
+      tester.getCenter(node.first).dx,
+      greaterThan(tester.getCenter(address.first).dx),
+    );
+    expect(
+      tester.getCenter(node.first).dy,
+      closeTo(tester.getCenter(address.first).dy, 1),
+    );
+    expect(find.descendant(of: sheet, matching: find.text('·')), findsWidgets);
+  });
+
+  testWidgets('a sheet row without a node shows the region alone', (
+    tester,
+  ) async {
+    final outboundIps = <String>[];
+    answer(
+      (params) => [
+        for (final name in params.names)
+          _item(name, ServiceProbeStatus.available, region: 'JP'),
+      ],
+    );
+    await tester.pumpWidget(
+      app(
+        outboundIp: (params) {
+          outboundIps.add(params.proxyName);
+          return _address('203.0.113.7', 'US');
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(ServiceStatusCard));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Check all'));
+    await tester.pumpAndSettle();
+    final sheet = find.byType(ServiceStatusSheet);
+
+    expect(outboundIps, isEmpty);
+    expect(
+      find.descendant(of: sheet, matching: find.text('\u{1F1EF}\u{1F1F5}')),
+      findsWidgets,
+    );
+    expect(find.descendant(of: sheet, matching: find.text('·')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('an address in the sheet opens its quality as a page of it', (
     tester,

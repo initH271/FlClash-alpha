@@ -187,10 +187,10 @@ controller. The 15-minute controller also discovers CNB PRs, bot-created GitHub
 PRs and base changes, and refreshes results without rerunning existing requests.
 New base/head means a new review; old passes cannot authorize candidate promotion.
 GitHub main requires the FlClash/paired-review status and an up-to-date branch.
-CNB pull_request.target runs the target branch's gate, waiting up to 30 minutes
-for both reports. Its existing required-status-check protection blocks merging.
-After a timeout or a corrected blocking report, rerun the CNB PR gate. One bounded recovery is available for failed trusted tasks without a report. The one-CPU waiting runner can consume up
-to 0.5 core-hours per CNB PR event; GitHub result polling uses the existing schedule.
+CNB runs no paired-review gate pipeline: the controller reads both reports directly
+and forwards or merges nothing until the review for that base/head passes, so a
+corrected blocking report takes effect on its next run. One bounded recovery is available for failed trusted tasks without a report.
+GitHub result polling uses the existing schedule.
 
 Candidate construction no longer dispatches a release build immediately. The
 controller resumes it only after both reports pass, and promotion checks the
@@ -250,9 +250,8 @@ schedule remains a further backstop. An unsuccessful dispatch fails visibly in C
 Reviews no longer open the moment a requirement or security PR appears. For a CNB PR
 whose head is `automation/req-*` or `security/group-*` and which has no review issue
 yet, the controller reads `/pulls/{n}/commit-statuses` and looks only at the five
-`main.pull_request` pipelines (`CI_PIPELINES`). The `Paired review gate` runs under
-`pull_request.target` and waits for the review itself, so it is never part of this
-wait; listing it would make the review and the gate wait on each other. A missing pipeline or
+`main.pull_request` pipelines (`CI_PIPELINES`). CNB has no paired-review gate pipeline;
+a `Paired review gate` row left on a head pushed before its removal is ignored. A missing pipeline or
 one that has not settled leaves that head `pending`: while the earliest status is
 younger than 80 minutes the controller prints `cnb PR #n: waiting for CI` and opens
 nothing; a settled non-success prints `cnb PR #n: CI failed, review deferred` and
@@ -303,9 +302,9 @@ Requirement PRs (`automation/req-<n>`) give reviewers the issue's acceptance
 criteria; a criterion that the diff cannot confirm, or that the developer's latest
 report calls unmet, is a block even when CI is green. A reviewer whose bounded
 recheck still omits the machine verdict gets one request to restate its own
-conclusion. The `Paired review gate` check only polls for 32 minutes, so the
-controller reads the review verdict directly: a pending, timed-out or missing gate
-never holds back a requirement whose review for that base/head has passed.
+conclusion. The controller reads the review verdict directly; CNB runs no separate
+gate pipeline, and a leftover `Paired review gate` row on an older head never holds
+back a requirement whose review for that base/head has passed.
 Before forwarding, the controller merges the latest GitHub `main` into a green
 requirement branch that has fallen behind (branch protection requires it) and lets
 checks and review rerun; a merge conflict goes back to the developer. An open
@@ -329,9 +328,8 @@ allow_events:
 
 Never authorize ordinary `pull_request` or source-branch execution to import this
 credential. The GitHub controller independently validates signed work records.
-CNB's synchronous review gate remains in this first rollout: the trusted PR event
-now starts reviewers, but replacing long polling with asynchronous status updates
-is a separate migration requiring branch-protection validation.
+CNB no longer runs a synchronous review gate: the trusted PR event only wakes the
+controller, which starts reviewers and reads their verdict directly.
 
 Security queue reconciliation runs even if review reconciliation fails, provided
 credentials passed validation. It uses signed dispatch receipts, checks both
