@@ -31,6 +31,7 @@ class UpgradeRepo(unittest.TestCase):
             item.start()
             self.addCleanup(item.stop)
         self.remote, self.pushed, self.calls, self.comments = {}, [], [], []
+        self.older_issue = None
         self.issue_state, self.gh_pulls, self.review_issue, self.release, self.issue_error = 'open', [], None, None, None
         self.real('init', '-q', '-b', 'main')
         self.real('config', 'user.name', 'Test')
@@ -78,6 +79,8 @@ class UpgradeRepo(unittest.TestCase):
             return self.release
         if '/git/ref/tags/' in url:
             return {'object': {'type': 'commit', 'sha': self.request['sha']}}
+        if url.endswith('/issues/200'):
+            return self.older_issue
         if url.endswith('/issues/217') and self.issue_error:
             raise control.HttpStatusError('GET api.cnb.cool returned HTTP 502: ', 502)
         if url.endswith('/issues/217'):
@@ -126,6 +129,22 @@ class UpgradeRepo(unittest.TestCase):
     def owner_comments(self):
         return [c for c in self.comments if 'flclash-owner-merge' in c['body']]
 
+    def pass_reviews_and_resume(self, head, branch, main):
+        """Report paired reviews for head, resume it, and return the dispatched source."""
+        request = {'platform': 'github', 'number': '5', 'base': main, 'head': head}
+        self.gh_pulls = [{'number': 5, 'state': 'open', 'title': 't', 'draft': True, 'body': '',
+                          'base': {'sha': main, 'ref': 'main'}, 'head': {'sha': head, 'ref': branch}}]
+        self.review_issue = {'number': 300, 'state': 'open', 'created_at': '1', 'author': OWNER,
+                             'title': reviews.review_title(request, 't'),
+                             'body': '<!-- flclash-pr-review ' + json.dumps(control.sign(request)) + ' -->'}
+        report = 'FLCLASH_REVIEW ' + json.dumps({'request': reviews.identity(request), 'verdict': 'pass', 'blockers': 0})
+        self.review_reports = [{'author': {'username': f'{control.POLICY["cnb"]}({r})', 'is_npc': True},
+                                'id': str(i), 'created_at': '2', 'body': report} for i, r in enumerate(reviews.ROLES)]
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
+            control.resume_candidate(head, branch, 217)
+        self.assertNotIn('invalid', printed.getvalue())
+        return [c for c in self.calls if c[1].endswith('/dispatches')][0][2]['inputs']['source_ref']
+
 
 class ConflictHandoffTests(UpgradeRepo):
     def test_conflict_asks_owner_once_and_never_summons_the_developer(self):
@@ -169,20 +188,7 @@ class UpstreamAlreadyInMainTests(UpgradeRepo):
         self.assertEqual([], self.owner_comments())
         self.assertIn('已按本次 OK 批准', self.comments[-1]['body'])
 
-        request = {'platform': 'github', 'number': '5', 'base': main, 'head': head}
-        self.gh_pulls = [{'number': 5, 'state': 'open', 'title': 't', 'draft': True, 'body': '',
-                          'base': {'sha': main, 'ref': 'main'}, 'head': {'sha': head, 'ref': branch}}]
-        self.review_issue = {'number': 300, 'state': 'open', 'created_at': '1', 'author': OWNER,
-                             'title': reviews.review_title(request, 't'),
-                             'body': '<!-- flclash-pr-review ' + json.dumps(control.sign(request)) + ' -->'}
-        report = 'FLCLASH_REVIEW ' + json.dumps({'request': reviews.identity(request), 'verdict': 'pass', 'blockers': 0})
-        self.review_reports = [{'author': {'username': f'{control.POLICY["cnb"]}({r})', 'is_npc': True},
-                                'id': str(i), 'created_at': '2', 'body': report} for i, r in enumerate(reviews.ROLES)]
-        with contextlib.redirect_stdout(io.StringIO()) as printed:
-            control.resume_candidate(head, branch, 217)
-        self.assertNotIn('invalid', printed.getvalue())
-        dispatched = [c for c in self.calls if c[1].endswith('/dispatches')]
-        self.assertEqual(head, dispatched[0][2]['inputs']['source_ref'])
+        self.assertEqual(head, self.pass_reviews_and_resume(head, branch, main))
 
     def test_prepare_overwrites_a_stale_candidate_left_on_main(self):
         stale = {'issue': '200', 'base': self.base, 'tree': 'f' * 40, 'upstream_sha': 'a' * 40}
@@ -213,6 +219,57 @@ class UpstreamAlreadyInMainTests(UpgradeRepo):
         self.assertNotIn('UPSTREAM_REVIEW.md', self.real('ls-tree', '-r', '--name-only', head).splitlines())
         self.assertEqual(1, len(self.owner_comments()))
         self.assertIn('已按本次 OK 批准', self.comments[-1]['body'])
+
+    def conflict_inheriting_candidate_of_issue_200(self, state):
+        """Main still carries issue 200's promoted candidate when issue 217 conflicts and the owner merges it."""
+        metadata = json.loads((self.root / '.github/release.json').read_text())
+        self.older_issue = {'state': state, 'body': control.marker({
+            'tag': 'v' + metadata['upstreamVersion'], 'sha': self.base, 'upstream': control.POLICY['upstream']})}
+        older = {'issue': '200', 'base': self.base, 'tree': 'f' * 40, 'upstream_sha': self.base}
+        self.commit('.automation/candidate.json', json.dumps(control.sign(older)), 'promoted candidate')
+        upstream = self.upstream()
+        self.remote['main'] = self.commit('app.txt', 'personal\n', 'personal change')
+        control.prepare_candidate(self.request, 217, 'automation/upstream-v9.9.9')
+        conflict = self.remote['automation/upstream-v9.9.9']
+        self.assertEqual('200', control.verify(json.loads(self.real('show', f'{conflict}:.automation/candidate.json')))['issue'])
+        self.real('checkout', '-q', 'main')
+        self.real('merge', '-q', '--no-ff', '-X', 'theirs', '-m', 'owner merges upstream', upstream)
+        self.remote['main'] = self.real('rev-parse', 'HEAD')
+        return conflict
+
+    def test_candidate_finished_on_main_does_not_block_adoption_through_to_dispatch(self):
+        branch = 'automation/upstream-v9.9.9'
+        conflict = self.conflict_inheriting_candidate_of_issue_200('closed')
+        main = self.remote['main']
+        with contextlib.redirect_stdout(io.StringIO()):
+            control.resume_candidate(conflict, branch, 217)
+        head = self.remote[branch]
+        self.assertEqual([conflict, main], self.real('rev-list', '--parents', '-n1', head).split()[1:])
+        candidate = control.verify(json.loads(self.real('show', f'{head}:.automation/candidate.json')))
+        self.assertEqual(('217', main), (candidate['issue'], candidate['base']))
+        self.assertEqual(candidate['tree'], control.source_tree())
+        self.assertNotIn('UPSTREAM_REVIEW.md', self.real('ls-tree', '-r', '--name-only', head).splitlines())
+        self.assertEqual(head, self.pass_reviews_and_resume(head, branch, main))
+
+    def test_candidate_still_active_on_main_is_not_taken_over_until_it_finishes(self):
+        branch = 'automation/upstream-v9.9.9'
+        conflict = self.conflict_inheriting_candidate_of_issue_200('open')
+        comments = list(self.comments)
+        with contextlib.redirect_stdout(io.StringIO()):
+            control.resume_candidate(conflict, branch, 217)
+        self.assertEqual(conflict, self.remote[branch])
+        self.assertEqual(comments, self.comments)
+        self.older_issue['state'] = 'closed'
+        with contextlib.redirect_stdout(io.StringIO()):
+            control.resume_candidate(conflict, branch, 217)
+        self.assertNotEqual(conflict, self.remote[branch])
+
+    def test_candidate_released_but_with_its_issue_open_counts_as_finished(self):
+        conflict = self.conflict_inheriting_candidate_of_issue_200('open')
+        self.release = {'draft': False}
+        with contextlib.redirect_stdout(io.StringIO()):
+            control.resume_candidate(conflict, 'automation/upstream-v9.9.9', 217)
+        self.assertNotEqual(conflict, self.remote['automation/upstream-v9.9.9'])
 
 
 class FinishedCandidateTests(UpgradeRepo):

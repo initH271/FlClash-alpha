@@ -296,10 +296,12 @@ def resume_candidate(sha, branch, number):
     if git('rev-parse', 'HEAD') != sha:
         print('Candidate branch advanced while fetching; retry next controller pass')
         return
-    if not (ROOT / '.automation/candidate.json').exists():
+    path = ROOT / '.automation/candidate.json'
+    candidate = active_candidate()
+    # A conflict branch has no candidate of its own, but inherits the finished one main keeps until the next prepare.
+    if not path.exists() or (not candidate and verify(json.loads(path.read_text()))['issue'] != str(number)):
         adopt_owner_merge(sha, branch, number)
         return
-    candidate = active_candidate()
     if not candidate or candidate['issue'] != str(number):
         return
     main = api(f'{GH}/git/ref/heads/main')['object']['sha']
