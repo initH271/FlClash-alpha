@@ -141,7 +141,8 @@ class CollectTests(unittest.TestCase):
             if url.endswith('/pulls?state=open'):
                 return iter(pulls)
             return iter(comments[url.split('/issues/')[1].split('/')[0]])
-        with patch.object(status, 'api', side_effect=api), patch.object(status, 'pages', side_effect=pages):
+        with (patch.object(status, 'api', side_effect=api), patch.object(status, 'pages', side_effect=pages),
+              patch.object(status, 'release_identity', return_value={'tag': 'v0.9.2-alpha.17'})):
             found = status.collect(issues, NOW)
         self.assertEqual([row('12', '9', 'stuck', 26 * HOUR, hold=3 * HOUR, title='实现 ＠someone'),
                           row('13', '10', 'dev', HOUR, 'closed', title='x')], found['pulls'])
