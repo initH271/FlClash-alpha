@@ -756,6 +756,74 @@ class ShardTests(unittest.TestCase):
         with self.network():
             self.assertEqual('failure', reviews.state(self.request))
 
+    def test_closing_a_shard_cannot_shed_its_block_until_the_head_changes(self):
+        def block(issue, part):
+            self.say(issue, 'GLM复核助手', part, 'block')
+
+        def malformed(issue, part):
+            self.say(issue, 'GLM复核助手', part)
+            self.comments[f'issues/{issue["number"]}/comments'][-1]['body'] = '报告没有机器结论行'
+
+        for report in (block, malformed):
+            with self.subTest(report.__name__):
+                self.issues, self.comments = {}, {}
+                self.pull['head'] = {'sha': 'b' * 40, 'ref': 'automation/req-9'}
+                self.request = reviews.scope('cnb', self.pull)
+                main, parts = self.opened()
+                self.say(main, '审查助手', self.request)
+                report(parts[0][1], parts[0][0])
+                parts[0][1]['state'] = 'closed'
+                del self.issues[parts[1][1]['number']]
+                count, body = len(self.issues), main['body']
+                self.heal()
+                self.assertEqual((count, body), (len(self.issues), main['body']))
+                with self.network():
+                    self.assertEqual('failure', reviews.state(self.request))
+                self.pull['head'] = {'sha': 'f' * 40, 'ref': 'automation/req-9'}
+                self.request = reviews.scope('cnb', self.pull)
+                healed = self.heal()
+                self.assertNotEqual(main['number'], healed['number'])
+                self.assertEqual(3, len(self.listed(healed)))
+                with self.network():
+                    self.assertEqual('pending', reviews.state(self.request))
+
+    def test_a_closed_shard_without_a_real_verdict_is_replaced(self):
+        def nothing(issue, part):
+            pass
+
+        def outsider(issue, part):
+            self.say(issue, 'GLM复核助手', part, 'block')
+            self.comments[f'issues/{issue["number"]}/comments'][-1]['author']['is_npc'] = False
+
+        def other_request(issue, part):
+            self.say(issue, 'GLM复核助手', self.request, 'block')
+
+        def other_role(issue, part):
+            self.say(issue, '审查助手', part, 'block')
+
+        def only_pass(issue, part):
+            self.say(issue, 'GLM复核助手', part)
+
+        for report in (nothing, outsider, other_request, other_role, only_pass):
+            with self.subTest(report.__name__):
+                self.issues, self.comments = {}, {}
+                main, parts = self.opened()
+                self.say(main, '审查助手', self.request)
+                for part, issue in parts[1:]:
+                    self.say(issue, 'GLM复核助手', part)
+                old = parts[0][1]
+                report(old, parts[0][0])
+                old['state'] = 'closed'
+                with self.network():
+                    self.assertEqual('pending', reviews.state(self.request))
+                fresh = self.issues[self.listed(self.heal())[0]]
+                self.assertNotEqual(old['number'], fresh['number'])
+                self.assertEqual('closed', old['state'])
+                with self.network():
+                    self.assertEqual('pending', reviews.state(self.request))
+                    self.say(fresh, 'GLM复核助手', parts[0][0])
+                    self.assertEqual('success', reviews.state(self.request))
+
     def test_no_replacement_when_the_diff_is_unreadable_or_the_main_issue_is_closed(self):
         main, parts = self.opened()
         del self.issues[parts[0][1]['number']]

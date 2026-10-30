@@ -111,21 +111,21 @@ def role_reports(request, issue, comments):
 
 
 def result(request, issue, comments, parts=None):
-    """With shard parts, GLM passes only when every shard passed; a blocked shard fails it.
+    """With shard parts, GLM passes only when every open shard passed; a blocked shard fails it, open or closed.
 
-    A missing or closed shard leaves GLM pending until ensure_request replaces it. The main issue never
-    summons GLM, so `parts` of [] must stay here and not fall back to reports on the main issue.
+    Any other missing or closed shard leaves GLM pending until ensure_request replaces it, and a pass on a
+    closed shard does not count. The main issue never summons GLM, so `parts` of [] must stay here and not
+    fall back to reports on the main issue.
     """
     if issue['state'] != 'open':
         return 'failure'
     latest = role_reports(request, issue, comments)
     if parts is not None:
         latest.pop(GLM, None)
-        verdicts = [role_reports(part, found, notes).get(GLM) for part, found, notes in parts
-                    if found['state'] == 'open']
-        if any(value in ('block', 'malformed') for value in verdicts):
+        if shards_blocked(parts):
             latest[GLM] = 'block'
-        elif shards_complete(parts) and all(value == 'pass' for value in verdicts):
+        elif shards_complete(parts) and all(role_reports(part, found, notes).get(GLM) == 'pass'
+                                            for part, found, notes in parts if found['state'] == 'open'):
             latest[GLM] = 'pass'
     if any(value in ('block', 'malformed') for value in latest.values()):
         return 'failure'
@@ -163,6 +163,12 @@ def shard_parts(request, issue, signed=True):
         if isinstance(part, dict) and isinstance(part.get('shard'), dict) and unsharded(part) == request:
             parts.append((part, detail, list(pages(f'{CNB}/issues/{number}/comments'))))
     return parts
+
+
+def shards_blocked(parts, state=None):
+    """True when a shard, or only those in `state`, holds a GLM block or malformed report."""
+    return any(role_reports(part, found, notes).get(GLM) in ('block', 'malformed')
+               for part, found, notes in parts if state in (None, found['state']))
 
 
 def shards_complete(parts):
@@ -343,11 +349,14 @@ def shard_notice(numbers):
 def heal_shards(request, issue, title, url):
     """Replace missing or closed shards of an open review, as a deleted main review is reopened on the next run.
 
-    A closed shard is left closed, like any manual closure, and surviving shards keep their reports. With no
-    groups (git cannot read the diff) nothing changes and GLM stays pending for the next run to retry.
+    A closed shard is left closed, like any manual closure, and surviving shards keep their reports. Closing a
+    shard cannot shed its block: nothing is replaced then, and GLM stays blocked until the head changes. A pass
+    on a closed shard is reviewed again. With no groups (git cannot read the diff) nothing changes and GLM stays
+    pending for the next run to retry.
     """
     parts = shard_parts(request, issue)
-    if parts is None or issue['state'] != 'open' or shards_complete(parts):
+    if (parts is None or issue['state'] != 'open' or shards_complete(parts)
+            or shards_blocked(parts, 'closed')):
         return issue
     groups = shards(request)
     if not groups:
