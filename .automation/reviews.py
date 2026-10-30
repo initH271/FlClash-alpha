@@ -1,6 +1,8 @@
 import hashlib
 import json
+import os
 import re
+import subprocess
 import sys
 import time
 
@@ -19,6 +21,7 @@ SHARD_NOTICE = re.compile(r'GLM复核助手按文件分片审核：[^\n]*\n<!-- 
 CI_PIPELINES = ('Dependency vulnerability gate', 'Automation unit tests', 'Go dependency regression tests',
                 'Flutter and Android requirement tests', 'Rust dependency regression tests')
 NOTICE = re.compile(r'<!-- flclash-review-notice (\d+) -->')
+SNAPSHOT = re.compile(r'<!-- flclash-review-snapshot (\{[^\r\n]+\}) -->')
 CI_GRACE_SECONDS = 80 * 60
 # Tool calls a reviewer may spend per summon. A budget written only in the prompt has not
 # stopped GLM, so progress is also posted per event instead of relying on the count alone.
@@ -556,6 +559,54 @@ def withhold(pull):
             'state': 'success', 'context': CI_GRACE, 'description': 'Every pull_request pipeline has settled'})
 
 
+def patch_id(base, head):
+    """Fingerprint the pull's own change, merge-base..head, which a base that only moves forward leaves alone."""
+    found = git('merge-base', base, head, check=False)
+    if found.returncode:
+        return None
+    diff = git('diff', '--binary', '--no-renames', '--no-color', '--no-ext-diff',
+               found.stdout.strip(), head, check=False)
+    if diff.returncode or not diff.stdout.strip():
+        return None
+    out = subprocess.run(['git', 'patch-id', '--stable'], input=diff.stdout,
+                         text=True, capture_output=True, check=False)
+    return out.stdout.split()[0] if not out.returncode and out.stdout.strip() else None
+
+
+def _owner_payload(pattern, item):
+    author = item.get('author') or {}
+    match = pattern.search(item.get('body', ''))
+    if not match or author.get('username') != POLICY['approver'] or author.get('is_npc') is not False:
+        return None
+    try:
+        envelope = json.loads(match[1])
+        # The CNB gate runs without the key and, as with request_from(signed=False), trusts the owner author.
+        return verify(envelope) if os.environ.get('UPSTREAM_APPROVAL_KEY') else envelope['payload']
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
+def snapshot(request, comments):
+    """The latest gate conclusion the controller recorded on a review Issue: pass, block or None."""
+    verdict = None
+    for comment in sorted(comments, key=lambda c: (c.get('created_at', ''), str(c.get('id', '')))):
+        payload = _owner_payload(SNAPSHOT, comment)
+        if isinstance(payload, dict) and payload.get('request') == identity(request):
+            verdict = payload.get('verdict')
+    return verdict
+
+
+def remember(request, issue, comments, status):
+    """Record each change of a review's gate conclusion, so a later base can reuse it after the Issue closes."""
+    latest = snapshot(request, comments)
+    verdict = {'success': 'pass', 'failure': 'block'}.get(status, 'block' if latest == 'pass' else None)
+    if verdict is None or verdict == latest:
+        return
+    payload = {'request': identity(request), 'verdict': verdict}
+    api(f'{CNB}/issues/{issue["number"]}/comments', 'POST', {'work_mode': False, 'body': (
+        f'<!-- flclash-review-snapshot {json.dumps(sign(payload))} -->\n门禁结论记录：{verdict}')})
+
+
 def reconcile():
     close_finished_reviews()
     github_results = {}
@@ -588,6 +639,7 @@ def reconcile():
             comments = list(pages(f'{CNB}/issues/{issue["number"]}/comments'))
             parts = shard_parts(request, issue)
             status = result(request, issue, comments, parts)
+            remember(request, issue, comments, status)
             if issue['state'] == 'open':
                 reconsider(request, issue, comments)
                 for part in parts or ():
