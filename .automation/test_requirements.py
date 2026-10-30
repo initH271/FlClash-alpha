@@ -167,11 +167,12 @@ class RequirementTests(unittest.TestCase):
         calls = []
 
         def git(*args, check=True):
+            # Mirror control.git: check=True returns stripped stdout, check=False the process result.
             calls.append(args)
-            if args[0] == 'merge-tree':
-                return type('Done', (), {'returncode': 0, 'stdout': 'tree-1\nextra\n'})()
-            return type('Done', (), {'returncode': 0,
-                                     'stdout': 'new-commit\n' if args[0] == 'commit-tree' else ''})()
+            stdout = {'merge-tree': 'tree-1\nextra\n', 'commit-tree': 'new-commit\n'}.get(args[0], '')
+            if check:
+                return stdout.strip()
+            return type('Done', (), {'returncode': 0, 'stdout': stdout})()
         with (patch.object(control, 'api', return_value={'object': {'sha': 'm' * 40}}),
               patch.object(control, 'git', side_effect=git), patch.object(control, 'comment') as note,
               patch.object(control, 'sync_branch') as push):
