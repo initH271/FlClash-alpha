@@ -34,7 +34,7 @@ CHECK_RUNNING = ('queued', 'in_progress', 'waiting', 'requested', 'pending')
 WAITING = object()
 # Tool calls a reviewer may spend per summon. A budget written only in the prompt has not
 # stopped GLM, so progress is also posted per event instead of relying on the count alone.
-BUDGET = {'review': 40, 'reconsider': 12}
+BUDGET = {'review': 40, 'reconsider': 12, 'resend': 4}
 PROGRESS = 'FLCLASH_PROGRESS'
 EVIDENCE_RULES = (
     '每条阻断项都要附原文：用 `git show <head>:<路径>` 读出，写成 `路径:起止行号`，下面原样粘贴不超过 15 行，不改写。'
@@ -513,7 +513,7 @@ def _owner_comment(comments, marker):
 
 
 def reconsider(request, issue, comments):
-    from npc_recovery import latest_attempts
+    from npc_recovery import FINISHED, latest_attempts
     latest = role_reports(request, issue, comments)
     attempts = latest_attempts(issue, comments)
     for role, status in latest.items():
@@ -523,7 +523,7 @@ def reconsider(request, issue, comments):
         if status == 'block' and latest.get(other) != 'pass':
             continue
         attempt = attempts.get(role)
-        if attempt and api(f'{CNB}/build/status/{attempt[1]["sn"]}')['status'] not in ('success', 'error', 'failure'):
+        if attempt and api(f'{CNB}/build/status/{attempt[1]["sn"]}')['status'] not in FINISHED:
             continue
         sample = json.dumps({'request': identity(request), 'verdict': 'pass', 'blockers': 0})
         reconsidered = _owner_comment(comments, _checkpoint(request, role, 'reconsider'))
