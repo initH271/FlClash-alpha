@@ -246,7 +246,9 @@ def validate_source(check_reviews=True):
     main = api(f'{GH}/git/ref/heads/main')['object']['sha']
     if head == main:
         return None
-    candidate = verify(json.loads((ROOT / '.automation/candidate.json').read_text()))
+    candidate = active_candidate()
+    if not candidate:
+        raise ValueError('Source is not main and carries no approved candidate')
     if candidate['tree'] != source_tree() or candidate['base'] != main:
         raise ValueError('Candidate changed or main advanced; review/rebase required')
     detail = api(f'{CNB}/issues/{candidate["issue"]}')
@@ -259,6 +261,48 @@ def validate_source(check_reviews=True):
         from reviews import require_candidate
         require_candidate(head, main)
     return candidate
+
+
+def active_candidate(released=False):
+    """Return the signed candidate on disk, or None once it is finished; any doubt keeps it active.
+
+    Finished means its upgrade issue is closed, or (unless the caller is finishing a release) its upstream
+    commit is in main and the version in release.json, which names that upstream, is published as a
+    non-draft release. The file stays on main until the next prepare_candidate overwrites it.
+    """
+    path = ROOT / '.automation/candidate.json'
+    if not path.exists():
+        return None
+    candidate = verify(json.loads(path.read_text()))
+    try:
+        issue = api(f'{CNB}/issues/{candidate["issue"]}', missing=True)
+        if issue and issue['state'] == 'closed':
+            return None
+        if released or not issue:
+            return candidate
+        request = parse_request(issue['body'])
+        metadata = json.loads((ROOT / '.github/release.json').read_text())
+        if (not request or request['sha'] != candidate['upstream_sha']
+                or metadata.get('upstreamVersion') != request['tag'].removeprefix('v')):
+            return candidate
+        main = api(f'{GH}/git/ref/heads/main')['object']['sha']
+        if git('merge-base', '--is-ancestor', candidate['upstream_sha'], main, check=False).returncode:
+            return candidate
+        release = api(f'{GH}/releases/tags/{release_identity(metadata)["tag"]}', missing=True)
+    except (HttpStatusError, ValueError, KeyError, TypeError):
+        return candidate
+    return None if release and release.get('draft') is False else candidate
+
+
+def adopt_owner_merge(sha, branch, number):
+    """The owner merged the approved upstream into main by hand: prepare on top of the conflict branch."""
+    request = parse_request(api(f'{CNB}/issues/{number}')['body'])
+    git('fetch', 'origin', 'main')
+    if (not request or request.get('upstream') != POLICY['upstream']
+            or git('merge-base', '--is-ancestor', request['sha'], 'origin/main', check=False).returncode
+            or upstream_commit(request['tag']) != request['sha']):
+        return
+    prepare_candidate(request, number, branch, previous=sha)
 
 
 def approvals():
@@ -300,11 +344,14 @@ def resume_candidate(sha, branch, number):
     if git('rev-parse', 'HEAD') != sha:
         print('Candidate branch advanced while fetching; retry next controller pass')
         return
-    if not (ROOT / '.automation/candidate.json').exists():
+    path = ROOT / '.automation/candidate.json'
+    candidate = active_candidate()
+    own = path.exists() and verify(json.loads(path.read_text()))['issue'] == str(number)
+    # Only a conflict branch is adopted. It may inherit the finished candidate main keeps until the next prepare.
+    if (ROOT / 'UPSTREAM_REVIEW.md').exists() and not candidate and not own:
+        adopt_owner_merge(sha, branch, number)
         return
-    envelope = json.loads((ROOT / '.automation/candidate.json').read_text())
-    candidate = verify(envelope)
-    if candidate['issue'] != str(number):
+    if not candidate or not own:
         return
     main = api(f'{GH}/git/ref/heads/main')['object']['sha']
     if candidate['base'] != main:
@@ -366,6 +413,25 @@ def commit_candidate(branch, base, previous=None):
         git('checkout', '-B', branch, sha)
 
 
+def listed(paths, limit=10):
+    rows = ''.join(f'\n- `{p}`' for p in paths[:limit])
+    return rows + (f'\n- 另有 {len(paths) - limit} 个未列出' if len(paths) > limit else '')
+
+
+def ask_owner_merge(request, number, branch, url, conflicts, protected):
+    """Hand a conflicting upgrade to the owner, once per approved upstream commit; no NPC can merge it."""
+    stamp = '<!-- flclash-owner-merge ' + json.dumps(sign({'issue': str(number), 'upstream_sha': request['sha']})) + ' -->'
+    if any(stamp in c.get('body', '') for c in pages(f'{CNB}/issues/{number}/comments')):
+        return
+    conflicts = sorted(set(conflicts))
+    protected = sorted(set(protected) - set(conflicts))
+    comment(number, f'上游 {request["tag"]} 自动合并已停止：有 {len(conflicts)} 个冲突文件和 {len(protected)} 个受保护文件，'
+            '需要 owner 人工合并上游。\n\n冲突文件：' + (listed(conflicts) or '无') + '\n\n受保护文件：' + (listed(protected) or '无')
+            + f'\n\n请把上游提交 `{request["sha"]}` 合进 main，`.automation/policy.json` 和 `.github/release.json` 留给控制器写入，'
+            f'步骤见 AUTOMATION.md 的 Conflicting upstream upgrades 一节。合进 main 后在本 Issue 回复 OK，控制器会在升级分支 `{branch}` 上'
+            f'准备候选并发版，记录冲突的草稿 PR {url} 继续沿用。\n\n' + stamp)
+
+
 def prepare_candidate(request, number, branch, previous=None):
     from reviews import reconcile
     git('fetch', 'origin', 'main')
@@ -395,8 +461,7 @@ def prepare_candidate(request, number, branch, previous=None):
                  'title': f'跟进上游 {request["tag"]}：需要处理合并冲突',
                  'body': f'Owner approved CNB Issue #{number}. No automatic merge: inspect UPSTREAM_REVIEW.md.'})
         sync_branch(branch)
-        comment(number, f'自动合并已停止，待处理 PR：{pr["html_url"]}\n升级分支：`{branch}`。\n\n'
-                '@507space/FlClash-alpha(开发助手) 请在指定升级分支解决冲突并提交 CNB PR，保留个人功能；不要直接修改 main 或发布。', True)
+        ask_owner_merge(request, number, branch, pr['html_url'], conflicts, protected)
         return
     release = next_release(json.loads((ROOT / '.github/release.json').read_text()),
                           upstream=request['tag'].removeprefix('v'))
@@ -451,9 +516,9 @@ def close_published_failures():
 
 
 def notify_release():
-    candidate_path = ROOT / '.automation/candidate.json'
-    if candidate_path.exists():
-        candidate = verify(json.loads(candidate_path.read_text()))
+    # The release just went out, so only a closed issue marks this candidate as finished here.
+    candidate = active_candidate(released=True)
+    if candidate:
         issue = api(f'{CNB}/issues/{candidate["issue"]}')
         if issue['state'] == 'open':
             comment(candidate['issue'], '测试、构建和固定签名检查通过，新版已发布到 GitHub，CNB 正在同步。手机更新请自行确认安装。')
