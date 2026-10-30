@@ -152,8 +152,43 @@ void main() {
     commit('fix: hidden\n\nChangelog: skip');
 
     final notes = generate(version: '0.8.98', build: 2026094002).stdout;
-    expect(notes, contains('本版没有用户可见的变化。'));
+    expect(notes, contains('这版主要在幕后拧螺丝，你什么都不用做，照常用就好。'));
     expect(notes, isNot(contains('hidden')));
+  });
+
+  test('internal scopes, skips and trailers decide what ships', () {
+    commit('feat: seed');
+    tag('alpha-0.8.98-2026094001');
+    commit('feat(automation): lock main while releasing');
+    commit('fix(ci): rerun after a timeout');
+    commit('fix(automation): keep the tray quiet\n\nChangelog: 托盘不再乱闪');
+    commit('fix(app): cover empty scans\n\nChangelog: skip');
+
+    final notes = generate(version: '0.8.98', build: 2026094002).stdout;
+    expect(notes, contains('托盘不再乱闪'));
+    expect(notes, isNot(contains('Lock main')));
+    expect(notes, isNot(contains('Rerun')));
+    expect(notes, isNot(contains('empty scans')));
+  });
+
+  test('an entry without copy is flagged in the notes, not the payload', () {
+    commit('feat: seed');
+    tag('alpha-0.8.98-2026094001');
+    commit('fix(core): keep sockets protected');
+    final result = AlphaReleaseNotes.generate(
+      root: repo.path,
+      version: '0.8.98',
+      build: 2026094002,
+    );
+    final marker = RegExp(r'<!-- changelog:needs-copy [0-9a-f]{7} -->');
+
+    expect(result.notes, contains('- **core** Keep sockets protected\n'));
+    expect(marker.allMatches(result.notes), hasLength(1));
+    expect(result.warnings, anyElement(contains('no "Changelog:" trailer')));
+    final payload = result.notes.split('<!-- flclash:changelog:json').last;
+    expect(payload, isNot(contains('needs')));
+    final version = app.parseReleaseChangelog(result.notes)!;
+    expect(version.groups.single.entries.single.text, 'Keep sockets protected');
   });
 
   test('merge commits do not duplicate their branch commits', () {
@@ -385,7 +420,7 @@ void main() {
 
     final notes = generate(version: '0.8.98', build: 2026094002).stdout;
     expect(notes, startsWith('FlClash-alpha 0.8.98（构建 2026094002）'));
-    expect(notes, contains('本版没有用户可见的变化。'));
+    expect(notes, contains('这版主要在幕后拧螺丝，你什么都不用做，照常用就好。'));
   });
 
   test(

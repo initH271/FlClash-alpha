@@ -52,73 +52,59 @@ class SecurityFinishTests(unittest.TestCase):
         with patch.object(finish, 'api', return_value=checks):
             self.assertFalse(finish.passed_checks('1'))
 
-    def test_timed_out_gate_is_ignored_only_after_the_review_passed(self):
-        checks = {'statuses': [{'state': 'success', 'context': 'cnb/pipeline(' + name + ')'} for name in finish.CHECKS]
-                  + [{'state': 'error', 'context': 'cnb/pipeline-9(Paired review gate)'}]}
-        with patch.object(finish, 'api', return_value=checks), patch.object(finish, 'state', return_value='failure'):
-            self.assertFalse(finish.passed_checks('1', {'base': 'a', 'head': 'b'}))
-        with patch.object(finish, 'api', return_value=checks), patch.object(finish, 'state') as review:
-            self.assertFalse(finish.passed_checks('1'))
-            review.assert_not_called()
-
-    def late_review(self, *, review, gates=('error',), green=(), sha='c' * 40, merge=0):
-        """`green` successes plus one review gate per entry in `gates`; state() answers `review`."""
-        checks = {'sha': sha, 'statuses': [{'state': 'success', 'context': c} for c in green]
+    def verified(self, *, native=finish.NATIVE_CHECKS, gates=(), sha='c' * 40, merge=0, tree='tree-new'):
+        """`native` successes, one gate row per entry in `gates`; the merge-tree writes `tree`."""
+        checks = {'sha': sha, 'statuses': [{'state': 'success', 'context': 'cnb/pipeline(' + name + ')'}
+                                           for name in native]
                   + [{'state': gate, 'context': 'cnb/pipeline-9(Paired review gate)'} for gate in gates]}
-        tree = types.SimpleNamespace(returncode=merge, stdout='tree-new\n' if not merge else '\n')
-        with (patch.object(finish, 'api', return_value=checks), patch.object(finish, 'state', return_value=review),
-              patch.object(finish, 'git', side_effect=['', tree, 'tree-new'])):
+        merged = types.SimpleNamespace(returncode=merge, stdout=('' if merge else tree) + '\n')
+        with patch.object(finish, 'api', return_value=checks), patch.object(finish, 'git',
+                side_effect=['', merged, 'tree-new']):
             return finish.passed_checks('1', {'base': 'a' * 40, 'head': 'b' * 40})
 
-    def test_late_paired_review_passes_after_the_gate_timed_out(self):
-        self.assertTrue(self.late_review(review='success', green=finish.NATIVE_CHECKS))
+    def test_the_review_gate_row_never_decides_what_was_verified(self):
+        self.assertTrue(self.verified())
+        for gate in ('pending', 'error', 'failure', 'success'):
+            self.assertTrue(self.verified(gates=(gate,)), gate)
+        self.assertTrue(self.verified(gates=('error', 'pending')))
 
-    def test_late_review_still_requires_every_native_check_and_the_gate(self):
+    def test_every_native_check_and_the_tree_are_still_required(self):
         for missing in finish.NATIVE_CHECKS:
-            green = [c for c in finish.NATIVE_CHECKS if c != missing]
-            self.assertFalse(self.late_review(review='success', green=green))
-        for review in ('pending', 'failure'):
-            self.assertFalse(self.late_review(review=review, green=finish.NATIVE_CHECKS))
-        self.assertFalse(self.late_review(review='success', green=finish.NATIVE_CHECKS, gates=('pending',)))
-        checks = {'sha': 'c' * 40, 'statuses': []}
-        with (patch.object(finish, 'api', return_value=checks),
-              patch.object(finish, 'state', return_value='success')):
-            self.assertFalse(finish.passed_checks('1', {'base': 'a' * 40, 'head': 'b' * 40}))
-        self.assertFalse(self.late_review(review='success', green=finish.NATIVE_CHECKS, sha='not-a-sha'))
-        self.assertFalse(self.late_review(review='success', green=finish.NATIVE_CHECKS, merge=1))
+            native = [c for c in finish.NATIVE_CHECKS if c != missing]
+            self.assertFalse(self.verified(native=native), missing)
+        self.assertFalse(self.verified(sha='not-a-sha'))
+        self.assertFalse(self.verified(merge=1))
+        self.assertFalse(self.verified(tree='tree-old'))
 
-    def test_a_timed_out_gate_does_not_hide_a_second_gate_still_running(self):
-        for gates in (('error', 'pending'), ('error', 'failure', 'pending'), ('pending', 'error')):
-            self.assertFalse(self.late_review(review='success', green=finish.NATIVE_CHECKS, gates=gates))
-        for review in ('pending', 'failure'):
-            self.assertFalse(self.late_review(review=review, green=finish.NATIVE_CHECKS,
-                                              gates=('error', 'pending')))
-
-    def test_repeated_gate_failures_are_never_replaced_by_one_review(self):
-        for gates in (('error', 'error'), ('cancel', 'failure')):
-            self.assertFalse(self.late_review(review='success', green=finish.NATIVE_CHECKS, gates=gates))
-
-    def test_a_gate_that_already_passed_needs_no_late_review(self):
-        self.assertTrue(self.late_review(review='success', green=finish.NATIVE_CHECKS, gates=('success',)))
-
-    def test_other_gating_statuses_still_block_a_late_review(self):
-        failed = 'cnb/pipeline-8(Dependency vulnerability gate)'
-        for state in ('error', 'failure', 'pending'):
+    def test_a_pending_or_failed_native_check_still_blocks(self):
+        for state in ('pending', 'error', 'failure'):
             checks = {'sha': 'c' * 40, 'statuses': [
-                {'state': 'success', 'context': c} for c in finish.NATIVE_CHECKS]
-                + [{'state': state, 'context': failed},
+                {'state': 'success', 'context': c} for c in finish.NATIVE_CHECKS[1:]]
+                + [{'state': state, 'context': 'cnb/pipeline-8(' + finish.NATIVE_CHECKS[0] + ')'},
                    {'state': 'error', 'context': 'cnb/pipeline-9(Paired review gate)'}]}
-            with (patch.object(finish, 'api', return_value=checks),
-                  patch.object(finish, 'state', return_value='success'), patch.object(finish, 'git')):
+            with (patch.object(finish, 'api', return_value=checks), patch.object(finish, 'git')):
                 self.assertFalse(finish.passed_checks('1', {'base': 'a' * 40, 'head': 'b' * 40}))
 
-    def test_a_failed_gate_never_stands_in_for_a_review_that_never_started(self):
-        request = {'base': 'a' * 40, 'head': 'b' * 40}
-        checks = {'state': 'success', 'statuses': [
-            {'state': 'success', 'context': 'cnb/pipeline(' + name + ')'} for name in finish.CHECKS]}
-        with (patch.object(finish, 'api', return_value=checks), patch.object(finish, 'state', return_value='success'),
-              patch.object(finish, 'git', side_effect=['', types.SimpleNamespace(returncode=0, stdout='tree-new\n')])):
-            self.assertFalse(finish.passed_checks('1', request))
+    def test_an_unsettled_non_native_check_blocks_even_when_every_native_check_passed(self):
+        # CHECKS <= names already holds here, so only the every-row-succeeded clause can refuse.
+        for state in ('pending', 'error'):
+            checks = {'sha': 'c' * 40, 'statuses': [
+                {'state': 'success', 'context': 'cnb/pipeline(' + name + ')'} for name in finish.NATIVE_CHECKS]
+                + [{'state': state, 'context': 'cnb/pipeline-4(Automation unit tests)'}]}
+            with self.subTest(state=state), patch.object(finish, 'api', return_value=checks), \
+                    patch.object(finish, 'git', side_effect=AssertionError('no tree check after a red row')):
+                self.assertFalse(finish.passed_checks('1'))
+                self.assertFalse(finish.passed_checks('1', {'base': 'a' * 40, 'head': 'b' * 40}))
+
+    def test_passed_checks_reads_the_review_verdict_nowhere(self):
+        checks = {'sha': 'c' * 40, 'statuses': [
+            {'state': 'success', 'context': 'cnb/pipeline(' + name + ')'} for name in finish.NATIVE_CHECKS]}
+        merged = types.SimpleNamespace(returncode=0, stdout='tree-new\n')
+        with (patch.object(finish, 'api', return_value=checks), patch.object(finish, 'state') as review,
+              patch.object(finish, 'git', side_effect=['', merged, 'tree-new'])):
+            self.assertTrue(finish.passed_checks('1', {'base': 'a' * 40, 'head': 'b' * 40}))
+            self.assertTrue(finish.passed_checks('1'))
+            review.assert_not_called()
 
     def test_old_ci_tree_is_not_valid_for_current_merge(self):
         checks = {'state': 'success', 'sha': 'c' * 40, 'statuses': [
