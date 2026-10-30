@@ -2,44 +2,33 @@
 
 **English** · [简体中文](translations/README_zh_CN.md)
 
-A FlClash fork focused on persistent diagnostic logs, in-app updates, and dual-channel releases, based on [chen08209/FlClash](https://github.com/chen08209/FlClash).
+FlClash-alpha is an independently maintained fork of [chen08209/FlClash](https://github.com/chen08209/FlClash). It is not an official upstream distribution. Prebuilt packages target **Android ARM64** and follow upstream stable releases.
 
-This is an independently maintained fork, not an official upstream distribution. Prebuilt packages currently target **Android ARM64**.
+## How it differs from the official app
 
-## Download and source
+- **Persistent diagnostics:** logs are kept on disk across restarts and can be exported in one step for troubleshooting.
+- **Dual-channel releases:** builds are published to both GitHub and CNB with a fixed signing key. The app checks both channels, verifies the package and signature, and updates in place.
+- **Network-aware automation:** the proxy can pause and resume automatically depending on the network you are on.
+
+## Download
 
 | Channel | Source | Download |
 | --- | --- | --- |
 | GitHub | [FlClash-alpha](https://github.com/initH271/FlClash-alpha) | [Latest release](https://github.com/initH271/FlClash-alpha/releases/latest) |
 | CNB | [FlClash-alpha](https://cnb.cool/507space/FlClash-alpha) | [Latest APK](https://cnb.cool/507space/FlClash-alpha/-/releases/latest/download/FlClash-alpha-arm64-v8a.apk) |
 
-Both channels publish identical APK bytes signed with the same personal key. Releases include `SHA256SUMS.txt`.
+Both channels publish identical APK bytes signed with the same key. Releases include `SHA256SUMS.txt`.
 
-## Enhancements
+## Install and upgrade
 
-- **Rolling log files:** core and APP logs each retain up to ten 5 MiB files across restarts. The live view keeps its 5,000-entry limit independently of disk history.
-- **One complete export:** export all retained core logs, APP logs and a recent UI snapshot. Expired files and records from before installation cannot be recovered.
-- **Two update channels:** check GitHub and CNB concurrently, prefer the newest build, then choose the faster reachable mirror for equal versions. Failed downloads can fall back to the other mirror.
-- **In-app updates:** download with progress, verify the checksum, package, build and signing certificate, then tap Install update to open Android's confirmation screen.
-- **Approved upstream tracking:** new stable upstream releases create decision Issues and NPC analysis. Owner approval gates integration, testing, builds and publication.
+- The application ID is `com.follow.clash.dev`. It has a different identity from the official package, so the two cannot overwrite each other.
+- Releases use a fixed signing key, so a new version installs over the old one and keeps your data.
+- Install the APK manually the first time; after that, check for updates inside the app. Android will ask you to allow installing unknown apps.
+- To migrate from the official app, use backup import and grant VPN and other system permissions again.
 
-## Network tools
+## Reporting issues
 
-The dashboard editor also offers compact speed, connection count, IPv6, keep-awake, DNS/sniffer/NTP overrides, providers, FCM observations, a loopback web dashboard, service checks and a start/stop tile. Existing layouts are retained; add these tiles through the dashboard editor.
-
-Tools → Network tools configures local IPv4/CIDR and `gateway:` matching for automatic pause/resume and UDP/443 rejection. Manual stop takes priority; automation resumes only sessions it paused. Features are disabled by default. Configuration overlays affect the generated running profile rather than rewriting subscription files.
-
-Service checks run only when requested and can be cancelled. Their results are connectivity probes and regional estimates, not guarantees of account access. Profile/proxy changes invalidate previous results. The web dashboard requires explicit loopback-controller activation and downloads its UI from GitHub. Android background behavior still requires device acceptance.
-
-## Installation and upgrades
-
-The application ID is `com.follow.clash.dev`. Builds use a fixed personal signing key, so subsequent releases can update the installed fork while preserving data. Its identity differs from the official upstream package.
-
-Install an APK manually once when starting or upgrading from a version without the in-app installer. Afterwards, use About → Check for updates. Startup checks also download new releases when automatic update checks are enabled.
-
-Android may ask you to allow this app to install unknown apps. Return after granting access and confirm installation in the system installer. The app does not bypass Android confirmation for silent installation. Closing the update window cancels an unfinished download; verified packages are cached for reuse.
-
-The upstream backup format is retained. Migrate official-app settings through backup import and regrant system permissions such as VPN access. Export important logs before uninstalling or clearing application data.
+Open an issue on [CNB Issues](https://cnb.cool/507space/FlClash-alpha/-/issues) using the Bug form. Before pasting logs, remove subscription links, tokens, node addresses and other personal information.
 
 ## Development and maintenance
 
@@ -49,15 +38,11 @@ The upstream backup format is retained. Migrate official-app settings through ba
 - [CNB development environment](CNB_DEVELOPMENT.md)
 - [Build and test commands](.agents/commands.md)
 
-GitHub is the primary build and signing platform; CNB mirrors the same artifact. Recovery prioritizes artifact reuse. Signing keys and automation credentials are not committed.
-
-Report issues through [CNB Issues](https://cnb.cool/507space/FlClash-alpha/-/issues). Review and redact subscriptions, credentials and personal information before sharing logs.
+GitHub builds and signs releases; CNB mirrors the same artifact. Signing keys and automation credentials are not committed.
 
 ## Attribution and license
 
-Upstream: [chen08209/FlClash](https://github.com/chen08209/FlClash). Thanks to the original author, June2, Arue, and all upstream contributors. This fork's log, update and maintenance enhancements are maintained by Aharon (initH271).
-
-Service-probe and result-model code is adapted from [Bettbox v1.19.4](https://github.com/appshubcc/Bettbox/tree/45d6fd3781a20bc7639cb7788b542e0cba1ec3af), retaining GPL-3.0 licensing and attribution. Runtime and UI integration follow this fork’s own architecture.
+Upstream: [chen08209/FlClash](https://github.com/chen08209/FlClash). Thanks to the original author, June2, Arue, and all upstream contributors. This fork is maintained by Aharon (initH271).
 
 The project retains the **GNU General Public License v3 (GPL-3.0)**. See [LICENSE](LICENSE) for the complete terms. Use, modifications and redistribution must comply with the license and preserve required copyright and license notices. The software is provided without warranty as specified by the license.
 
