@@ -158,8 +158,8 @@ def in_progress(number, tag):
         return True
     if api(f'{GH}/git/ref/heads/automation/upstream-{tag}', missing=True):
         return True
-    path = ROOT / '.automation/candidate.json'
-    return path.exists() and verify(json.loads(path.read_text())).get('issue') == str(number)
+    candidate = active_candidate()
+    return bool(candidate) and candidate.get('issue') == str(number)
 
 
 def supersede_older(tag, new_number):

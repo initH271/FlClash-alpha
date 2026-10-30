@@ -14,11 +14,12 @@ RELEASE = {'tag_name': 'v9.0.0', 'draft': False, 'prerelease': False, 'html_url'
 class Fake:
     """Stands in for control.api and control.pages with their real signatures."""
 
-    def __init__(self, issues, comments=None, branches=(), branch_error=None):
+    def __init__(self, issues, comments=None, branches=(), branch_error=None, states=None):
         self.issues = issues
         self.comments = comments or {}
         self.branches = set(branches)
         self.branch_error = branch_error
+        self.states = states or {}
         self.writes = []
 
     def api(self, url, method='GET', data=None, missing=False, timeout=60):
@@ -30,6 +31,8 @@ class Fake:
             if self.branch_error:
                 raise self.branch_error
             return {'object': {'sha': 'b' * 40}} if url.rsplit('/heads/', 1)[1] in self.branches else None
+        if method == 'GET' and '/issues/' in url and url.rsplit('/', 1)[1] in self.states:
+            return {'state': self.states[url.rsplit('/', 1)[1]], 'body': ''}
         self.writes.append((method, url, data))
         return {'number': 900} if url.endswith('/issues') and method == 'POST' else None
 
@@ -90,6 +93,13 @@ class SupersedeTests(unittest.TestCase):
         fake = Fake([old(5, 'v1.0.0')])
         self.run_watch(fake)
         self.assertEqual([], fake.closed())
+
+    def test_finished_candidate_does_not_keep_its_issue(self):
+        # active_candidate() returns None once the upgrade issue is closed.
+        self.candidate(5)
+        fake = Fake([old(5, 'v1.0.0')], states={'5': 'closed'})
+        self.run_watch(fake)
+        self.assertEqual(['5'], fake.closed())
 
     def test_higher_version_untouched(self):
         fake = Fake([old(5, 'v9.0.1'), old(6, 'v10.0.0')])
