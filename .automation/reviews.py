@@ -591,25 +591,42 @@ def reused_from(request, issue):
     return payload if isinstance(payload, dict) and payload.get('request') == identity(request) else None
 
 
-def snapshot(request, comments):
-    """The latest gate conclusion the controller recorded on a review Issue: pass, block or None."""
-    verdict = None
+def _record(request, comments):
+    """The latest signed conclusion the controller recorded on a review Issue, or None."""
+    record = None
     for comment in sorted(comments, key=lambda c: (c.get('created_at', ''), str(c.get('id', '')))):
         payload = _owner_payload(SNAPSHOT, comment)
         if isinstance(payload, dict) and payload.get('request') == identity(request):
-            verdict = payload.get('verdict')
-    return verdict
+            record = payload
+    return record
 
 
-def remember(request, issue, comments, status):
-    """Record each change of a review's gate conclusion, so a later base can reuse it after the Issue closes."""
+def snapshot(request, comments):
+    """The latest gate conclusion the controller recorded on a review Issue: pass, block or None."""
+    return (_record(request, comments) or {}).get('verdict')
+
+
+def _shard_numbers(parts):
+    return sorted(str(found['number']) for _, found, _ in parts)
+
+
+def remember(request, issue, comments, status, parts=None):
+    """Record each change of a review's gate conclusion, so a later base can reuse it after the Issue closes.
+
+    `status` already reads the shards when `parts` is given. The record names them, because such a pass rests
+    on their reports and there is none from GLM on the main issue.
+    """
     latest = snapshot(request, comments)
     verdict = {'success': 'pass', 'failure': 'block'}.get(status, 'block' if latest == 'pass' else None)
     if verdict is None or verdict == latest:
         return
     payload = {'request': identity(request), 'verdict': verdict}
+    note = ''
+    if parts is not None:
+        payload['glm_shards'] = _shard_numbers(parts)
+        note = f'（GLM 分片：{"、".join(payload["glm_shards"]) or "无"}）'
     api(f'{CNB}/issues/{issue["number"]}/comments', 'POST', {'work_mode': False, 'body': (
-        f'<!-- flclash-review-snapshot {json.dumps(sign(payload))} -->\n门禁结论记录：{verdict}')})
+        f'<!-- flclash-review-snapshot {json.dumps(sign(payload))} -->\n门禁结论记录：{verdict}{note}')})
 
 
 def _fresh_ci(pull, since):
@@ -636,8 +653,29 @@ def _github_ci(head):
     return bool(counted) and all(state == 'success' for state in counted)
 
 
+def _conclusion(old, issue):
+    """What an earlier round lends to a reuse: its record if nothing contradicts it, else 'block' or None.
+
+    The record is only as new as the last controller run before the head moved, so a block or malformed report
+    posted since, on the main issue or any shard, still counts. A pass has to read back the shards it named: one
+    that was deleted or no longer verifies leaves nothing to rest it on, and the round is not reused.
+    """
+    comments = list(pages(f'{CNB}/issues/{issue["number"]}/comments'))
+    parts = shard_parts(old, issue)
+    latest = role_reports(old, issue, comments)
+    if parts is not None:
+        latest.pop(GLM, None)
+    if shards_blocked(parts or ()) or any(value in ('block', 'malformed') for value in latest.values()):
+        return 'block', None
+    record = _record(old, comments) or {}
+    shards = None if parts is None else _shard_numbers(parts)
+    if record.get('verdict') == 'pass' and record.get('glm_shards') != shards:
+        return None, None
+    return record.get('verdict'), shards
+
+
 def reusable(request, pull):
-    """Return (old request, issue, patch id) of an earlier passing round this scope may reuse, else None."""
+    """Return (old request, issue, patch id, GLM shards) of an earlier passing round to reuse, else None."""
     platform, number = request['platform'], request['number']
     github = platform == 'github'
     path = f'{GH}/issues/{number}/comments' if github else f'{CNB}/pulls/{number}/comments'
@@ -656,12 +694,12 @@ def reusable(request, pull):
     for old, issue in rounds:
         if not current or patch_id(old['base'], old['head']) != current:
             continue
-        verdict = snapshot(old, list(pages(f'{CNB}/issues/{issue["number"]}/comments')))
+        verdict, shards = _conclusion(old, issue)
         if verdict == 'block':
             return None
         if verdict == 'pass' and git('merge-base', '--is-ancestor', old['base'], request['base'],
                                      check=False).returncode == 0:
-            chosen = (old, issue, current)
+            chosen = (old, issue, current, shards)
     if chosen and not (_github_ci(request['head']) if github
                        else _fresh_ci(pull, chosen[1].get('created_at') or '~')):
         return None
@@ -673,11 +711,13 @@ def carry_over(request, pull):
     found = reusable(request, pull)
     if not found:
         return None
-    old, source, digest = found
+    old, source, digest, shards = found
     platform, number = request['platform'], request['number']
     link = f'https://cnb.cool/{POLICY["cnb"]}/-/issues/{source["number"]}'
     payload = {'request': identity(request), 'source': identity(old), 'source_issue': str(source['number']),
                'source_base': old['base'], 'source_head': old['head'], 'patch_id': digest, 'source_patch_id': digest}
+    if shards is not None:
+        payload['source_glm_shards'] = shards
     url = (f'https://github.com/{POLICY["github"]}/pull/{number}' if platform == 'github'
            else f'https://cnb.cool/{POLICY["cnb"]}/-/pulls/{number}')
     body = (f'PR 自动结对审核（沿用）：{url}\n\n'
@@ -685,7 +725,9 @@ def carry_over(request, pull):
             f'<!-- flclash-review-reuse {json.dumps(sign(payload))} -->\n\n'
             f'base 快进到 `{request["base"]}`，head `{request["head"]}` 的补丁 patch-id `{digest}` '
             f'与 {link}（base `{old["base"]}`，head `{old["head"]}`，patch-id `{digest}`）相同，'
-            '那一轮两位审核者都已通过，本轮沿用其结论，不再召唤审核者。'
+            '那一轮两位审核者都已通过'
+            + (f'（GLM 由分片 {"、".join(f"#{n}" for n in shards)} 通过）' if shards else '')
+            + '，本轮沿用其结论，不再召唤审核者，也不开分片。'
             + ('head 上除本门禁外的检查已全部通过。' if platform == 'github'
                else '新 base 上的 pull_request 流水线已全部重跑通过。'))
     issue = api(f'{CNB}/issues', 'POST', {'title': review_title(request, pull['title']), 'body': body,
@@ -730,7 +772,7 @@ def reconcile():
             comments = list(pages(f'{CNB}/issues/{issue["number"]}/comments'))
             parts = shard_parts(request, issue)
             status = result(request, issue, comments, parts)
-            remember(request, issue, comments, status)
+            remember(request, issue, comments, status, parts)
             if issue['state'] == 'open':
                 reconsider(request, issue, comments)
                 for part in parts or ():

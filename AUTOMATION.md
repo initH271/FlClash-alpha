@@ -201,7 +201,10 @@ the earlier round, its base/head and both patch-ids, and passes only if that rou
 conclusion is a double pass, no round with the same patch was recorded as blocked, and CI passed:
 on CNB every pull_request pipeline again, with runs newer than that round; on GitHub at least one
 check run or status besides this gate, all completed with success (skipped/neutral not counted).
-Otherwise the full review runs.
+Otherwise the full review runs. A round GLM passed through shards reuses like any other: its record
+names the shards, and the reuse Issue opens none and needs no GLM report. A block or malformed report
+on the round's main issue or any of its shards, even one posted after the pass was recorded, rules
+out reuse, and so does a recorded shard that can no longer be read back.
 GitHub main requires the FlClash/paired-review status and an up-to-date branch.
 CNB runs no paired-review gate pipeline: the controller reads both reports directly
 and forwards or merges nothing until the review for that base/head passes, so a
