@@ -26,6 +26,12 @@ REVIEW_GATE = 'Paired review gate'
 DEPENDENCY_GATE = 'Go dependency regression tests'
 RESCAN_STAGE = re.compile(r'^Rescan actual versions')
 BUILD_SN = re.compile(r'cnb-[a-z0-9-]+')
+BREAKER = '【熔断】'
+DIGEST_LIMIT = 1500
+DIGEST_FAILED = '日志摘要获取失败'
+DIGEST_HITS = re.compile(r'FAILED|Error|Traceback|aborted')
+SECRET = re.compile(r'(?i)((?:token|secret|password|passwd|authorization|api[_-]?key)["\']?\s*[:=]?\s*)'
+                    r'(?:bearer\s+)?\S+|\b(?:gh[pousr]_|glpat-)[A-Za-z0-9_-]{16,}')
 
 
 def owner(issue):
@@ -156,6 +162,12 @@ def instruction(parsed, rung, phase, tree, log, note, previous, sha=''):
     head = f'`{sha or tree}`' if sha or tree else '不存在（首次派发）'
     lines = [
         f'本轮只用 {rung} 轮。约第 {reserve} 轮起停止扩大调查。',
+        '你看不到自己用了多少轮，预算按能数的次数算：单测本轮最多跑 25 次，调试脚本最多写 5 个；测试逐条加，每加一条跑一次。',
+        f'熔断：同一个测试或同一条检查命令连续失败 3 次，就停止修改，先提交并推送当前进度（允许未完成，不新开 PR），'
+        f'再在需求 Issue #{number} 发阶段评论：第一行写 `{BREAKER}`，写明失败用例名、报错关键行和你的假设，然后结束本轮，由控制器转入诊断。'
+        '单测跑满 25 次或调试脚本写满 5 个时同样处理。',
+        '检查点：每让一组验收条目转绿，就 commit 并 push 一次，不要攒到最后。',
+        '一份需求只做一件事：正文里有「顺带修正」之类的附加项时，先完成主体并提交，附加项放到最后；预算不够就在阶段评论的未完成项里列出，不要硬做。',
         '本条末尾的「不做什么」优先于你的角色设定和一般习惯。',
         f'派发时远端分支头：{head}。开工前 git fetch；分支上已有提交时，先逐条核对验收标准，全部满足就不改代码，直接开 PR。已核实的事实不要重头搜索。',
         '把已改文件提交到指定分支，允许提交尚未完成的进度。每个提交信息末尾单独一段写 `FlClash-Actor: npc/开发助手`。',
@@ -179,7 +191,7 @@ def instruction(parsed, rung, phase, tree, log, note, previous, sha=''):
     if previous:
         lines.append('上一轮阶段评论：\n' + previous[:1500])
     if log:
-        lines.append(f'上一轮没有留下可用进度。先读构建日志：{log}')
+        lines.append(f'上一轮没有留下可用进度。构建日志网页 {log} 在开发环境里打不开，先看本条末尾的日志摘要。')
     if note:
         lines.append(note)
     if phase == 'diagnose':
@@ -189,6 +201,8 @@ def instruction(parsed, rung, phase, tree, log, note, previous, sha=''):
             '不改代码，不推分支，不合并，不发版，不召唤其他 NPC。最多 60 轮。',
             f'验收标准：{parsed["acceptance"]}',
         ]
+        if previous:
+            lines.append('上一档阶段评论：\n' + previous[:1500])
     return '\n'.join(lines)
 
 
@@ -198,7 +212,16 @@ def dispatch_action(parsed, phase, rung, tree, log, note, previous, role, sha=''
             'instruction': instruction(parsed, rung, phase, tree, log, note, previous, sha)}
 
 
-def decide(issue, comments, rows, tree, contained, checks_green, review_failed, review_text, now,
+def decide(issue, comments, rows, *args, **kwargs):
+    action = ladder(issue, comments, rows, *args, **kwargs)
+    if action.get('kind') == 'dispatch' and action['phase'] in ('retry', 'targeted'):
+        # act() turns this into a plain-text digest: the HTML log page is unreadable in the dev workspace.
+        action['sn'] = next((row['sn'] for row in reversed(rows) if row['role'] == '开发助手'
+                             and row.get('signed', True) and BUILD_SN.fullmatch(row['sn'] or '')), '')
+    return action
+
+
+def ladder(issue, comments, rows, tree, contained, checks_green, review_failed, review_text, now,
            has_pull=False, sha='', behind=False, review_only=False, hold='', env_failure=None):
     parsed = parse(issue.get('body', ''))
     parsed['number'] = str(issue['number'])
@@ -274,6 +297,11 @@ def decide(issue, comments, rows, tree, contained, checks_green, review_failed, 
     current = later[-1] if later else None
     if current and current['state'] not in TERMINAL:
         return {'kind': 'wait'}
+    report = reported(comments, last['at'], '开发助手')
+    if (current and BREAKER in report
+            and sum(item.get('phase') == 'diagnose' for item in scoped) < 3):
+        # The developer stopped on its own breaker; another developer round would repeat the same failure.
+        return dispatch_action(parsed, 'diagnose', 60, tree, '', '', report, '审查助手', sha)
     if current and current['state'] == 'success' and tree and not review_failed:
         if not has_pull:
             return {'kind': 'open-pr', 'tree': tree}
@@ -365,6 +393,30 @@ def build_log(sn):
                 continue
             return control.api(f'{CNB}/build/logs/stage/{sn}/{pipeline["id"]}/{stage["id"]}', missing=True) or ''
     return ''
+
+
+def log_digest(sn):
+    """Return the tail and failure lines of a build's stage logs as redacted text, or DIGEST_FAILED."""
+    lines = []
+    try:
+        if BUILD_SN.fullmatch(sn or ''):
+            status = control.api(f'{CNB}/build/status/{sn}', missing=True) or {}
+            for pipeline in (status.get('pipelines') or {}).values():
+                for stage in pipeline.get('stages') or []:
+                    body = control.api(f'{CNB}/build/logs/stage/{sn}/{pipeline["id"]}/{stage["id"]}',
+                                       missing=True) or {}
+                    content = (body.get('data') or {}).get('content') or []
+                    lines += content.splitlines() if isinstance(content, str) else [str(row) for row in content]
+    except (RuntimeError, OSError, ValueError, TypeError, KeyError, AttributeError):
+        return DIGEST_FAILED
+    lines = [SECRET.sub(lambda match: (match[1] or '') + '***', row) for row in lines if row.strip()]
+    if not lines:
+        return DIGEST_FAILED
+    tail = lines[-40:]
+    hits = '\n'.join(dict.fromkeys(row for row in lines[:-40] if DIGEST_HITS.search(row)))[-DIGEST_LIMIT // 2:]
+    room = DIGEST_LIMIT - len(hits) - 3
+    text = '\n'.join(tail)[-room:]
+    return f'{hits}\n…\n{text}' if hits else text
 
 
 def unreachable(pull, statuses):
@@ -481,8 +533,11 @@ def act(issue, action, sha):
         control.comment(number, envelope(payload) + '\n\n' + action['body'])
         return
     role = action['role']
+    text = action['instruction']
+    if action['phase'] in ('retry', 'targeted'):
+        text += '\n上一次开发构建的日志摘要：\n' + log_digest(action.get('sn', ''))
     body = (envelope(payload) + '\n\n'
-            f'@{POLICY["cnb"]}({role}) 分支 `{branch_name(number)}`。\n' + action['instruction'])
+            f'@{POLICY["cnb"]}({role}) 分支 `{branch_name(number)}`。\n' + text)
     control.comment(number, body, action['work_mode'])
 
 
