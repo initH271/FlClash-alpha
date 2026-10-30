@@ -200,6 +200,14 @@ Object? _readSidebarExpanded(Map<dynamic, dynamic> json, String key) {
   return json.containsKey(key) ? json[key] : json['showLabel'];
 }
 
+Object? _readAcceptedDisclaimerVersion(Map<dynamic, dynamic> json, String key) {
+  final version = json[key];
+  if (version is int && version > 0) {
+    return version;
+  }
+  return json['disclaimerAccepted'] == true ? 1 : version;
+}
+
 Object? _readTabAnimation(Map<dynamic, dynamic> json, String key) {
   if (json.containsKey(key)) {
     return json[key];
@@ -262,7 +270,9 @@ abstract class AppSettingProps with _$AppSettingProps {
     @Default(true)
     @JsonKey(readValue: _readSidebarExpanded)
     bool sidebarExpanded,
-    @Default(0) int acceptedDisclaimerVersion,
+    @Default(0)
+    @JsonKey(readValue: _readAcceptedDisclaimerVersion)
+    int acceptedDisclaimerVersion,
     @Default(true) bool minimizeOnExit,
     @Default(false) bool hidden,
     @Default(false) bool developerMode,

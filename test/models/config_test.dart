@@ -254,9 +254,9 @@ void main() {
       ]);
     });
 
-    test('consent saved before the disclaimer was versioned asks again', () {
+    test('consent saved before the disclaimer was versioned is kept', () {
       final restored = AppSettingProps.fromJson({'disclaimerAccepted': true});
-      expect(restored.acceptedDisclaimerVersion, lessThan(disclaimerVersion));
+      expect(restored.acceptedDisclaimerVersion, greaterThan(0));
     });
 
     test('every dashboard widget survives round-trip', () {

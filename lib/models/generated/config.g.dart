@@ -45,7 +45,10 @@ _AppSettingProps _$AppSettingPropsFromJson(
   sidebarExpanded:
       _readSidebarExpanded(json, 'sidebarExpanded') as bool? ?? true,
   acceptedDisclaimerVersion:
-      (json['acceptedDisclaimerVersion'] as num?)?.toInt() ?? 0,
+      (_readAcceptedDisclaimerVersion(json, 'acceptedDisclaimerVersion')
+              as num?)
+          ?.toInt() ??
+      0,
   minimizeOnExit: json['minimizeOnExit'] as bool? ?? true,
   hidden: json['hidden'] as bool? ?? false,
   developerMode: json['developerMode'] as bool? ?? false,
