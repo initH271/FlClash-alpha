@@ -8,6 +8,7 @@ import time
 
 from control import (CI_GRACE, CNB, FETCH_TIMEOUT, GH, GIT_TIMED_OUT, POLICY, all_issues, api, check_name, git,
                      pages, sign, verify)
+import pause
 from review_evidence import describe, repository
 
 CONTEXT = 'FlClash/paired-review'
@@ -889,6 +890,14 @@ def carry_over(request, pull, late=False):
     return _issue(issue['number'])
 
 
+def _on_hold(pull):
+    """True while the owner holds this pull's requirement. Only automation/req-* can be held, so others read nothing."""
+    ref = pull['head']['ref'].removeprefix('refs/heads/')
+    if not ref.startswith('automation/req-'):
+        return False
+    return bool(pause.paused('branch', ref, list(pages(f'{CNB}/issues/{ref.removeprefix("automation/req-")}/comments'))))
+
+
 def _reconcile_pull(platform, listed, github_results):
     # Only the list entry carries `created_at` (CNB's detail has no time field), and
     # `ci_hold` needs it while the head has no status yet.
@@ -921,7 +930,7 @@ def _reconcile_pull(platform, listed, github_results):
     parts = shard_parts(request, issue)
     status = result(request, issue, comments, parts)
     remember(request, issue, comments, status, parts)
-    if issue['state'] == 'open':
+    if issue['state'] == 'open' and not _on_hold(pull):
         reconsider(request, issue, comments)
         for part in parts or ():
             if part[1]['state'] == 'open':

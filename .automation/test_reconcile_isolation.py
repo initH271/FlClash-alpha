@@ -135,3 +135,39 @@ class ReconcileIsolationTests(unittest.TestCase):
         self.assertEqual(['first read', f'{reviews.CNB}/issues/71'], closed)
         self.assertEqual(['1'], server.handled)
         self.assertIn('closing finished reviews', str(raised.exception))
+
+
+class ReconsiderHoldTests(unittest.TestCase):
+    def reconsiders(self, ref, requirement):
+        """How many times one pull's review reaches reconsider in a round, on the head branch `ref`."""
+        item = dict(pull(1, 'b' * 40), head={'sha': 'b' * 40, 'ref': ref})
+        server = Round(github=[item])
+        read = []
+
+        def pages(url, page_key='page', size_key='page_size'):
+            if url.endswith('/comments') and '/issues/' in url:
+                read.append(url)
+                return iter(requirement)
+            return server.pages(url)
+        issue = {'number': '8', 'state': 'open'}
+        with (patch.object(reviews, 'api', side_effect=server.api), patch.object(reviews, 'pages', side_effect=pages),
+              patch('security_finish.mirror_attestation', return_value=None),
+              patch('security_finish.mirror_record', return_value=None),
+              patch.object(reviews, 'carry_over', return_value=issue), patch.object(reviews, 'withhold'),
+              patch.object(reviews, 'result', return_value='failure'), patch.object(reviews, 'remember'),
+              patch.object(reviews, 'shard_parts', return_value=None), patch.object(reviews, 'reconsider') as recheck,
+              contextlib.redirect_stdout(io.StringIO())):
+            reviews.reconcile()
+        self.assertEqual([('b' * 40, 'failure')], server.gates)
+        return recheck.call_count, read
+
+    def test_a_held_requirement_gets_no_recheck_but_its_gate_is_still_written(self):
+        owner = {'username': reviews.POLICY['approver'], 'is_npc': False}
+        hold = {'created_at': '2026-10-30T01:00:00Z', 'body': 'HOLD', 'author': owner}
+        release = {'created_at': '2026-10-30T02:00:00Z', 'body': 'RELEASE', 'author': owner}
+        for ref in ('automation/req-291', 'refs/heads/automation/req-291'):
+            self.assertEqual(0, self.reconsiders(ref, [hold])[0])
+        self.assertEqual(1, self.reconsiders('automation/req-291', [hold, release])[0])
+
+    def test_a_pull_that_is_not_a_requirement_reads_no_hold(self):
+        self.assertEqual((1, []), self.reconsiders('fix/owner-branch', []))

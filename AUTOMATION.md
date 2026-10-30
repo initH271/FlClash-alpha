@@ -400,7 +400,8 @@ A malformed final report, or one blocking report opposed by the other reviewer's
 pass, gets at most one signed reconsideration request per role and fixed scope.
 It includes the same deterministic evidence and requires a corrected machine
 report; the controller never changes an NPC verdict itself. Two blocking reports
-remain blocked. Running reviewers are not duplicated. CNB's gate keeps checking
+remain blocked. Running reviewers are not duplicated. No recheck is summoned while the owner
+holds the pull's `automation/req-<n>` requirement with `HOLD`. CNB's gate keeps checking
 until its existing deadline so an early malformed report can be corrected without
 immediately leaving a permanently failed check.
 
