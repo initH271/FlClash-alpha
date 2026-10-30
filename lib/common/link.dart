@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:app_links/app_links.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 
 import 'print.dart';
 import 'protocol.dart';
@@ -93,3 +94,16 @@ class LinkManager {
 }
 
 final linkManager = LinkManager();
+
+/// Swallows the platform's route pushes: the links they carry reach
+/// [LinkManager], and with no named routes the navigator would fail on them.
+class RoutePushSink with WidgetsBindingObserver {
+  const RoutePushSink();
+
+  @override
+  Future<bool> didPushRouteInformation(RouteInformation routeInformation) {
+    return SynchronousFuture(true);
+  }
+}
+
+const routePushSink = RoutePushSink();

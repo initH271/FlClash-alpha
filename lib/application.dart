@@ -72,6 +72,8 @@ class ApplicationState extends ConsumerState<Application>
   @override
   void initState() {
     super.initState();
+    // Ahead of MaterialApp's observer, which would push links as routes.
+    WidgetsBinding.instance.addObserver(routePushSink);
     WidgetsBinding.instance.addObserver(this);
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     ref
@@ -211,6 +213,7 @@ class ApplicationState extends ConsumerState<Application>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    WidgetsBinding.instance.removeObserver(routePushSink);
     ref.read(commonActionProvider.notifier).setUpdateCheckForeground(false);
     linkManager.destroy();
     _autoUpdateProfilesTaskTimer?.cancel();
