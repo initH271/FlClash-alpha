@@ -9,6 +9,29 @@ class ChangelogItem {
 
 const _skipMarker = 'skip';
 
+/// Scopes users never feel; a `Changelog:` trailer still brings a commit back.
+/// `l10n` is here because its commits mostly fill in keys.
+const internalChangelogScopes = <String>{
+  'agents',
+  'automation',
+  'build',
+  'ci',
+  'cnb',
+  'deps',
+  'docs',
+  'hooks',
+  'l10n',
+  'lint',
+  'readme',
+  'release',
+  'security',
+  'site',
+  'test',
+  'tool',
+  'toolchain',
+  'upstream',
+};
+
 const _defaultTypes = <String, ChangelogType>{
   'feat': ChangelogType.feat,
   'fix': ChangelogType.fix,
@@ -65,8 +88,14 @@ class ChangelogParser {
       return const <ChangelogItem>[];
     }
 
-    final items = <ChangelogItem>[];
     final breakingText = trailers['BREAKING CHANGE'];
+    final hasCopy = changelog != null && changelog.isNotEmpty;
+    final internal = _isInternalScope(scope);
+    if (internal && !hasCopy && breakingText == null) {
+      return const <ChangelogItem>[];
+    }
+
+    final items = <ChangelogItem>[];
     if (bang || breakingText != null) {
       if (breakingText == null) {
         warnings.add(
@@ -87,7 +116,14 @@ class ChangelogParser {
     }
 
     final group = _resolveType(type, trailers, commit);
-    if (group != null) {
+    if (group != null && (hasCopy || !internal)) {
+      if (!hasCopy) {
+        warnings.add(
+          '${commit.shortHash} is user facing but has no "Changelog:" '
+          'trailer; the notes show its subject until one is written: '
+          '${commit.subject}',
+        );
+      }
       items.add(
         ChangelogItem(
           type: group,
@@ -184,6 +220,15 @@ List<ChangelogGroup> groupItems(List<ChangelogItem> items) {
     }
   }
   return groups;
+}
+
+bool _isInternalScope(String? scope) {
+  final parts = (scope ?? '')
+      .split(',')
+      .map((part) => part.trim().toLowerCase())
+      .where((part) => part.isNotEmpty)
+      .toList();
+  return parts.isNotEmpty && parts.every(internalChangelogScopes.contains);
 }
 
 String? _normalizeScope(String? scope) {

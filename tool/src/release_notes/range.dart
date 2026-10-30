@@ -5,6 +5,9 @@ import '../changelog/models.dart';
 import '../changelog/parser.dart';
 import '../changelog/render.dart';
 
+/// Shown when a release carries no user facing entry at all.
+const alphaEmptyNote = '这版主要在幕后拧螺丝，你什么都不用做，照常用就好。';
+
 final _alphaTag = RegExp(r'^alpha-\d+\.\d+\.\d+-(\d+)$');
 final _displayTag = RegExp(r'^v\d+\.\d+\.\d+-alpha\.([1-9]\d*)$');
 
@@ -138,7 +141,7 @@ class AlphaReleaseNotes {
     return AlphaReleaseNotes(
       notes:
           'FlClash-alpha ${displayVersion ?? '$version（构建 $build）'}\n\n'
-          '${release.isEmpty ? rendered.replaceFirst(emptyVersionNote, '本版没有用户可见的变化。') : rendered}',
+          '${release.isEmpty ? rendered.replaceFirst(emptyVersionNote, alphaEmptyNote) : rendered}',
       baseTag: baseTag,
       baseSha: baseSha,
       sourceSha: sourceSha,
