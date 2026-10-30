@@ -145,7 +145,7 @@ class ReconsiderHoldTests(unittest.TestCase):
         read = []
 
         def pages(url, page_key='page', size_key='page_size'):
-            if url.endswith('/comments') and '/issues/' in url:
+            if url.endswith('/comments') and '/issues/' in url and '/issues/8/' not in url:
                 read.append(url)
                 return iter(requirement)
             return server.pages(url)
