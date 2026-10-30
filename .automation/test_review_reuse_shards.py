@@ -69,8 +69,11 @@ class ShardReuseTests(unittest.TestCase):
         cls.tmp.cleanup()
 
     def setUp(self):
+        def evidence_git(*args, check=True, env=None):
+            # The commits are already local; only the real fetch would reach the network.
+            return '' if args[0] == 'fetch' else self.repo.git(*args, check=check, env=env)
         for item in (patch.dict(os.environ, KEY), patch.object(reviews, 'git', self.repo.git),
-                     patch('review_evidence.git', self.repo.git), patch.object(reviews, 'SHARD_FILES', 1)):
+                     patch('review_evidence.git', evidence_git), patch.object(reviews, 'SHARD_FILES', 1)):
             item.start()
             self.addCleanup(item.stop)
 
