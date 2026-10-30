@@ -27,8 +27,8 @@ is signed, then waits for both independent PR reviews before testing and compili
 All Flutter tests run for candidates.
 Publication rechecks the source tree, owner approval, unchanged main and PR reviews. Only then
 is main fast-forwarded, synchronized to CNB, and the fixed-key APK released.
-Conflicts and upstream changes to automation/CI require a draft PR and human
-review; the development NPC works on a branch. Failed tests stop publication and
+Conflicts and upstream changes to automation/CI stop for the owner's manual merge
+(see Conflicting upstream upgrades); no NPC merges them. Failed tests stop publication and
 create an Issue for the review NPC. No phone installation is automated.
 
 If main advances before publication, the controller refreshes an unchanged signed
@@ -42,6 +42,29 @@ upstream changes stop refresh. Active builds finish before refresh is attempted.
 New commits require new reviews and new builds; previous reports/artifacts cannot
 authorize the refreshed source. Already-started runs for an unchanged SHA are not
 duplicated. A concurrent branch update makes the normal push fail safely.
+
+### Conflicting upstream upgrades
+
+When the approved upstream commit conflicts with main, or touches a protected path,
+the controller merges nothing. It pushes `automation/upstream-vX.Y.Z` with only an
+`UPSTREAM_REVIEW.md` listing those files, opens a draft PR, and comments once on the
+Issue with the files and the upstream commit. No developer NPC is summoned.
+
+The owner then:
+
+1. Merges that upstream commit into main by hand, resolving the conflicts. Leave
+   `.automation/policy.json` and `.github/release.json` to the controller, and do
+   not merge the draft PR or edit its branch.
+2. Replies `OK` on the Issue, which wakes the controller. The scheduled controller
+   pass picks it up anyway if the event is lost.
+
+Once the commit is in main, the controller prepares a fresh candidate from main on
+the same branch and draft PR, without `UPSTREAM_REVIEW.md`, and the normal path
+continues: paired reviews, build, publication. It takes over only a branch carrying
+`UPSTREAM_REVIEW.md` and no candidate of this Issue. If main still carries an earlier
+upgrade's unfinished candidate, it waits until that one's Issue closes or its release
+is published. A branch that lost `UPSTREAM_REVIEW.md` is left alone: delete it and
+the next pass starts over from main. Closing the Issue withdraws the upgrade.
 
 ## NPC roles and permissions
 
