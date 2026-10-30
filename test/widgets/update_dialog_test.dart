@@ -102,7 +102,7 @@ void main() {
 
     // Entry copy comes from the release payload as written; the group headings
     // still follow the app locale.
-    expect(find.textContaining('新功能'), findsOneWidget);
+    expect(find.textContaining('新玩意儿'), findsOneWidget);
     expect(find.textContaining('Override scripts'), findsOneWidget);
 
     await tapCancel(tester);

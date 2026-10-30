@@ -165,6 +165,20 @@ void main() {
       });
     }
 
+    test('the headings stay in step with the zh_CN group titles', () {
+      final arb =
+          jsonDecode(File('arb/intl_zh_CN.arb').readAsStringSync())
+              as Map<String, dynamic>;
+
+      expect(manualGroupTitles, {
+        ChangelogType.breaking: arb['changelogBreaking'],
+        ChangelogType.feat: arb['changelogFeatures'],
+        ChangelogType.fix: arb['changelogFixes'],
+        ChangelogType.perf: arb['changelogPerformance'],
+        ChangelogType.revert: arb['changelogReverts'],
+      });
+    });
+
     test('the committed notes file parses for the committed version', () {
       final release =
           jsonDecode(File('.github/release.json').readAsStringSync())
