@@ -651,7 +651,7 @@ def sync_main(number, sha):
     if merged.returncode != 0:
         return
     commit = control.git('commit-tree', merged.stdout.splitlines()[0], '-p', sha, '-p', main,
-                         '-m', f'Merge main into {branch}', '-m', 'FlClash-Actor: controller').stdout.strip()
+                         '-m', f'Merge main into {branch}', '-m', 'FlClash-Actor: controller')
     control.sync_branch(branch, commit)
     control.comment(number, f'分支落后 main，已把 main（`{main[:12]}`）合入 `{branch}`，新提交 `{commit[:12]}`。'
                     '检查和结对审核会在新提交上重跑。')
