@@ -41,7 +41,7 @@ _AppSettingProps _$AppSettingPropsFromJson(
       ) ??
       TabAnimation.fade,
   floatingNavigationBar: json['floatingNavigationBar'] as bool? ?? true,
-  autoCheckUpdate: json['autoCheckUpdate'] as bool? ?? true,
+  autoCheckUpdate: json['autoCheckAppUpdate'] as bool? ?? true,
   sidebarExpanded:
       _readSidebarExpanded(json, 'sidebarExpanded') as bool? ?? true,
   acceptedDisclaimerVersion:
@@ -109,7 +109,7 @@ Map<String, dynamic> _$AppSettingPropsToJson(_AppSettingProps instance) =>
       'delayTestTimeout': instance.delayTestTimeout,
       'tabAnimation': _$TabAnimationEnumMap[instance.tabAnimation]!,
       'floatingNavigationBar': instance.floatingNavigationBar,
-      'autoCheckUpdate': instance.autoCheckUpdate,
+      'autoCheckAppUpdate': instance.autoCheckUpdate,
       'sidebarExpanded': instance.sidebarExpanded,
       'acceptedDisclaimerVersion': instance.acceptedDisclaimerVersion,
       'minimizeOnExit': instance.minimizeOnExit,

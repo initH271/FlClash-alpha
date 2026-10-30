@@ -256,7 +256,9 @@ abstract class AppSettingProps with _$AppSettingProps {
     @JsonKey(readValue: _readTabAnimation)
     TabAnimation tabAnimation,
     @Default(true) bool floatingNavigationBar,
-    @Default(true) bool autoCheckUpdate,
+    // Android's prompt before the in-app installer offered "No longer remind",
+    // which left a permanent false under the old key; renaming re-enables once.
+    @Default(true) @JsonKey(name: 'autoCheckAppUpdate') bool autoCheckUpdate,
     @Default(true)
     @JsonKey(readValue: _readSidebarExpanded)
     bool sidebarExpanded,
