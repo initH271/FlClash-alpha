@@ -24,7 +24,8 @@
       timeout: 2m
 main:
   pull_request:
-    - name: Dependency vulnerability gate
+    - &dependency-gate
+      name: Dependency vulnerability gate
       runner: { cpus: 1 }
       stages:
         - name: Block new high-risk dependency vulnerabilities
@@ -36,13 +37,15 @@ main:
           image: python:3.12-slim
           script: python3 .automation/wake.py ci-done 'Dependency vulnerability gate'
           timeout: 2m
-    - name: Automation unit tests
+    - &automation-unit-tests
+      name: Automation unit tests
       runner: { cpus: 1 }
       docker:
         image: python:3.12
       stages:
-        - name: Test automation changes
-          script: |
+        - &automation-stage
+          name: Test automation changes
+          script: &automation-script |
             changed=$(git diff --name-only "$CNB_PULL_REQUEST_TARGET_SHA" HEAD || true)
             printf '%s\n' "$changed" | grep -Eq '^(\.automation/|\.cnb/|\.cnb\.yml|\.github/|tool/)' || { echo 'Skipped: no automation changes'; exit 0; }
             python3 -m unittest discover -s .automation -p 'test_*.py'
@@ -52,7 +55,8 @@ main:
           image: python:3.12-slim
           script: python3 .automation/wake.py ci-done 'Automation unit tests'
           timeout: 2m
-    - name: Go dependency regression tests
+    - &go-tests
+      name: Go dependency regression tests
       runner: { cpus: 2 }
       docker:
         image: golang:1.27.1
@@ -91,7 +95,8 @@ main:
           image: python:3.12-slim
           script: python3 .automation/wake.py ci-done 'Go dependency regression tests'
           timeout: 2m
-    - name: Flutter and Android requirement tests
+    - &flutter-tests
+      name: Flutter and Android requirement tests
       runner: { cpus: 4 }
       docker:
         image: ubuntu:24.04
@@ -177,7 +182,8 @@ main:
           image: python:3.12-slim
           script: python3 .automation/wake.py ci-done 'Flutter and Android requirement tests'
           timeout: 2m
-    - name: Rust dependency regression tests
+    - &rust-tests
+      name: Rust dependency regression tests
       runner: { cpus: 2 }
       docker:
         image: rust:1.99-bookworm
@@ -217,6 +223,19 @@ main:
           timeout: 2m
   "crontab: 7 * * * *":
     - *mirror
+# Owner branches run the five main.pull_request pipelines on push, measured from their merge-base with main.
+"owner/**":
+  push:
+    - *dependency-gate
+    - <<: *automation-unit-tests
+      stages:
+        - <<: *automation-stage
+          script:
+            - export CNB_PULL_REQUEST_TARGET_SHA="$(python3 .automation/ci_paths.py base)"
+            - *automation-script
+    - *go-tests
+    - *flutter-tests
+    - *rust-tests
 $:
   issue.open:
     - name: Wake task controller

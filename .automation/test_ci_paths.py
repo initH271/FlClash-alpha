@@ -36,7 +36,8 @@ class FlutterTriggerTests(unittest.TestCase):
             self.assertTrue(ci_paths.triggers(stage, ['.cnb.yml'], SOURCE, inside), stage)
 
     def test_an_unlocatable_or_aliased_flutter_block_keeps_triggering(self):
-        renamed = SOURCE.replace(f'- name: {ci_paths.FLUTTER}', '- name: Flutter tests')
+        renamed = SOURCE.replace(f'name: {ci_paths.FLUTTER}\n', 'name: Flutter tests\n')
+        self.assertNotEqual(SOURCE, renamed)
         aliased = SOURCE.replace('      runner: { cpus: 4 }\n      docker:\n        image: ubuntu:24.04',
                                  '      runner: *big\n      docker:\n        image: ubuntu:24.04')
         outside = SOURCE.replace("echo 'Skipped: no automation changes'", "echo 'Skipped'")
@@ -45,6 +46,52 @@ class FlutterTriggerTests(unittest.TestCase):
                          (aliased, aliased.replace("echo 'Skipped: no automation changes'", "echo 'x'")),
                          ('', outside)):
             self.assertTrue(ci_paths.triggers('flutter', ['.cnb.yml'], old, new))
+
+    def test_the_anchored_flutter_entry_is_located_and_owner_edits_leave_it_alone(self):
+        block = ci_paths.flutter_block(SOURCE)
+        self.assertRegex(block.split('\n')[0], r'^\s*- &[\w-]+$')
+        self.assertIn(f'name: {ci_paths.FLUTTER}', block)
+        self.assertIn('timeout: 45m', block)
+        shrunk = SOURCE.replace('    - *rust-tests\n', '')
+        self.assertNotEqual(SOURCE, shrunk)
+        for stage in STAGES:
+            self.assertFalse(ci_paths.triggers(stage, ['.cnb.yml'], SOURCE, shrunk), stage)
+
+    def test_a_push_build_measures_from_its_merge_base_with_main(self):
+        with tempfile.TemporaryDirectory() as directory:
+            work = pathlib.Path(directory)
+
+            def git(*args):
+                return ci_paths.run_git('-C', directory, '-c', 'user.name=t', '-c', 'user.email=t@t', *args)
+            git('init', '-q', '-b', 'main')
+            work.joinpath(ci_paths.CNB_YML).write_text(SOURCE)
+            git('add', '-A')
+            git('commit', '-q', '-m', 'base')
+            fork = git('rev-parse', 'HEAD')
+            git('checkout', '-q', '-b', 'owner/x')
+            work.joinpath('docs').mkdir()
+            work.joinpath('docs/a.md').write_text('a')
+            git('add', '-A')
+            git('commit', '-q', '-m', 'docs')
+            git('checkout', '-q', 'main')
+            work.joinpath('lib').mkdir()
+            work.joinpath('lib/a.dart').write_text('void main() {}')
+            git('add', '-A')
+            git('commit', '-q', '-m', 'main moves on')
+            git('checkout', '-q', 'owner/x')
+            # The repository is its own origin, so the base command's fetch stays on disk.
+            git('remote', 'add', 'origin', directory)
+
+            def run(*args):
+                return subprocess.run([sys.executable, str(pathlib.Path(ci_paths.__file__).resolve()), *args],
+                                      cwd=directory, capture_output=True, text=True)
+            # main's own Dart change is not the branch's: the base is the fork point, not main's tip.
+            self.assertEqual(fork, run('base').stdout.strip())
+            self.assertEqual([ci_paths.SKIP] * 3, [run('trigger', stage, '').returncode for stage in STAGES])
+            git('remote', 'remove', 'origin')
+            self.assertEqual(ci_paths.EMPTY_TREE, run('base').stdout.strip())
+            self.assertEqual([0] * 3, [run('trigger', stage, '').returncode for stage in STAGES])
+            self.assertEqual(ci_paths.EMPTY_TREE, git('hash-object', '-t', 'tree', '/dev/null'))
 
     def test_flutter_stages_use_the_path_rules_and_long_pipelines_try_reuse_first(self):
         def check():
