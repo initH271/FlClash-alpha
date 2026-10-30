@@ -159,8 +159,11 @@ class ConflictHandoffTests(UpgradeRepo):
         self.assertNotIn('@', body)
         self.assertFalse(self.comments[0]['work_mode'])
         for text in ('1 个冲突文件和 1 个受保护文件', '- `app.txt`', '- `.github/upstream.yml`', upstream,
-                     '需要 owner 人工合并上游', '回复 OK，控制器会在升级分支', GH_PR, 'AUTOMATION.md 上游升级一节（待补）'):
+                     '需要 owner 人工合并上游', '回复 OK，控制器会在升级分支', GH_PR, 'AUTOMATION.md 的 Conflicting upstream upgrades 一节'):
             self.assertIn(text, body)
+        self.assertNotIn('待补', body)
+        doc = pathlib.Path(control.__file__).parents[1] / 'AUTOMATION.md'
+        self.assertIn('### Conflicting upstream upgrades\n', doc.read_text())
         tree = self.real('ls-tree', '-r', '--name-only', self.remote[branch]).splitlines()
         self.assertIn('UPSTREAM_REVIEW.md', tree)
         self.assertEqual('personal', self.real('show', f'{self.remote[branch]}:app.txt'))
@@ -270,6 +273,57 @@ class UpstreamAlreadyInMainTests(UpgradeRepo):
         with contextlib.redirect_stdout(io.StringIO()):
             control.resume_candidate(conflict, 'automation/upstream-v9.9.9', 217)
         self.assertNotEqual(conflict, self.remote['automation/upstream-v9.9.9'])
+
+    def prepared_branch(self, number):
+        """The owner merged upstream, then the controller prepared a normal candidate of issue `number`."""
+        upstream = self.upstream()
+        self.real('merge', '-q', '--no-ff', '-X', 'theirs', '-m', 'owner merges upstream', upstream)
+        self.remote['main'] = self.real('rev-parse', 'HEAD')
+        control.prepare_candidate(self.request, number, 'automation/upstream-v9.9.9')
+        return self.remote['automation/upstream-v9.9.9']
+
+    def assert_left_alone(self, sha, number=217):
+        branch = 'automation/upstream-v9.9.9'
+        comments, pushed, calls = list(self.comments), list(self.pushed), len(self.calls)
+        with patch.object(control, 'adopt_owner_merge') as adopt, contextlib.redirect_stdout(io.StringIO()):
+            control.resume_candidate(sha, branch, number)
+        adopt.assert_not_called()
+        self.assertEqual(sha, self.remote[branch])
+        self.assertEqual((comments, pushed), (self.comments, self.pushed))
+        self.assertEqual([], [c for c in self.calls[calls:] if c[0] != 'GET'])
+
+    def test_own_candidate_with_a_closed_issue_is_left_alone(self):
+        head = self.prepared_branch(217)
+        self.remote['main'] = head
+        self.issue_state = 'closed'
+        self.assert_left_alone(head)
+
+    def test_prepared_branch_of_a_closed_older_issue_is_not_adopted(self):
+        self.older_issue = {'state': 'closed', 'body': ''}
+        self.prepared_branch(200)
+        self.real('checkout', '-q', 'automation/upstream-v9.9.9')
+        edited = self.commit('unsigned.txt', 'edit\n', 'unsigned edit')
+        self.remote['automation/upstream-v9.9.9'] = edited
+        self.assert_left_alone(edited)
+
+    def test_prepared_branch_that_lost_its_candidate_file_is_not_adopted(self):
+        self.prepared_branch(217)
+        self.real('checkout', '-q', 'automation/upstream-v9.9.9')
+        (self.root / '.automation/candidate.json').unlink()
+        edited = self.commit('unsigned.txt', 'edit\n', 'unsigned edit')
+        self.remote['automation/upstream-v9.9.9'] = edited
+        self.assert_left_alone(edited)
+
+    def test_finish_check_looks_up_the_tag_the_candidate_publishes(self):
+        head = self.prepared_branch(217)
+        self.real('checkout', '-q', head)
+        self.remote['main'] = head
+        tag = control.release_identity(json.loads((self.root / '.github/release.json').read_text()))['tag']
+        self.assertEqual('v9.9.9-alpha.' + tag.rpartition('.')[2], tag)
+        self.assertIsNotNone(control.active_candidate())
+        self.assertIn(f'{control.GH}/releases/tags/{tag}', [c[1] for c in self.calls])
+        self.release = {'draft': False}
+        self.assertIsNone(control.active_candidate())
 
 
 class FinishedCandidateTests(UpgradeRepo):

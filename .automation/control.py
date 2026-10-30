@@ -298,11 +298,12 @@ def resume_candidate(sha, branch, number):
         return
     path = ROOT / '.automation/candidate.json'
     candidate = active_candidate()
-    # A conflict branch has no candidate of its own, but inherits the finished one main keeps until the next prepare.
-    if not path.exists() or (not candidate and verify(json.loads(path.read_text()))['issue'] != str(number)):
+    own = path.exists() and verify(json.loads(path.read_text()))['issue'] == str(number)
+    # Only a conflict branch is adopted. It may inherit the finished candidate main keeps until the next prepare.
+    if (ROOT / 'UPSTREAM_REVIEW.md').exists() and not candidate and not own:
         adopt_owner_merge(sha, branch, number)
         return
-    if not candidate or candidate['issue'] != str(number):
+    if not candidate or not own:
         return
     main = api(f'{GH}/git/ref/heads/main')['object']['sha']
     if candidate['base'] != main:
@@ -377,7 +378,7 @@ def ask_owner_merge(request, number, branch, url, conflicts, protected):
     comment(number, f'上游 {request["tag"]} 自动合并已停止：有 {len(conflicts)} 个冲突文件和 {len(protected)} 个受保护文件，'
             '需要 owner 人工合并上游。\n\n冲突文件：' + (listed(conflicts) or '无') + '\n\n受保护文件：' + (listed(protected) or '无')
             + f'\n\n请把上游提交 `{request["sha"]}` 合进 main，`.automation/policy.json` 和 `.github/release.json` 留给控制器写入，'
-            f'步骤见 AUTOMATION.md 上游升级一节（待补）。合进 main 后在本 Issue 回复 OK，控制器会在升级分支 `{branch}` 上'
+            f'步骤见 AUTOMATION.md 的 Conflicting upstream upgrades 一节。合进 main 后在本 Issue 回复 OK，控制器会在升级分支 `{branch}` 上'
             f'准备候选并发版，记录冲突的草稿 PR {url} 继续沿用。\n\n' + stamp)
 
 
