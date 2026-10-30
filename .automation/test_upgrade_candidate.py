@@ -184,6 +184,17 @@ class UpstreamAlreadyInMainTests(UpgradeRepo):
         dispatched = [c for c in self.calls if c[1].endswith('/dispatches')]
         self.assertEqual(head, dispatched[0][2]['inputs']['source_ref'])
 
+    def test_prepare_overwrites_a_stale_candidate_left_on_main(self):
+        stale = {'issue': '200', 'base': self.base, 'tree': 'f' * 40, 'upstream_sha': 'a' * 40}
+        self.commit('.automation/candidate.json', json.dumps(control.sign(stale)), 'finished candidate')
+        upstream = self.upstream()
+        self.real('merge', '-q', '--no-ff', '-X', 'theirs', '-m', 'owner merges upstream', upstream)
+        self.remote['main'] = self.real('rev-parse', 'HEAD')
+        control.prepare_candidate(self.request, 217, 'automation/upstream-v9.9.9')
+        head = self.remote['automation/upstream-v9.9.9']
+        candidate = control.verify(json.loads(self.real('show', f'{head}:.automation/candidate.json')))
+        self.assertEqual(('217', upstream), (candidate['issue'], candidate['upstream_sha']))
+
     def test_conflict_branch_is_adopted_once_the_owner_merges_upstream(self):
         upstream = self.upstream()
         self.remote['main'] = self.commit('app.txt', 'personal\n', 'personal change')
@@ -202,6 +213,83 @@ class UpstreamAlreadyInMainTests(UpgradeRepo):
         self.assertNotIn('UPSTREAM_REVIEW.md', self.real('ls-tree', '-r', '--name-only', head).splitlines())
         self.assertEqual(1, len(self.owner_comments()))
         self.assertIn('已按本次 OK 批准', self.comments[-1]['body'])
+
+
+class FinishedCandidateTests(UpgradeRepo):
+    def promoted(self):
+        upstream = self.upstream()
+        self.real('merge', '-q', '--no-ff', '-X', 'theirs', '-m', 'upstream', upstream)
+        metadata = control.next_release(json.loads((self.root / '.github/release.json').read_text()), upstream='9.9.9')
+        (self.root / '.github/release.json').write_text(json.dumps(metadata))
+        self.candidate = {'issue': '217', 'base': self.base, 'tree': control.source_tree(), 'upstream_sha': upstream}
+        self.commit('.automation/candidate.json', json.dumps(control.sign(self.candidate)), 'candidate')
+        self.remote['main'] = head = self.real('rev-parse', 'HEAD')
+        return head
+
+    def test_closed_issue_finishes_the_candidate(self):
+        self.promoted()
+        self.issue_state = 'closed'
+        self.assertIsNone(control.active_candidate())
+        self.assertIsNone(control.active_candidate(released=True))
+
+    def test_published_release_of_the_merged_upstream_finishes_the_candidate(self):
+        self.promoted()
+        self.release = {'draft': False}
+        self.assertIsNone(control.active_candidate())
+        self.assertEqual(self.candidate, control.active_candidate(released=True))
+
+    def test_doubt_keeps_the_candidate_active(self):
+        self.promoted()
+        for release, error, main in (({'draft': True}, None, None), (None, None, None),
+                                     ({'draft': False}, True, None), ({'draft': False}, None, self.base)):
+            self.release, self.issue_error = release, error
+            self.remote['main'] = main or self.real('rev-parse', 'HEAD')
+            self.assertEqual(self.candidate, control.active_candidate(), (release, error, main))
+        self.release, self.issue_error, self.remote['main'] = {'draft': False}, None, self.real('rev-parse', 'HEAD')
+        (self.root / '.github/release.json').write_text(self.real('show', f'{self.base}:.github/release.json'))
+        self.assertEqual(self.candidate, control.active_candidate())
+
+    def test_notify_closes_the_open_issue_and_leaves_the_candidate_file(self):
+        head = self.promoted()
+        self.release = {'draft': False}
+        control.notify_release()
+        self.assertEqual('closed', self.issue_state)
+        self.assertIn('新版已发布', self.comments[-1]['body'])
+        self.assertEqual([], self.pushed)
+        self.assertEqual(head, self.remote['main'])
+        self.assertTrue((self.root / '.automation/candidate.json').exists())
+        self.assertTrue(any(c[1].endswith('/build/start') for c in self.calls))
+
+    def test_every_reader_treats_a_finished_candidate_as_none(self):
+        head = self.promoted()
+        self.issue_state = 'closed'
+        control.notify_release()
+        self.assertEqual([], self.comments)
+        self.assertFalse(any(c[0] == 'PATCH' for c in self.calls))
+        self.assertIsNone(control.validate_source())
+        self.commit('later.txt', 'x\n', 'unreviewed change')
+        with self.assertRaisesRegex(ValueError, 'no approved candidate'):
+            control.validate_source()
+        self.remote['automation/upstream-v9.9.9'] = head
+        with contextlib.redirect_stdout(io.StringIO()):
+            control.resume_candidate(head, 'automation/upstream-v9.9.9', 217)
+        self.assertFalse(any(c[1].endswith('/dispatches') for c in self.calls))
+
+    def test_without_a_candidate_file_every_reader_sees_none(self):
+        self.upstream()
+        main = self.remote['main'] = self.base
+        control.notify_release()
+        self.assertEqual([], self.pushed)
+        self.assertFalse(any('/issues/217' in c[1] for c in self.calls))
+        self.assertIsNone(control.validate_source())
+        self.remote['main'] = self.commit('later.txt', 'x\n', 'later')
+        self.real('checkout', '-q', main)
+        with self.assertRaisesRegex(ValueError, 'no approved candidate'):
+            control.validate_source()
+        self.remote['automation/upstream-v9.9.9'] = main
+        with contextlib.redirect_stdout(io.StringIO()):
+            control.resume_candidate(main, 'automation/upstream-v9.9.9', 217)
+        self.assertFalse(any(c[1].endswith(('/dispatches', '/comments', '/pulls')) for c in self.calls))
 
 
 if __name__ == '__main__':

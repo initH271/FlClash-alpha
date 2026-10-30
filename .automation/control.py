@@ -198,7 +198,9 @@ def validate_source(check_reviews=True):
     main = api(f'{GH}/git/ref/heads/main')['object']['sha']
     if head == main:
         return None
-    candidate = verify(json.loads((ROOT / '.automation/candidate.json').read_text()))
+    candidate = active_candidate()
+    if not candidate:
+        raise ValueError('Source is not main and carries no approved candidate')
     if candidate['tree'] != source_tree() or candidate['base'] != main:
         raise ValueError('Candidate changed or main advanced; review/rebase required')
     detail = api(f'{CNB}/issues/{candidate["issue"]}')
@@ -211,6 +213,37 @@ def validate_source(check_reviews=True):
         from reviews import require_candidate
         require_candidate(head, main)
     return candidate
+
+
+def active_candidate(released=False):
+    """Return the signed candidate on disk, or None once it is finished; any doubt keeps it active.
+
+    Finished means its upgrade issue is closed, or (unless the caller is finishing a release) its upstream
+    commit is in main and the version in release.json, which names that upstream, is published as a
+    non-draft release. The file stays on main until the next prepare_candidate overwrites it.
+    """
+    path = ROOT / '.automation/candidate.json'
+    if not path.exists():
+        return None
+    candidate = verify(json.loads(path.read_text()))
+    try:
+        issue = api(f'{CNB}/issues/{candidate["issue"]}', missing=True)
+        if issue and issue['state'] == 'closed':
+            return None
+        if released or not issue:
+            return candidate
+        request = parse_request(issue['body'])
+        metadata = json.loads((ROOT / '.github/release.json').read_text())
+        if (not request or request['sha'] != candidate['upstream_sha']
+                or metadata.get('upstreamVersion') != request['tag'].removeprefix('v')):
+            return candidate
+        main = api(f'{GH}/git/ref/heads/main')['object']['sha']
+        if git('merge-base', '--is-ancestor', candidate['upstream_sha'], main, check=False).returncode:
+            return candidate
+        release = api(f'{GH}/releases/tags/{release_identity(metadata)["tag"]}', missing=True)
+    except (HttpStatusError, ValueError, KeyError, TypeError):
+        return candidate
+    return None if release and release.get('draft') is False else candidate
 
 
 def adopt_owner_merge(sha, branch, number):
@@ -266,9 +299,8 @@ def resume_candidate(sha, branch, number):
     if not (ROOT / '.automation/candidate.json').exists():
         adopt_owner_merge(sha, branch, number)
         return
-    envelope = json.loads((ROOT / '.automation/candidate.json').read_text())
-    candidate = verify(envelope)
-    if candidate['issue'] != str(number):
+    candidate = active_candidate()
+    if not candidate or candidate['issue'] != str(number):
         return
     main = api(f'{GH}/git/ref/heads/main')['object']['sha']
     if candidate['base'] != main:
@@ -431,9 +463,9 @@ def close_published_failures():
 
 
 def notify_release():
-    candidate_path = ROOT / '.automation/candidate.json'
-    if candidate_path.exists():
-        candidate = verify(json.loads(candidate_path.read_text()))
+    # The release just went out, so only a closed issue marks this candidate as finished here.
+    candidate = active_candidate(released=True)
+    if candidate:
         issue = api(f'{CNB}/issues/{candidate["issue"]}')
         if issue['state'] == 'open':
             comment(candidate['issue'], '测试、构建和固定签名检查通过，新版已发布到 GitHub，CNB 正在同步。手机更新请自行确认安装。')
