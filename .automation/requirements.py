@@ -7,7 +7,7 @@ import env_failure
 import pause
 import control
 from control import CNB, GH, POLICY
-from reviews import find_request, reconcile as review_reconcile, scope, state
+from reviews import ci_state, find_request, reconcile as review_reconcile, scope, state
 from security_finish import ensure_branch_scan, merge_ready, push_github
 
 HEADINGS = ('要改什么', '验收标准', '不做什么', '影响范围', '允许改自动化配置', '相关文件或界面')
@@ -334,14 +334,17 @@ def pull_statuses(number):
 def check_state(number, pull=None):
     if not number:
         return False, False
-    statuses = pull_statuses(number)
-    if pull and any(control.check_name(item) == REVIEW_GATE and item['state'] != 'success' for item in statuses):
-        # The gate only polls for 32 minutes; a review that finishes later must still count.
-        if state(scope('cnb', pull)) == 'success':
-            statuses = [item for item in statuses if control.check_name(item) != REVIEW_GATE]
-    failed = any(item['state'] in {'error', 'failure'} for item in statuses)
-    green = bool(statuses) and all(item['state'] == 'success' for item in statuses)
-    return green, failed
+    checks = control.api(f'{CNB}/pulls/{number}/commit-statuses')
+    # The gate only polls for 32 minutes and starts before the review exists, so its row never decides:
+    # the review verdict itself does, and merge waits for every main.pull_request pipeline.
+    statuses = [item for item in control.gating_statuses(checks) if control.check_name(item) != REVIEW_GATE]
+    ci = ci_state(checks)
+    failed = any(item['state'] in {'error', 'failure'} for item in statuses) or ci == 'failure'
+    if failed or ci != 'success' or not all(item['state'] == 'success' for item in statuses):
+        return False, failed
+    # Reading the verdict lists every issue, so it waits until CI alone would allow the merge.
+    review = state(scope('cnb', pull)) if pull else 'pending'
+    return review == 'success', review == 'failure'
 
 
 def ci_passed(number):

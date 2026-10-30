@@ -1,5 +1,7 @@
+import contextlib
 import datetime
 import io
+import json
 import os
 import pathlib
 import tempfile
@@ -10,6 +12,7 @@ import control
 import env_failure
 import pause
 import requirements as req
+import reviews
 import security_finish
 
 
@@ -45,6 +48,57 @@ Go core
 
 core/log_history.go
 """
+
+
+PULL = {'number': '5', 'state': 'open', 'base': {'sha': 'b' * 40}, 'head': {'sha': 'h' * 40}}
+
+
+def ci_checks(ci, gate=None, extra=()):
+    """Commit statuses as CNB lists them: one row per main.pull_request pipeline, then the gate if it reported."""
+    rows = [{'context': f'cnb/pipeline-{i}({name})', 'state': found}
+            for i, (name, found) in enumerate(zip(reviews.CI_PIPELINES, ci))]
+    if gate:
+        rows.append({'context': f'cnb/pipeline-9({req.REVIEW_GATE})', 'state': gate})
+    return {'statuses': rows + list(extra)}
+
+
+def network(checks, pull=PULL, verdicts=('pass', 'pass')):
+    """Patch only the HTTP layer so the real check_state and the real review state read these answers."""
+    request = reviews.scope('cnb', pull)
+    issue = {'number': '77', 'state': 'open', 'created_at': '2026-09-22T02:00:00Z',
+             'author': {'username': 'Aharon', 'is_npc': False},
+             'body': '<!-- flclash-pr-review ' + json.dumps(reviews.sign(request)) + ' -->'}
+    reports = [{'id': str(i), 'created_at': '2026-09-22T02:10:00Z',
+                'author': {'username': f'{control.POLICY["cnb"]}({role})', 'is_npc': True},
+                'body': 'FLCLASH_REVIEW ' + json.dumps({'request': reviews.identity(request), 'verdict': verdict,
+                                                        'blockers': 0 if verdict == 'pass' else 1})}
+               for i, (role, verdict) in enumerate(zip(reviews.ROLES, verdicts))]
+
+    def api(url, method='GET', data=None, missing=False, timeout=60):
+        if url.endswith('/commit-statuses'):
+            return checks
+        if url.endswith('/issues/77'):
+            return issue
+        raise AssertionError(f'unexpected request {method} {url}')
+
+    def pages(url, page_key='page', size_key='page_size'):
+        if '/issues?state=open' in url:
+            return iter([{'number': '77'}])
+        if url.endswith('/issues/77/comments'):
+            return iter(reports)
+        return iter([])
+    return contextlib.ExitStack(), [patch.object(control, 'api', side_effect=api),
+                                    patch.object(control, 'pages', side_effect=pages),
+                                    patch.object(reviews, 'api', side_effect=api),
+                                    patch.object(reviews, 'pages', side_effect=pages)]
+
+
+def real_check_state(checks, pull=PULL, verdicts=('pass', 'pass')):
+    stack, patches = network(checks, pull, verdicts)
+    with stack:
+        for item in patches:
+            stack.enter_context(item)
+        return req.check_state('5', pull)
 
 
 class RequirementTests(unittest.TestCase):
@@ -123,15 +177,10 @@ class RequirementTests(unittest.TestCase):
         stale = rows + [self.attempt('pending', '2026-09-22T02:40:00Z', sn='cnb-test-2')]
         self.assertEqual('forward', self.decide(comments, stale, tree='abc', checks_green=True)['kind'])
 
-    def test_green_checks_ignore_the_pending_waker(self):
-        statuses = {'state': 'pending', 'statuses': [
-            {'context': 'cnb/pipeline-1(Flutter and Android requirement tests)', 'state': 'success'},
-            {'context': 'cnb/pipeline-2(Wake controller after checks)', 'state': 'pending'}]}
-        with patch.object(control, 'api', return_value=statuses):
-            self.assertEqual((True, False), req.check_state('5'))
-        statuses['statuses'][0]['state'] = 'error'
-        with patch.object(control, 'api', return_value=statuses):
-            self.assertEqual((False, True), req.check_state('5'))
+    def test_green_checks_ignore_the_review_grace_marker(self):
+        grace = [{'context': 'cnb/pipeline-9(FlClash/review-before-ci)', 'state': 'pending'}]
+        self.assertEqual((True, False), real_check_state(ci_checks(('success',) * 5, extra=grace)))
+        self.assertEqual((False, True), real_check_state(ci_checks(('error',) + ('success',) * 4, extra=grace)))
 
     def test_green_branch_behind_main_is_synced_before_forwarding(self):
         started = '2026-09-22T02:00:00Z'
@@ -151,6 +200,62 @@ class RequirementTests(unittest.TestCase):
         quota = [self.marker('quota', 60, 'abc', '2026-09-22T02:30:00Z')]
         self.assertEqual('forward', self.decide(quota, tree='abc', checks_green=True)['kind'])
         self.assertEqual('wait', self.decide(quota, tree='abc', review_only=True, behind=True)['kind'])
+
+    def check_state(self, ci, verdicts=('pass', 'pass')):
+        """Run the real check_state over these pipeline states, the gate still pending, and real review reports."""
+        return real_check_state(ci_checks(ci, gate='pending'), verdicts=verdicts)
+
+    def runtime_inputs(self, ci):
+        """Drive the real reconcile over a forwarded requirement PR and report what it reached for."""
+        issue = {'number': '9', 'state': 'open', 'title': '[需求] 导出', 'body': BODY,
+                 'author': {'username': 'Aharon', 'is_npc': False}, 'created_at': '2026-09-22T02:00:00Z'}
+        comments = [self.marker('dev', 60, '', '2026-09-22T02:01:00Z'),
+                    {'created_at': '2026-09-22T02:03:00Z', 'body': '提交 abc，等待自动化检查',
+                     'author': {'username': '507space/FlClash-alpha(开发助手)', 'is_npc': True}}]
+        pull = {'number': '5', 'state': 'open', 'title': '[需求] 导出',
+                'base': {'sha': 'b' * 40},
+                'head': {'sha': 'c' * 40, 'ref': 'refs/heads/automation/req-9',
+                         'repo': {'path': control.POLICY['cnb']}}}
+        statuses = ci_checks(ci, gate='pending')
+        import security_finish
+        with (patch.object(req, 'merge_ready') as merge, patch.object(req, 'sync_main') as sync,
+              patch.object(req, 'forward') as forward, patch.object(req, 'act') as act,
+              patch.object(req, 'main_drift', return_value=(False, False)),
+              patch.object(req, 'review_block', return_value=(False, '')),
+              patch.object(security_finish, 'dispatch_workflow', return_value=None, create=True),
+              patch.object(control, 'pages', side_effect=lambda url: (
+                  [pull] if '/pulls?' in url else [issue] if '/issues?' in url else comments)),
+              patch.object(control, 'api', side_effect=lambda url, *a, **k: pull if '/pulls/5' in url
+                           and url.endswith('/pulls/5') else statuses if url.endswith('/commit-statuses')
+                           else issue if url.endswith('/issues/9') else {'object': {'sha': 'a' * 40}}),
+              patch.object(req, 'state', return_value='success'),
+              patch.object(req, 'pull_statuses', return_value=req.control.gating_statuses(statuses)),
+              patch.object(req, 'branch_sha', return_value='c' * 40),
+              patch.object(req, 'contained', return_value=False),
+              patch.object(req, 'foreign_commits', return_value=[]),
+              patch.object(req, 'attempts', return_value=[]),
+              patch.object(control, 'git', return_value='tree')):
+            req.reconcile()
+        return forward, sync, merge, act
+
+    def test_a_green_review_before_ci_settles_never_forwards(self):
+        for ci in (('success',) * 4 + ('pending',), ('success',) * 4 + ('failure',)):
+            green, failed = self.check_state(ci)
+            self.assertFalse(green)
+            self.assertEqual(ci[-1] == 'failure', failed)
+            forward, sync, merge, act = self.runtime_inputs(ci)
+            forward.assert_not_called()
+            sync.assert_not_called()
+            merge.assert_not_called()
+            for call in act.call_args_list:
+                self.assertNotEqual('forward', call.args[1]['kind'])
+
+    def test_a_req_pr_forwards_only_after_every_pipeline_succeeded(self):
+        self.assertEqual((True, False), self.check_state(('success',) * 5))
+        forward, sync, merge, act = self.runtime_inputs(('success',) * 5)
+        self.assertEqual('forward', act.call_args.args[1]['kind'])
+        forward.assert_not_called()
+        sync.assert_not_called()
 
     def test_main_drift_reports_behind_and_conflicts(self):
         main = {'object': {'sha': 'm' * 40}}
@@ -205,16 +310,18 @@ class RequirementTests(unittest.TestCase):
             req.advance(self.issue, '9', 'o' * 40, pull)
             git.assert_not_called()
 
-    def test_a_timed_out_gate_counts_once_the_review_has_passed(self):
-        statuses = {'statuses': [
-            {'context': 'cnb/pipeline-1(Flutter and Android requirement tests)', 'state': 'success'},
-            {'context': 'cnb/pipeline-2(Paired review gate)', 'state': 'error'}]}
-        pull = {'number': '5', 'base': {'sha': 'b'}, 'head': {'sha': 'h'}}
-        for review, expected in (('success', (True, False)), ('failure', (False, True))):
-            with patch.object(control, 'api', return_value=statuses), patch.object(req, 'state', return_value=review):
-                self.assertEqual(expected, req.check_state('5', pull))
-        with patch.object(control, 'api', return_value=statuses), patch.object(req, 'state') as review:
-            self.assertEqual((False, True), req.check_state('5'))
+    def test_the_gate_row_never_decides_green_only_ci_and_the_review_do(self):
+        five = ('success',) * 5
+        # Whatever the gate reports, or if it never reported, a passed review over green CI is green.
+        for gate in (None, 'pending', 'error', 'failure', 'success'):
+            self.assertEqual((True, False), real_check_state(ci_checks(five, gate=gate)), gate)
+        self.assertEqual((False, False), real_check_state(ci_checks(five, gate='error'), verdicts=('pass',)))
+        self.assertEqual((False, True), real_check_state(ci_checks(five, gate='success'), verdicts=('pass', 'block')))
+        self.assertEqual((False, False), real_check_state(ci_checks(five[:4] + ('pending',), gate='error')))
+        self.assertEqual((False, True), real_check_state(ci_checks(five[:4] + ('failure',), gate='error')))
+        with patch.object(control, 'api', return_value=ci_checks(five, gate='error')), \
+                patch.object(reviews, 'api') as review:
+            self.assertEqual((False, False), req.check_state('5'))
             review.assert_not_called()
 
     def test_forwarded_pull_merges_once_github_settles(self):

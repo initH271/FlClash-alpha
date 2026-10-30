@@ -19,7 +19,8 @@ from tool.release_identity import next_release, release_identity, verify_native_
 POLICY = json.loads((ROOT / '.automation/policy.json').read_text())
 GH = 'https://api.github.com/repos/' + POLICY['github']
 CNB = 'https://api.cnb.cool/' + POLICY['cnb'] + '/-'
-CHECK_WAKER = 'Wake controller after checks'
+# A review opened before CI settled counts as green only while the pipelines it could not see run.
+CI_GRACE = 'FlClash/review-before-ci'
 
 
 class HttpStatusError(RuntimeError):
@@ -72,8 +73,7 @@ def check_name(status):
 
 
 def gating_statuses(checks):
-    # The waker is still pending while the controller it started reads these.
-    return [item for item in (checks or {}).get('statuses') or [] if check_name(item) != CHECK_WAKER]
+    return [item for item in (checks or {}).get('statuses') or [] if check_name(item) != CI_GRACE]
 
 
 def git(*args, check=True, env=None):

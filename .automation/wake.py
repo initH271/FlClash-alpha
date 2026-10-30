@@ -8,11 +8,11 @@ import urllib.request
 
 import pause
 from control import CNB, GH, POLICY, api, approved, check_name, comment as post_comment, gating_statuses, pages
-from reviews import ROLES, scope
+from reviews import CI_PIPELINES, ROLES, request_from, scope
 
 SETTLED = {'success', 'error', 'failure', 'cancel', 'cancelled'}
-EXPECTED = {'Paired review gate', 'Dependency vulnerability gate'}
 WAKE_MARKER = '<!-- flclash-requirement-wake'
+ACTIVE = ('<!-- flclash-pr-review ', '<!-- flclash-upstream ', '<!-- flclash-security-group ')
 HALTED = {'stuck', 'quota', 'invalid'}
 STALL_SECONDS = 35 * 60
 OPEN_GRACE_SECONDS = 10 * 60
@@ -64,8 +64,14 @@ def dispatch():
 
 def wake():
     event = os.environ.get('CNB_EVENT', '')
-    if event in ('crontab: */15 * * * *', 'pull_request.target'):
+    if event == 'pull_request.target':
         dispatch()
+        return
+    if event == 'crontab: */15 * * * *':
+        if busy():
+            dispatch()
+        else:
+            print('idle')
         return
     if event == 'issue' or (event.startswith('issue.') and not event.startswith('issue.comment')):
         opened = api(f'{CNB}/issues/{os.environ["CNB_ISSUE_IID"]}')
@@ -92,24 +98,77 @@ def wake():
     dispatch()
 
 
-def wake_when_green(attempts=100, pause=30):
-    number = os.environ['CNB_PULL_REQUEST_IID']
-    head = os.environ['CNB_PULL_REQUEST_SHA']
-    for _ in range(attempts):
-        pull = api(f'{CNB}/pulls/{number}')
-        if pull.get('state') != 'open' or scope('cnb', pull)['head'] != head:
+def busy():
+    """Return True when an open issue or requirement PR still needs the controller; a HOLD idles its requirement."""
+    approved_branch = re.compile(r'(automation/req-|security/group-).+')
+    holds = {}
+
+    def held(number):
+        if number not in holds:
+            holds[number] = bool(pause.held(list(pages(f'{CNB}/issues/{number}/comments'))))
+        return holds[number]
+
+    def waiting(pull):
+        requirement = re.fullmatch(r'automation/req-(\d+)', pull['head']['ref'].removeprefix('refs/heads/'))
+        return bool(requirement) and held(requirement[1])
+
+    pulls = None
+    for summary in pages(f'{CNB}/issues?state=open'):
+        author = summary.get('author') or {}
+        if (str(summary.get('title', '')).startswith('[需求]')
+                and author.get('username') == POLICY['approver'] and author.get('is_npc') is False):
+            if not held(str(summary['number'])):
+                return True
+            continue
+        body = str(summary.get('body', ''))
+        if not any(marker in body for marker in ACTIVE):
+            # A list without bodies costs one detail read per issue.
+            detail = api(f'{CNB}/issues/{summary["number"]}', missing=True) or {}
+            body = str(detail.get('body', ''))
+        if not any(marker in body for marker in ACTIVE):
+            continue
+        # A review of a held requirement's open PR waits with it; any other review still needs the controller.
+        request = request_from({**summary, 'body': body}, signed=False) or {}
+        if pulls is None:
+            pulls = list(pages(f'{CNB}/pulls?state=open'))
+        reviewed = next((pull for pull in pulls if request.get('platform') == 'cnb'
+                         and str(pull['number']) == str(request.get('number'))), None)
+        if reviewed is None or not waiting(reviewed):
+            return True
+    pulls = list(pages(f'{CNB}/pulls?state=open')) if pulls is None else pulls
+    return any(approved_branch.fullmatch(pull['head']['ref'].removeprefix('refs/heads/')) and not waiting(pull)
+               for pull in pulls)
+
+
+def ci_done(own=''):
+    """Wake the requirement issue once every other main.pull_request pipeline has finished; never raises."""
+    try:
+        match = re.fullmatch(r'(automation/req-|refs/heads/automation/req-)(\d+)',
+                             os.environ.get('CNB_PULL_REQUEST_BRANCH', ''))
+        if not match:
+            print('Not a requirement branch; no wake')
+            return
+        number = match[2]
+        sha = os.environ.get('CNB_PULL_REQUEST_SHA', '')
+        pull = api(f'{CNB}/pulls/{os.environ["CNB_PULL_REQUEST_IID"]}')
+        if pull.get('state') != 'open' or scope('cnb', pull)['head'] != sha:
             print('PR moved; the newer event owns the wake')
             return
-        statuses = gating_statuses(api(f'{CNB}/pulls/{number}/commit-statuses'))
-        if EXPECTED <= {check_name(item) for item in statuses} and all(
-                item['state'] in SETTLED for item in statuses):
-            if all(item['state'] == 'success' for item in statuses):
-                dispatch()
-            else:
-                print('Checks failed; the failure path owns the next step')
+        states = {}
+        for item in gating_statuses(api(f'{CNB}/pulls/{pull["number"]}/commit-statuses')):
+            states.setdefault(check_name(item), []).append(item['state'])
+        others = [name for name in CI_PIPELINES if name != own]
+        if any(name not in states or any(state not in SETTLED for state in states[name]) for name in others):
+            print('Other pipelines are still running')
             return
-        time.sleep(pause)
-    print('Checks did not settle in time')
+        marker = f'{WAKE_MARKER} ci-{sha} -->'
+        if any(marker in str(item.get('body', '')) for item in pages(f'{CNB}/issues/{number}/comments')):
+            print('Wake already posted')
+            return
+        post_comment(number, marker)
+        print(f'Woke requirement #{number} after CI')
+    except Exception as error:  # The pipeline must never fail on a wake attempt.
+        print(f'Wake skipped: {type(error).__name__}')
 
 
 def _signed(comments):
@@ -195,5 +254,5 @@ def watchdog(now=None):
 
 
 if __name__ == '__main__':
-    commands = {'settled': wake_when_green, 'watchdog': watchdog}
-    commands.get(sys.argv[1] if sys.argv[1:] else '', wake)()
+    commands = {'watchdog': watchdog, 'ci-done': lambda name='': ci_done(name)}
+    commands.get(sys.argv[1] if sys.argv[1:] else '', wake)(*sys.argv[2:])

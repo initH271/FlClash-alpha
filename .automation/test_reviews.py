@@ -1,5 +1,9 @@
+import contextlib
+import io
 import json
 import os
+import subprocess
+import time
 import unittest
 from unittest.mock import patch
 
@@ -142,6 +146,255 @@ class ReviewGateTests(unittest.TestCase):
                 reviews.require_candidate('b' * 40, 'a' * 40)
                 with self.assertRaises(ValueError):
                     reviews.require_candidate('c' * 40, 'a' * 40)
+
+
+class _capture:
+    """Capture what a command prints while a test runs it."""
+
+    def __enter__(self):
+        self.buffer = io.StringIO()
+        self.redirect = contextlib.redirect_stdout(self.buffer)
+        self.redirect.__enter__()
+        return self.buffer
+
+    def __exit__(self, *exc):
+        return self.redirect.__exit__(*exc)
+
+
+FIVE = ('Dependency vulnerability gate', 'Automation unit tests', 'Go dependency regression tests',
+        'Flutter and Android requirement tests', 'Rust dependency regression tests')
+
+
+def statuses(states, minutes=10, names=FIVE, gate='pending'):
+    """CI rows as CNB lists them; the gate waits for the review, so before one opens it is pending."""
+    rows = [{'context': f'cnb/pipeline-{i}({name})', 'state': state,
+             'created_at': stamp(minutes)} for i, (name, state) in enumerate(zip(names, states))]
+    if gate:
+        rows.append({'context': 'cnb/pipeline-9(Paired review gate)', 'state': gate, 'created_at': stamp(minutes)})
+    return {'statuses': rows}
+
+
+def stamp(minutes):
+    return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() - minutes * 60))
+
+
+class ReconcileTests(unittest.TestCase):
+    def pull(self, ref='refs/heads/automation/req-9'):
+        return {'state': 'open', 'number': '12', 'title': '需求实现', 'base': {'sha': 'a' * 40},
+                'head': {'sha': 'b' * 40, 'ref': ref}}
+
+    def reconcile(self, checks, ref='refs/heads/automation/req-9', notices=(), issue=None):
+        pull = self.pull(ref)
+        with patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'}):
+            signed = json.dumps(reviews.sign(reviews.scope('cnb', pull)))
+        issue = issue or {'number': '77', 'state': 'open', 'created_at': stamp(120),
+                          'author': {'username': 'Aharon', 'is_npc': False},
+                          'body': '<!-- flclash-pr-review ' + signed + ' -->'}
+
+        def api(url, method='GET', data=None, missing=False, timeout=60):
+            if url.endswith('/commit-statuses'):
+                return checks
+            if url.endswith('/status') or '/statuses/' in url:
+                return {'statuses': []}
+            if url.endswith('/issues/77'):
+                return issue
+            if url.endswith('/pulls/12'):
+                return pull
+            raise AssertionError(f'unexpected request {method} {url}')
+
+        def pages(url, page_key='page', size_key='page_size'):
+            if url.startswith('https://api.cnb.cool/') and '/pulls?' in url:
+                return iter([pull])
+            if url.endswith('/pulls/12/comments'):
+                return iter([{'id': str(100 + i), 'body': body} for i, body in enumerate(notices)])
+            return iter([])
+        with (patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'}),
+              patch.object(reviews, 'api', side_effect=api), patch.object(reviews, 'pages', side_effect=pages),
+              patch.object(reviews, 'ensure_request', return_value=issue) as ensure,
+              patch.object(reviews, 'close_finished_reviews'), patch.object(reviews, 'requirement_brief',
+                                                                            return_value=''), _capture() as printed):
+            reviews.reconcile()
+        return ensure, printed.getvalue()
+
+    def test_a_pending_pipeline_holds_the_review_inside_the_grace(self):
+        ensure, printed = self.reconcile(statuses(('success', 'pending', 'success', 'success', 'success')))
+        ensure.assert_not_called()
+        self.assertIn('waiting for CI', printed)
+        ensure, printed = self.reconcile({'statuses': [{'context': 'cnb/pipeline-0(Paired review gate)',
+                                                       'state': 'pending', 'created_at': stamp(10)}]})
+        ensure.assert_not_called()
+        self.assertIn('waiting for CI', printed)
+
+    def test_a_failed_pipeline_defers_the_review(self):
+        ensure, printed = self.reconcile(statuses(('success', 'failure', 'success', 'success', 'success')))
+        ensure.assert_not_called()
+        self.assertIn('CI failed, review deferred', printed)
+
+    def test_every_pipeline_green_opens_the_review(self):
+        ensure, printed = self.reconcile(statuses(('success',) * 5))
+        ensure.assert_called_once()
+        self.assertEqual('', ensure.call_args.args[2])
+        self.assertNotIn('unsettled', printed)
+
+    def test_an_unsettled_pipeline_past_the_grace_opens_with_a_caveat(self):
+        ensure, printed = self.reconcile(statuses(('success', 'pending', 'success', 'success', 'success'),
+                                                  minutes=81))
+        ensure.assert_called_once()
+        brief = ensure.call_args.args[2]
+        # Names exactly the pipelines that had not finished; the assertion never quotes one itself.
+        self.assertRegex(brief, r'^CI 未结束就开审的流水线：\S[^。]*。')
+        (unsettled,) = FIVE[1:2]
+        self.assertIn(unsettled, brief)
+        for name in FIVE[2:] + ('Paired review gate',):
+            self.assertNotIn(name, brief)
+        self.assertIn('未验证', brief)
+        self.assertIn('CI unsettled after 80m, review opened', printed)
+
+    def test_the_caveat_names_only_the_pipelines_that_had_not_finished(self):
+        ensure, _ = self.reconcile(statuses(('success', 'success', 'success', 'success', 'pending'),
+                                           minutes=81))
+        brief = ensure.call_args.args[2]
+        self.assertIn(FIVE[-1], brief)
+        for name in FIVE[:-1]:
+            self.assertNotIn(name, brief)
+
+    def test_security_pulls_wait_but_other_branches_keep_their_timing(self):
+        ensure, _ = self.reconcile(statuses(('pending',) * 5), ref='refs/heads/security/group-rust-api')
+        ensure.assert_not_called()
+        ensure, _ = self.reconcile(statuses(('pending',) * 5), ref='refs/heads/sync/x')
+        ensure.assert_called_once()
+
+    def test_an_existing_review_keeps_the_reconsideration_path(self):
+        link = 'https://cnb.cool/507space/FlClash-alpha/-/issues/77'
+        # Found through the real existing_review: by the notice marker, and by the link a pre-marker notice carries.
+        for notice in (f'结对审核： {link}\nbase x\n<!-- flclash-review-notice 77 -->', f'结对审核： {link}\nbase x'):
+            ensure, printed = self.reconcile(statuses(('pending',) * 5), notices=['无关评论', notice])
+            ensure.assert_called_once()
+            self.assertNotIn('waiting for CI', printed)
+        ensure, printed = self.reconcile(statuses(('pending',) * 5))
+        ensure.assert_not_called()
+        self.assertIn('waiting for CI', printed)
+
+    def test_ci_state_only_looks_at_the_pull_request_pipelines(self):
+        self.assertEqual('pending', reviews.ci_state({'statuses': [
+            {'context': 'cnb/pipeline-1(Dependency vulnerability gate)', 'state': 'success'}]}))
+        self.assertEqual('pending', reviews.ci_state(statuses(('success', 'success', 'success', 'pending'))))
+        self.assertEqual('pending', reviews.ci_state(statuses(('success', 'success', 'success', 'success', 'pending'))))
+        self.assertEqual('failure', reviews.ci_state(statuses(('success', 'success', 'success', 'success', 'error'))))
+        for gate in (None, 'pending', 'error'):
+            self.assertEqual('success', reviews.ci_state(statuses(('success',) * 5, gate=gate)), gate)
+        own = statuses(('success',) * 5)['statuses']
+        self.assertEqual('success', reviews.ci_state({'statuses': own + [
+            {'context': 'cnb/pipeline-9(FlClash/review-before-ci)', 'state': 'failure'}]}))
+
+
+class NoticeTests(unittest.TestCase):
+    """ensure_request writes the notice and existing_review reads it back, both through the HTTP layer only."""
+
+    def setUp(self):
+        env = patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'})
+        env.start()
+        self.addCleanup(env.stop)
+        self.pull = {'number': '12', 'base': {'sha': 'a' * 40}, 'head': {'sha': 'b' * 40, 'ref': 'automation/req-9'}}
+        self.issues, self.comments = {}, {}
+
+    def api(self, url, method='GET', data=None, missing=False, timeout=60):
+        path = url.removeprefix(reviews.CNB + '/')
+        if method == 'POST' and path == 'issues':
+            number = str(80 + len(self.issues))
+            self.issues[number] = dict(data, number=number, state='open', created_at=stamp(1),
+                                       author={'username': 'Aharon', 'is_npc': False})
+            return self.issues[number]
+        if method == 'POST' and path.endswith('/comments'):
+            rows = self.comments.setdefault(path, [])
+            rows.append({'id': str(500 + len(rows)), 'body': data['body']})
+            return rows[-1]
+        if method == 'GET' and path.startswith('issues/'):
+            found = self.issues.get(path.removeprefix('issues/'))
+            if found is None and not missing:
+                raise AssertionError(url)
+            return found
+        raise AssertionError(f'unexpected request {method} {url}')
+
+    def pages(self, url, page_key='page', size_key='page_size'):
+        path = url.removeprefix(reviews.CNB + '/')
+        if path.startswith('issues?'):
+            return iter([{'number': number} for number in self.issues])
+        return iter(self.comments.get(path, []))
+
+    def network(self):
+        stack = contextlib.ExitStack()
+        stack.enter_context(patch.object(reviews, 'api', side_effect=self.api))
+        stack.enter_context(patch.object(reviews, 'pages', side_effect=self.pages))
+        stack.enter_context(patch('control.pages', side_effect=self.pages))
+        stack.enter_context(patch('review_evidence.git', side_effect=self.git))
+        return stack
+
+    @staticmethod
+    def git(*args, check=True, env=None):
+        """Answer like control.git: stripped stdout with check=True, the finished process with check=False."""
+        stdout = {'merge-base': 'c' * 40 + '\n', 'merge-tree': 'd' * 40 + '\n'}.get(args[0], '')
+        if check:
+            return stdout.strip()
+        return subprocess.CompletedProcess(['git', *args], 0, stdout=stdout, stderr='')
+
+    def test_the_notice_names_the_review_issue_on_the_endpoint_existing_review_reads(self):
+        with self.network():
+            self.assertIsNone(reviews.existing_review(self.pull))
+            self.issues['30'] = {'number': '30', 'state': 'open', 'body': 'unrelated'}
+            issue = reviews.ensure_request(reviews.scope('cnb', self.pull), '需求实现')
+            self.assertEqual(['pulls/12/comments'], list(self.comments))
+            (notice,) = self.comments['pulls/12/comments']
+            self.assertIn(f'<!-- flclash-review-notice {issue["number"]} -->', notice['body'])
+            self.assertNotIn('<!-- flclash-review-notice 12 -->', notice['body'])
+            self.assertEqual(issue, reviews.existing_review(self.pull))
+            # A new head is a new request, so the old notice does not count for it.
+            self.assertIsNone(reviews.existing_review(dict(self.pull, head={'sha': 'c' * 40, 'ref': 'x'})))
+
+    def test_a_review_opened_before_the_marker_is_found_by_its_link(self):
+        with self.network():
+            request = reviews.scope('cnb', self.pull)
+            legacy = {'number': '41', 'state': 'open', 'author': {'username': 'Aharon', 'is_npc': False},
+                      'body': '<!-- flclash-pr-review ' + json.dumps(reviews.sign(request)) + ' -->'}
+            self.issues['41'] = legacy
+            self.comments['pulls/12/comments'] = [
+                {'id': '9', 'body': '请先看日志'},
+                {'id': '10', 'body': '结对审核： https://cnb.cool/507space/FlClash-alpha/-/issues/41\n'
+                                     f'base `{"a" * 40}` / head `{"b" * 40}`。两位审核者完成且无阻断问题后检查才通过。'}]
+            self.assertEqual(legacy, reviews.existing_review(self.pull))
+            self.issues['41'] = dict(legacy, author={'username': 'someone', 'is_npc': False})
+            self.assertIsNone(reviews.existing_review(self.pull))
+
+
+class WithholdTests(unittest.TestCase):
+    def run_withhold(self, ci, grace=(), ref='refs/heads/automation/req-9'):
+        rows = statuses(ci)['statuses'] + [
+            {'context': 'FlClash/review-before-ci', 'state': state, 'created_at': stamp(30 - i)}
+            for i, state in enumerate(grace)]
+        posts = []
+
+        def api(url, method='GET', data=None, missing=False, timeout=60):
+            if method == 'POST':
+                self.assertEqual(f'{reviews.CNB}/statuses/' + 'b' * 40, url)
+                posts.append(data['state'])
+                return data
+            self.assertTrue(url.endswith('/pulls/12/commit-statuses'), url)
+            return {'statuses': rows}
+        pull = {'number': '12', 'base': {'sha': 'a' * 40}, 'head': {'sha': 'b' * 40, 'ref': ref}}
+        with patch.object(reviews, 'api', side_effect=api):
+            reviews.withhold(pull)
+        return posts
+
+    def test_withhold_marks_unfinished_ci_red_once_and_clears_it_when_every_pipeline_passes(self):
+        five = ('success',) * 5
+        self.assertEqual(['failure'], self.run_withhold(five[:4] + ('pending',)))
+        self.assertEqual(['failure'], self.run_withhold(five[:4] + ('failure',)))
+        self.assertEqual([], self.run_withhold(five[:4] + ('pending',), grace=('failure',)))
+        self.assertEqual(['failure'], self.run_withhold(five[:4] + ('pending',), grace=('failure', 'success')))
+        self.assertEqual([], self.run_withhold(five))
+        self.assertEqual(['success'], self.run_withhold(five, grace=('failure',)))
+        self.assertEqual([], self.run_withhold(five, grace=('failure', 'success')))
+        self.assertEqual([], self.run_withhold(five[:4] + ('pending',), ref='refs/heads/security/group-x'))
 
 
 if __name__ == '__main__':

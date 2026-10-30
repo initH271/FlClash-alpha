@@ -211,32 +211,96 @@ this is a prompt-level stopping strategy, not a guaranteed pre-timeout callback.
 
 ## Controller wakeup and security queue
 
-The CNB 15-minute schedule only mirrors artifacts. Trusted `pull_request.target`
-events wake the controller twice: once when the PR opens or moves, and once from
-the `Wake controller after checks` pipeline after every other check on that head
-has passed. That pipeline's own pending status is excluded when the controller
-reads CNB checks. All wakes dispatch `operation=all`. Known developer and reviewer
-reports also wake the controller through issue comments. When the controller
-forwards a requirement to GitHub, it waits for GitHub to settle the merge state
-and merges in the same run. Every five minutes a CNB job without the dispatch
-credential looks for requirement states no event will advance: a bridge that never
-fired, a dispatch with no receipt after 35 minutes, an NPC run that ended without a
-report, green checks that were never forwarded, a forwarded PR still open, or a
-requirement PR that has sat on the same head for 40 minutes without green checks
-(up to three times per head, since a silent reviewer failure may need several). A
-review or analysis NPC run still pending after an hour is stopped, so the one-time
-recovery can retry it. It
-writes one `<!-- flclash-requirement-wake <state> -->` comment per state, which the
-`issue.comment` pipeline turns into a dispatch; forwarded PRs get at most three
-retries. Stopped, quota and invalid requirements are left alone. The hourly GitHub
+Every wake ends in a dispatch of `operation=all`; nothing sleeps or polls on a
+runner. Trusted `pull_request.target` events wake the controller when a PR opens or
+moves. Each of the five `main.pull_request` pipelines now ends with a short
+`endStages` job that runs `wake.py ci-done '<pipeline>'`: CNB runs `endStages` once
+`prepare` succeeded, whatever `stages` did, and its own result does not change the
+pipeline state. When every other pipeline on that head has appeared and finished,
+success or failure, the job posts one
+`<!-- flclash-requirement-wake ci-<sha> -->` comment on the requirement issue for
+`automation/req-<n>` branches; the `issue.comment` pipeline turns that comment into a
+dispatch. A plain `pull_request` build cannot import the dispatch credential, so the
+comment is the bridge. `ci-done` ignores moved heads, closed PRs and every branch
+that is not a requirement, catches all exceptions and always exits 0: a wake attempt
+never fails a pipeline. `security/group-*` PRs are woken by the schedule below.
+
+All wakes dispatch `operation=all`. Known developer and reviewer reports also wake
+the controller through issue comments. When the controller forwards a requirement to
+GitHub, it waits for GitHub to settle the merge state and merges in the same run.
+
+The fifteen-minute schedule (`crontab: */15 * * * *`) has two jobs. The first
+(`wake.py watchdog`, three minutes) looks for requirement states no event will
+advance: a bridge that never fired, a dispatch with no receipt after 35 minutes, an
+NPC run that ended without a report, green checks that were never forwarded, a
+forwarded PR still open, or a requirement PR that has sat on the same head for 40
+minutes without green checks (up to three times per head, since a silent reviewer
+failure may need several). It writes one `<!-- flclash-requirement-wake <state> -->`
+comment per state. A review or analysis NPC run still pending after an hour is
+stopped, so the one-time recovery can retry it. The second job imports the dispatch
+credential and runs `wake.py`, which dispatches only while there is work: an open
+owner `[需求]` issue, an open issue carrying a `flclash-pr-review`,
+`flclash-upstream` or `flclash-security-group` marker, or an open PR whose head is
+`automation/req-*` or `security/group-*`; otherwise it prints `idle`. A requirement
+the owner holds with `HOLD` is not work: its `[需求]` issue, its `automation/req-<n>`
+PR and the review issue of that PR stay idle until `RELEASE`. The hourly
+`crontab: 7 * * * *` schedule keeps mirroring artifacts, and the hourly GitHub
 schedule remains a further backstop. An unsuccessful dispatch fails visibly in CNB.
+
+Reviews no longer open the moment a requirement or security PR appears. For a CNB PR
+whose head is `automation/req-*` or `security/group-*` and which has no review issue
+yet, the controller reads `/pulls/{n}/commit-statuses` and looks only at the five
+`main.pull_request` pipelines (`CI_PIPELINES`). The `Paired review gate` runs under
+`pull_request.target` and waits for the review itself, so it is never part of this
+wait; listing it would make the review and the gate wait on each other. A missing pipeline or
+one that has not settled leaves that head `pending`: while the earliest status is
+younger than 80 minutes the controller prints `cnb PR #n: waiting for CI` and opens
+nothing; a settled non-success prints `cnb PR #n: CI failed, review deferred` and
+also opens nothing. Past 80 minutes it opens the review anyway, prints
+`cnb PR #n: CI unsettled after 80m, review opened`, and the brief names the pipelines
+that had not finished as unverified. Reviews that already exist, other branches and
+GitHub PRs keep their previous timing. The controller finds an existing review from
+the notice it left on the PR (`/pulls/{n}/comments`): the
+`<!-- flclash-review-notice <review issue> -->` marker, or for notices written before
+the marker, the review issue link; the issue must still carry the signed request for
+that base/head. A review opened before CI settled shows a red
+`FlClash/review-before-ci` commit status on the requirement PR while any pipeline is
+pending or failed, and turns it green once every one has succeeded; the status is
+posted only when its value changes and never gates anything itself. `check_state`
+counts a requirement PR as green only when all five pipelines succeeded and the
+paired review for that base/head is `success`; the gate's own row is ignored. So two
+passing reviewers cannot forward or merge a requirement whose CI has not settled; the
+wake that follows the last pipeline re-runs the controller and the forwarding then
+sees green.
+
+Deployment prerequisite: in the existing private `github-dispatch.yml` KeyStore,
+retain the exact repository and `main` branch restrictions and token value, and
+allow only these additional events alongside `issue.comment`:
+
+```yaml
+allow_events:
+  - issue.comment
+  - 'crontab: */15 * * * *'
+  - pull_request.target
+```
+
+Never authorize ordinary `pull_request` or source-branch execution to import this
+credential; the `ci-done` end stage uses the build token for `repo-notes:rw`
+comments only, and wakes the controller through the comment bridge. The GitHub
+controller independently validates signed work records.
+
+Security queue reconciliation runs even if review reconciliation fails, provided
+credentials passed validation. It uses signed dispatch receipts, checks both
+Issue and PR developer attempts, preserves a two-group execution limit and exposes
+blocked/stalled states in the master Issue. It cannot merge or publish repairs.
 
 Requirement PRs (`automation/req-<n>`) give reviewers the issue's acceptance
 criteria; a criterion that the diff cannot confirm, or that the developer's latest
 report calls unmet, is a block even when CI is green. A reviewer whose bounded
 recheck still omits the machine verdict gets one request to restate its own
-conclusion. The `Paired review gate` check only polls for 32 minutes, so once the
-review for that base/head has passed, a timed-out gate no longer holds the PR back.
+conclusion. The `Paired review gate` check only polls for 32 minutes, so the
+controller reads the review verdict directly: a pending, timed-out or missing gate
+never holds back a requirement whose review for that base/head has passed.
 Before forwarding, the controller merges the latest GitHub `main` into a green
 requirement branch that has fallen behind (branch protection requires it) and lets
 checks and review rerun; a merge conflict goes back to the developer. An open
