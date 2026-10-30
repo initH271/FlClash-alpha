@@ -213,6 +213,17 @@ def validate_source(check_reviews=True):
     return candidate
 
 
+def adopt_owner_merge(sha, branch, number):
+    """The owner merged the approved upstream into main by hand: prepare on top of the conflict branch."""
+    request = parse_request(api(f'{CNB}/issues/{number}')['body'])
+    git('fetch', 'origin', 'main')
+    if (not request or request.get('upstream') != POLICY['upstream']
+            or git('merge-base', '--is-ancestor', request['sha'], 'origin/main', check=False).returncode
+            or upstream_commit(request['tag']) != request['sha']):
+        return
+    prepare_candidate(request, number, branch, previous=sha)
+
+
 def approvals():
     import reviews
     for issue in pages(f'{CNB}/issues?state=open'):
@@ -253,6 +264,7 @@ def resume_candidate(sha, branch, number):
         print('Candidate branch advanced while fetching; retry next controller pass')
         return
     if not (ROOT / '.automation/candidate.json').exists():
+        adopt_owner_merge(sha, branch, number)
         return
     envelope = json.loads((ROOT / '.automation/candidate.json').read_text())
     candidate = verify(envelope)
@@ -316,6 +328,25 @@ def commit_candidate(branch, base, previous=None):
         git('checkout', '-B', branch, sha)
 
 
+def listed(paths, limit=10):
+    rows = ''.join(f'\n- `{p}`' for p in paths[:limit])
+    return rows + (f'\n- 另有 {len(paths) - limit} 个未列出' if len(paths) > limit else '')
+
+
+def ask_owner_merge(request, number, branch, url, conflicts, protected):
+    """Hand a conflicting upgrade to the owner, once per approved upstream commit; no NPC can merge it."""
+    stamp = '<!-- flclash-owner-merge ' + json.dumps(sign({'issue': str(number), 'upstream_sha': request['sha']})) + ' -->'
+    if any(stamp in c.get('body', '') for c in pages(f'{CNB}/issues/{number}/comments')):
+        return
+    conflicts = sorted(set(conflicts))
+    protected = sorted(set(protected) - set(conflicts))
+    comment(number, f'上游 {request["tag"]} 自动合并已停止：有 {len(conflicts)} 个冲突文件和 {len(protected)} 个受保护文件，'
+            '需要 owner 人工合并上游。\n\n冲突文件：' + (listed(conflicts) or '无') + '\n\n受保护文件：' + (listed(protected) or '无')
+            + f'\n\n请把上游提交 `{request["sha"]}` 合进 main，`.automation/policy.json` 和 `.github/release.json` 留给控制器写入，'
+            f'步骤见 AUTOMATION.md 上游升级一节（待补）。合进 main 后在本 Issue 回复 OK，控制器会在升级分支 `{branch}` 上'
+            f'准备候选并发版，记录冲突的草稿 PR {url} 继续沿用。\n\n' + stamp)
+
+
 def prepare_candidate(request, number, branch, previous=None):
     from reviews import reconcile
     git('fetch', 'origin', 'main')
@@ -345,8 +376,7 @@ def prepare_candidate(request, number, branch, previous=None):
                  'title': f'跟进上游 {request["tag"]}：需要处理合并冲突',
                  'body': f'Owner approved CNB Issue #{number}. No automatic merge: inspect UPSTREAM_REVIEW.md.'})
         sync_branch(branch)
-        comment(number, f'自动合并已停止，待处理 PR：{pr["html_url"]}\n升级分支：`{branch}`。\n\n'
-                '@507space/FlClash-alpha(开发助手) 请在指定升级分支解决冲突并提交 CNB PR，保留个人功能；不要直接修改 main 或发布。', True)
+        ask_owner_merge(request, number, branch, pr['html_url'], conflicts, protected)
         return
     release = next_release(json.loads((ROOT / '.github/release.json').read_text()),
                           upstream=request['tag'].removeprefix('v'))
