@@ -8363,6 +8363,56 @@ class AppLocalizations {
       args: [],
     );
   }
+
+  /// `Push channel`
+  String get forkPushChannel {
+    return Intl.message(
+      'Push channel',
+      name: 'forkPushChannel',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Via proxy`
+  String get forkPushViaProxy {
+    return Intl.message(
+      'Via proxy',
+      name: 'forkPushViaProxy',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Not proxied`
+  String get forkPushDirect {
+    return Intl.message(
+      'Not proxied',
+      name: 'forkPushDirect',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No push connection`
+  String get forkPushEmpty {
+    return Intl.message(
+      'No push connection',
+      name: 'forkPushEmpty',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `While push works, Google Play services keeps a connection open to mtalk.google.com:5228.`
+  String get forkPushEmptyHint {
+    return Intl.message(
+      'While push works, Google Play services keeps a connection open to mtalk.google.com:5228.',
+      name: 'forkPushEmptyHint',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<AppLocalizations> {

@@ -668,6 +668,13 @@ class MessageLookup extends MessageLookupByLibrary {
       "强制嗅探域名中的域名同样会被嗅探，其余已有域名的连接不嗅探。",
     ),
     "forceRestartCoreTip": MessageLookupByLibrary.simpleMessage("您确定要强制重启核心吗？"),
+    "forkPushChannel": MessageLookupByLibrary.simpleMessage("推送通道"),
+    "forkPushDirect": MessageLookupByLibrary.simpleMessage("未经代理"),
+    "forkPushEmpty": MessageLookupByLibrary.simpleMessage("暂无推送连接"),
+    "forkPushEmptyHint": MessageLookupByLibrary.simpleMessage(
+      "推送正常时，Google Play 服务会保持一条到 mtalk.google.com:5228 的连接。",
+    ),
+    "forkPushViaProxy": MessageLookupByLibrary.simpleMessage("经代理"),
     "fr": MessageLookupByLibrary.simpleMessage("法语"),
     "general": MessageLookupByLibrary.simpleMessage("常规"),
     "generalOverrideDesc": MessageLookupByLibrary.simpleMessage(

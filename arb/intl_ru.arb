@@ -995,5 +995,10 @@
   "upstreamVersion": "Версия исходного проекта",
   "releaseDate": "Дата выпуска",
   "buildNumber": "Внутренний номер сборки",
-  "versionDetails": "Сведения о версии"
+  "versionDetails": "Сведения о версии",
+  "forkPushChannel": "Канал push",
+  "forkPushViaProxy": "Через прокси",
+  "forkPushDirect": "Не через прокси",
+  "forkPushEmpty": "Нет push-соединения",
+  "forkPushEmptyHint": "Пока push работает, сервисы Google Play держат соединение с mtalk.google.com:5228."
 }

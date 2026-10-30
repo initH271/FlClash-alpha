@@ -3,6 +3,8 @@ import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/ui/icons/icons.dart';
 import 'package:material_ui/material_ui.dart';
 
+import 'push_channel.dart';
+
 /// Upstream's registry hands every value it has no arm for to [forkTileOf].
 class ForkTile {
   const ForkTile({
@@ -18,7 +20,13 @@ class ForkTile {
 
 const forkTilePrefix = 'fork';
 
-final Map<DashboardWidget, ForkTile> forkTiles = {};
+final Map<DashboardWidget, ForkTile> forkTiles = {
+  DashboardWidget.forkPushChannel: ForkTile(
+    card: PushChannelCard.new,
+    glyph: AppGlyphs.send,
+    label: (appLocalizations) => appLocalizations.forkPushChannel,
+  ),
+};
 
 bool isForkTile(DashboardWidget widget) =>
     widget.name.startsWith(forkTilePrefix);

@@ -719,6 +719,13 @@ class MessageLookup extends MessageLookupByLibrary {
     "forceRestartCoreTip": MessageLookupByLibrary.simpleMessage(
       "코어를 강제로 다시 시작하시겠습니까?",
     ),
+    "forkPushChannel": MessageLookupByLibrary.simpleMessage("푸시 채널"),
+    "forkPushDirect": MessageLookupByLibrary.simpleMessage("프록시 미경유"),
+    "forkPushEmpty": MessageLookupByLibrary.simpleMessage("푸시 연결 없음"),
+    "forkPushEmptyHint": MessageLookupByLibrary.simpleMessage(
+      "푸시가 작동하는 동안 Google Play 서비스는 mtalk.google.com:5228 연결을 유지합니다.",
+    ),
+    "forkPushViaProxy": MessageLookupByLibrary.simpleMessage("프록시 경유"),
     "fr": MessageLookupByLibrary.simpleMessage("프랑스어"),
     "general": MessageLookupByLibrary.simpleMessage("일반"),
     "generalOverrideDesc": MessageLookupByLibrary.simpleMessage(

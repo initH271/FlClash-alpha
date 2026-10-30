@@ -995,5 +995,10 @@
   "upstreamVersion": "Version amont",
   "releaseDate": "Date de publication",
   "buildNumber": "Numéro de build interne",
-  "versionDetails": "Détails de la version"
+  "versionDetails": "Détails de la version",
+  "forkPushChannel": "Canal push",
+  "forkPushViaProxy": "Via le proxy",
+  "forkPushDirect": "Hors proxy",
+  "forkPushEmpty": "Aucune connexion push",
+  "forkPushEmptyHint": "Tant que les notifications push fonctionnent, les services Google Play gardent une connexion vers mtalk.google.com:5228."
 }

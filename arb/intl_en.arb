@@ -995,5 +995,10 @@
   "upstreamVersion": "Upstream version",
   "releaseDate": "Release date",
   "buildNumber": "Internal build number",
-  "versionDetails": "Version details"
+  "versionDetails": "Version details",
+  "forkPushChannel": "Push channel",
+  "forkPushViaProxy": "Via proxy",
+  "forkPushDirect": "Not proxied",
+  "forkPushEmpty": "No push connection",
+  "forkPushEmptyHint": "While push works, Google Play services keeps a connection open to mtalk.google.com:5228."
 }

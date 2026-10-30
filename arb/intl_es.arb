@@ -995,5 +995,10 @@
   "upstreamVersion": "Versión original",
   "releaseDate": "Fecha de publicación",
   "buildNumber": "Número de compilación interno",
-  "versionDetails": "Detalles de la versión"
+  "versionDetails": "Detalles de la versión",
+  "forkPushChannel": "Canal push",
+  "forkPushViaProxy": "Vía proxy",
+  "forkPushDirect": "Sin proxy",
+  "forkPushEmpty": "Sin conexión push",
+  "forkPushEmptyHint": "Mientras las notificaciones push funcionan, los servicios de Google Play mantienen una conexión con mtalk.google.com:5228."
 }

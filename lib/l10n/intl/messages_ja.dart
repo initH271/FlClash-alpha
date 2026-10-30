@@ -729,6 +729,13 @@ class MessageLookup extends MessageLookupByLibrary {
     "forceRestartCoreTip": MessageLookupByLibrary.simpleMessage(
       "コアを強制再起動してもよろしいですか？",
     ),
+    "forkPushChannel": MessageLookupByLibrary.simpleMessage("プッシュ通知チャネル"),
+    "forkPushDirect": MessageLookupByLibrary.simpleMessage("プロキシ未経由"),
+    "forkPushEmpty": MessageLookupByLibrary.simpleMessage("プッシュ接続なし"),
+    "forkPushEmptyHint": MessageLookupByLibrary.simpleMessage(
+      "プッシュ通知が動作中は、Google Play 開発者サービスが mtalk.google.com:5228 への接続を維持します。",
+    ),
+    "forkPushViaProxy": MessageLookupByLibrary.simpleMessage("プロキシ経由"),
     "fr": MessageLookupByLibrary.simpleMessage("フランス語"),
     "general": MessageLookupByLibrary.simpleMessage("一般"),
     "generalOverrideDesc": MessageLookupByLibrary.simpleMessage(

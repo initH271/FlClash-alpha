@@ -995,5 +995,10 @@
   "upstreamVersion": "上流バージョン",
   "releaseDate": "公開日",
   "buildNumber": "内部ビルド番号",
-  "versionDetails": "バージョン詳細"
+  "versionDetails": "バージョン詳細",
+  "forkPushChannel": "プッシュ通知チャネル",
+  "forkPushViaProxy": "プロキシ経由",
+  "forkPushDirect": "プロキシ未経由",
+  "forkPushEmpty": "プッシュ接続なし",
+  "forkPushEmptyHint": "プッシュ通知が動作中は、Google Play 開発者サービスが mtalk.google.com:5228 への接続を維持します。"
 }

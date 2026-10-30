@@ -862,6 +862,13 @@ class MessageLookup extends MessageLookupByLibrary {
     "forceRestartCoreTip": MessageLookupByLibrary.simpleMessage(
       "Are you sure you want to force restart the core?",
     ),
+    "forkPushChannel": MessageLookupByLibrary.simpleMessage("Push channel"),
+    "forkPushDirect": MessageLookupByLibrary.simpleMessage("Not proxied"),
+    "forkPushEmpty": MessageLookupByLibrary.simpleMessage("No push connection"),
+    "forkPushEmptyHint": MessageLookupByLibrary.simpleMessage(
+      "While push works, Google Play services keeps a connection open to mtalk.google.com:5228.",
+    ),
+    "forkPushViaProxy": MessageLookupByLibrary.simpleMessage("Via proxy"),
     "fr": MessageLookupByLibrary.simpleMessage("French"),
     "general": MessageLookupByLibrary.simpleMessage("General"),
     "generalOverrideDesc": MessageLookupByLibrary.simpleMessage(

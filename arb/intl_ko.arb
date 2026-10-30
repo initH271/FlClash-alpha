@@ -995,5 +995,10 @@
   "upstreamVersion": "업스트림 버전",
   "releaseDate": "출시일",
   "buildNumber": "내부 빌드 번호",
-  "versionDetails": "버전 세부 정보"
+  "versionDetails": "버전 세부 정보",
+  "forkPushChannel": "푸시 채널",
+  "forkPushViaProxy": "프록시 경유",
+  "forkPushDirect": "프록시 미경유",
+  "forkPushEmpty": "푸시 연결 없음",
+  "forkPushEmptyHint": "푸시가 작동하는 동안 Google Play 서비스는 mtalk.google.com:5228 연결을 유지합니다."
 }
