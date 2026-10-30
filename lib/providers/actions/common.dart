@@ -14,6 +14,7 @@ class CommonAction extends _$CommonAction {
       load: request.checkForUpdate,
       notify: (data) => checkUpdateResultHandle(data: data),
       onError: (error) => commonPrint.log('Update check failed: $error'),
+      trace: (message) => commonPrint.log('Update check $message'),
     )..setForeground(_updateForeground);
     ref.onDispose(_updates.dispose);
     ref.listen(appSettingProvider.select((state) => state.autoCheckUpdate), (
