@@ -449,32 +449,37 @@ mixin _NodeAddressWatch<T extends ConsumerStatefulWidget> on ConsumerState<T> {
   }
 }
 
-/// Node names tend to carry their own flag emoji, so a service shows where
-/// its traffic leaves from as a flag and the address instead, and falls
-/// back to the node only when the address could not be looked up.
+/// Where a service's traffic leaves from: the address with its flag, then
+/// the node the check went through. Either stands alone when the other is
+/// missing, and the node gives way first when the line runs short.
 class _OutboundIpLine extends StatelessWidget {
   const _OutboundIpLine({
     required this.ip,
     required this.region,
     required this.pending,
-    required this.fallback,
+    required this.node,
     required this.style,
   });
 
   final IpInfo? ip;
   final String? region;
   final bool pending;
-  final String? fallback;
+  final String? node;
   final TextStyle? style;
 
   @override
   Widget build(BuildContext context) {
     final ip = this.ip;
-    final fallback = this.fallback;
+    final node = this.node;
     final flag = ip?.countryCode ?? region;
-    if (flag == null && ip == null && !pending && fallback == null) {
+    if (flag == null && ip == null && !pending && node == null) {
       return _NoValue(style: style);
     }
+    final address = ip != null
+        ? IpQualityText(ip: ip.ip, style: style)
+        : pending
+        ? SkeletonText(width: 88, style: style)
+        : null;
     final line = Row(
       spacing: 4,
       children: [
@@ -483,16 +488,14 @@ class _OutboundIpLine extends StatelessWidget {
             flag.countryFlagEmoji,
             style: style?.copyWith(fontFamily: FontFamily.twEmoji.value),
           ),
-        if (ip != null)
+        if (address != null) Flexible(flex: 3, child: address),
+        if (address != null && node != null)
+          ExcludeSemantics(child: Text('·', style: style)),
+        if (node != null)
           Flexible(
-            child: IpQualityText(ip: ip.ip, style: style),
-          )
-        else if (pending)
-          Flexible(child: SkeletonText(width: 88, style: style))
-        else if (fallback != null)
-          Flexible(
+            flex: 2,
             child: Text(
-              fallback,
+              node,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: style,
@@ -898,7 +901,7 @@ class _ServiceRowState extends ConsumerState<_ServiceRow>
                     ipEntry != null &&
                     ipEntry.phase != ProbePhase.failed &&
                     outboundIp == null,
-                fallback: node,
+                node: node,
                 style: secondary,
               ),
         trailing: ConstrainedBox(
