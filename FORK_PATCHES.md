@@ -4,12 +4,12 @@
 
 - **升级上游前先读**：先读「升级时的通用规则」，再读所有写了「上游文件」的条目。这些补丁打在上游文件上，升级时可能冲突。
 - **合并后照着核对**：按每条的「核对」看上游这次改了什么，再跑对应的测试。
-- **同步更新**：每个在上游文件上打补丁的 PR，都要同时更新这份清单。fork 独有的新文件按目录概括，不用逐个列。
+- **同步更新**：每个在上游文件上打补丁的 PR，都要同时更新这份清单。fork 独有的新文件按目录概括，不用逐个列。清单只记已经合入 main 的内容，分支上的改动不写进来。
 
 | 基线 | 值 |
 | --- | --- |
 | 上游版本 | `v0.9.2`（`7fd417fb`），同 `.automation/policy.json` 的 `upstream_tag` |
-| 正文对应的 fork 提交 | `854d1a06` |
+| 正文对应的 fork 提交 | `f6c6d99c` |
 | 重新列差异 | `git diff --stat <上游 tag> HEAD` |
 
 仓库文档索引见 [AGENTS.md](AGENTS.md)。相关文档：[AUTOMATION.md](AUTOMATION.md)、[RELEASE_CHANNELS.md](RELEASE_CHANNELS.md)、[ROLLING_LOG_HISTORY.md](ROLLING_LOG_HISTORY.md)、[SECURITY_AUTOMATION.md](SECURITY_AUTOMATION.md)。
@@ -85,6 +85,13 @@
 - **改了什么**：页面改成有状态组件；标题写死 FlClash-alpha；显示可读版本、上游版本、发布日期和内部构建号；项目链接改成 GitHub、CNB 和上游；加维护者；去掉 Telegram 链接。
 - **为什么**：可读版本的需求见 `docs/versions/v1.5.0/requirements.md`。去掉 Telegram 链接的原因未记录（`de664d73`）。
 - **核对**：上游改关于页布局时，以上游新结构为准重打。兜底：`test/views/about_view_test.dart`、`test/views/release_version_view_test.dart`、`test/widgets/uncovered_views_test.dart`。
+
+### B5. 更新开关改键
+
+- **文件**：上游文件 `lib/models/config.dart` 和生成文件、`lib/providers/actions/common.dart`；fork 文件 `lib/common/update_check_scheduler.dart`。
+- **改了什么**：`autoCheckUpdate` 改存为 `autoCheckAppUpdate`，自动检查加日志。
+- **为什么**：旧版「不再提醒」写入的 false 让自动检查永久静默（#106）。
+- **核对**：确认 `@JsonKey(name: 'autoCheckAppUpdate')` 还在，生成文件读写的都是新键。
 
 ## C. 网络工具
 
@@ -185,6 +192,13 @@
 - **为什么**：应用内安装下载的 APK（B3）。
 - **核对**：上游改 Manifest 的 application 段或插件注册时，确认这三处还在。上游若引入自己的 FileProvider，确认 authorities 不撞。没有自动兜底，要装一次 APK 验证。
 
+### F3. 停止服务的回复时机
+
+- **文件**：上游文件 `android/app/src/main/kotlin/com/follow/clash/plugins/ServicePlugin.kt`；fork 文件 `android/tests/app/ServicePluginTest.kt`。
+- **改了什么**：stop 等拆除完成后才回复 Flutter。
+- **为什么**：改访问控制后重启时，「当前出站」磁贴的开关状态不同步（#108）。
+- **核对**：上游改 `ServicePlugin` 的 stop 流程时跑 `ServicePluginTest`。
+
 ## G. Core 改动
 
 ### G1. mihomo 子模块
@@ -282,47 +296,19 @@
 - **为什么**：fork 自己的文档。
 - **核对**：不冲突。升级后更新里面写到的上游版本。
 
-## 待合并
+### I8. 免责声明只确认一次
 
-这些改动还在分支或 PR 上，不在基线 `854d1a06` 里。合并后挪到正文。
+- **文件**：上游文件 `lib/models/config.dart` 和生成文件、`lib/common/constant.dart`、`lib/bootstrap.dart`。
+- **改了什么**：迁移旧字段，判定放宽为接受过任意版本。
+- **为什么**：owner 要求只确认一次，不随版本重弹（#105）。
+- **核对**：确认 `_handlerDisclaimer` 仍调用 `disclaimerNeeded`，`readValue` 还在。
 
-### 分支 `feat/fork-tile-auto-pause`
+### I9. 服务状态显示节点名
 
-这个分支包含 `feat/fork-dashboard-tiles-v2` 的提交。
-
-- **磁贴扩展机制**（`d0edeb7e`）| 上游文件 `lib/enum/enum.dart`、`widget_registry.dart`；fork 文件 `fork/fork_tiles.dart`、`test/views/dashboard/fork/fork_tiles_test.dart` | enum 开头留 fork 段，注册表三个 switch 各加一行兜底 | 让升级上游时冲突最少 | 上游改 enum 位置或 switch 结构（比如改成 Map）时，确认兜底还在、fork 段还在上游值前面；跑 `fork_tiles_test`，删掉兜底会直接编译失败。fork 磁贴名定下后不能改（`shippedForkTileNames` 测试守着）；宽度 ≥640dp 时布局写死，fork 磁贴不出现。
-- **推送通道磁贴**（`1df7875f`）| 上游文件 7 个 arb、`config.g.dart`；fork 文件 `fork/push_channel.dart` | 新增 `forkPushChannel` | 一眼看出 FCM 有没有走代理 | 上游改 `ConnectionsPolling`、`TrackerInfo`、`DashboardCard` 接口时跑 `push_channel_test`；`config.g.dart` 冲突时重新生成，不要手动合。
-- **分流自检磁贴**（`59360a77` 数据层、`31da79ee` 界面）| 上游文件 7 个 arb、`config.g.dart`、`edit_test.dart` 一行（视图高度 1400→1800）；fork 文件 `fork/route_check*.dart` | 新增 `forkRouteCheck` | 排查规则分流 | 上游改 `RoutedProbe`、`ProbeParams`、`outboundIpProbeProvider` 时跑 `route_check_test`；上游改 `edit_test` 时确认那一行加高还在；上游改 dashboard 布局分支时确认 fork 磁贴在手机布局还能出现。
-- **手动覆盖修复**（`51d9bcbe`）| 上游文件无；fork 文件 `network_policy.dart`、`network_automation_manager.dart`、`providers/network_features.dart`、`network_policy_test.dart` | 策略增加覆盖状态，发布自动化状态，增加恢复请求和网络读取替换点 | 命中规则时手动启动会被下一次检查停掉 | 跑 `network_policy_test`，并核对 `setRunning` 仍记录用户意图。
-- **自动暂停磁贴**（`f12d8142`）| 上游文件 `enum.dart`、`edit_test.dart`、7 个 arb、生成文件；fork 文件 `fork_tiles.dart`、`auto_pause.dart`、`auto_pause_test.dart`、`fork_tiles_test.dart` | 新增 `forkAutoPause` | 区分规则停止和手动停止，并提供覆盖和恢复 | 跑 `test/views/dashboard`，核对 `edit_test` 的 seed 和 330 偏移；l10n 重新生成。
-
-### 分支 `feat/service-status-groups`
-
-- **服务节点名**（`3fe3bc15`）| 上游文件 `lib/views/dashboard/widgets/service_status.dart`、`test/views/dashboard/service_status_test.dart` | `_OutboundIpLine` 显示 IP · 节点 | owner 要看每次检查走的节点 | 上游改 `_OutboundIpLine`、`_ServiceRow` 副标题或 `ServiceCheck.node` 时重新核对；兜底 "a sheet row puts the node after its address"。
-- **新增服务**（`dc7c0bdf`）| 上游文件 `core/service_check.go`、`lib/common/service_probe.dart`、`service_status.dart` 及其测试；fork 文件 `core/service_rules_extra(_test).go` | 7 个 checker；`ServiceTarget` 加 mark；`_ServiceBadge` 画字母标记 | 覆盖 owner 用的交易所和社交应用 | 上游改 `serviceCheckers`、`ServiceTarget` 字段或 `_ServiceBadge` 时核对；兜底 "every service has a check registered in the Core"、`go test -run 'TestBinance|TestBybit'`。
-- **分类文案**（`e1a36af1`）| 上游文件 `arb/intl_*.arb` 和生成文件 | 6 个 `serviceCategory*` key，7 种语言 | 分类标题 | 上游 arb 冲突时保留这些 key 并重新生成；兜底 `test/l10n`。
-- **面板分类**（`eaf4ab96`）| 上游文件 `service_status.dart` 及其测试；fork 文件 `lib/common/service_category.dart`、`test/common/service_category_test.dart` | `ServiceStatusSheet` 按类别列出，组顺序按每组第一个服务的已存顺序 | owner 要分组 | 上游新服务没有分类时编译失败（穷举 switch）；面板列表结构变化时核对；兜底 `service_category_test`。
-- **手机卡片横向滚动**（`3e71f6ef`）| 上游文件 `service_status.dart` 及其测试 | `_ServiceStrip` 取代手机网格；只检测可见格子 | 显示全部服务 | 上游改 `ServiceStatusCard.build`、`_syncShown`/`shownServiceCountProvider`、`_ServiceGrid` 时核对；兜底 "a phone card scrolls sideways…"、"a vertical drag on the phone card scrolls the page"。
-
-### PR #106（分支 `fix/auto-update-prompt`）
-
-- **更新开关改键** | 上游文件 `lib/models/config.dart` 和生成文件、`lib/providers/actions/common.dart`；fork 文件 `lib/common/update_check_scheduler.dart` | `autoCheckUpdate` 改存为 `autoCheckAppUpdate`，自动检查加日志 | 旧版「不再提醒」写入的 false 让自动检查永久静默 | 确认 `@JsonKey(name: 'autoCheckAppUpdate')` 还在，生成文件读写的都是新键。
-
-### PR #105（分支 `fix/disclaimer-once`）
-
-- **免责声明只确认一次** | 上游文件 `lib/models/config.dart` 和生成文件、`lib/common/constant.dart`、`lib/bootstrap.dart` | 迁移旧字段，判定放宽为接受过任意版本 | owner 要求只确认一次 | 核对 `_handlerDisclaimer` 仍调用 `disclaimerNeeded`，`readValue` 还在。
-
-### 分支 `fix/outbound-tile-access-sync`
-
-- **当前出站修复**（`92267dc7`）| 上游文件 `android/app/src/main/kotlin/com/follow/clash/plugins/ServicePlugin.kt`；fork 文件 `android/tests/app/ServicePluginTest.kt` | stop 等拆除完成后才回复 Flutter | 改访问控制重启时状态不同步 | 上游改 `ServicePlugin` 的 stop 流程时跑 `ServicePluginTest`。
-
-### 分支 `feat/user-facing-changelog`
-
-- **内部提交不进更新说明**（`cab80d23`）| 上游文件 `tool/src/changelog/parser.dart`；fork 文件 `tool/src/release_notes/range.dart` | 默认排除内部 scope，无 trailer 告警，整版无条目时显示中文兜底 | 更新对话框读起来像 CI 日志 | 上游改 parser 时跑 `test/tool/changelog_parser_test.dart`、`test/tool/release_notes_test.dart`。
-- **needs-copy 标记**（`10cfaefb`）| 上游文件 `tool/src/changelog/models.dart`、`render.dart`、`parser.dart` | 无 trailer 的条目后面留一行注释 | stderr 告警容易漏看 | 上游改渲染或解析时跑 `test/common/changelog_test.dart`，确认注释不进 JSON。
-- **更新日志规范**（`5d575d4e`）| 上游文件 `.agents/rules.md`、`.agents/commands.md`、`tool/hooks/commit_msg.sh`、`tool/src/changelog/parser.dart`；fork 文件 `CHANGELOG_STYLE.md`、`RELEASE_CHANNELS.md` | 取消只用英文 | 更新对话框的读者不关心构建细节，文案用中文 | 上游改 hook 或这些规则段落时，确认 hook、parser 警告和规则说法一致。
-- **手写发版说明**（`708709a4`）| 上游文件 `tool/src/changelog/render.dart`、`.agents/rules.md`；fork 文件 `tool/src/release_notes/manual.dart`、`range.dart`、`CHANGELOG_STYLE.md` | `.github/release-notes.md` 里按版本命名的节覆盖自动条目 | 已合并的提交没法改写 | 上游改 render 时跑 `test/tool/release_notes_manual_test.dart`。
-- **中文分组标题**（`a14cd667`）| 上游文件 `arb/intl_zh_CN.arb` 和生成文件、`test/widgets/update_dialog_test.dart` | zh_CN 分组标题口语化 | 和条目语气一致 | 上游改这些 key 时保留 fork 的中文，再重新生成。
+- **文件**：上游文件 `lib/views/dashboard/widgets/service_status.dart`、`test/views/dashboard/service_status_test.dart`。
+- **改了什么**：`_OutboundIpLine` 显示 IP 和节点名。
+- **为什么**：owner 要看每次检查走的节点（#109）。
+- **核对**：上游改 `_OutboundIpLine`、`_ServiceRow` 副标题或 `ServiceCheck.node` 时重新核对。兜底："a sheet row puts the node after its address"。
 
 ## 可以考虑去掉的补丁
 
