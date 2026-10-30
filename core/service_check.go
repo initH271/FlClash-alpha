@@ -113,6 +113,14 @@ var serviceCheckers = []serviceChecker{
 	{name: "tiktok", check: checkTikTok},
 	{name: "discord", check: checkDiscord},
 	{name: "bilibili", check: checkBilibili},
+	// Fork additions; their rules live in service_rules_extra.go.
+	{name: "telegram", check: checkReachable("https://web.telegram.org/")},
+	{name: "x", check: checkReachable("https://x.com/")},
+	{name: "instagram", check: checkReachable("https://www.instagram.com/")},
+	{name: "okx", check: checkReachable("https://www.okx.com/api/v5/public/time")},
+	{name: "binance", check: checkBinance},
+	{name: "bybit", check: checkBybit},
+	{name: "steam", check: checkReachable("https://store.steampowered.com/")},
 }
 
 func handleServiceCheck(params *ServiceCheckParams) []ServiceCheckItem {

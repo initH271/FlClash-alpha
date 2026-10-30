@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/service_category.dart';
 import 'package:fl_clash/common/service_probe.dart';
 import 'package:fl_clash/core/controller.dart';
 import 'package:fl_clash/core/interface.dart';
@@ -130,9 +132,9 @@ void main() {
     );
   }
 
-  /// A phone card shows the first two enabled services.
+  /// A phone card checks the services in view: two and the edge of a third.
   final shownIds = [
-    for (final target in ServiceTarget.values.take(2)) target.id,
+    for (final target in ServiceTarget.values.take(3)) target.id,
   ];
 
   AppSettingProps only(List<ServiceTarget> targets) => AppSettingProps(
@@ -173,7 +175,7 @@ void main() {
     expect(find.text('All available'), findsOneWidget);
   });
 
-  testWidgets('a phone card checks the first two services, and only those', (
+  testWidgets('a phone card checks the services in view, and only those', (
     tester,
   ) async {
     final asked = <String>[];
@@ -188,11 +190,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(asked, unorderedEquals(shownIds));
-    for (final target in ServiceTarget.values.take(2)) {
+    for (final target in ServiceTarget.values.take(3)) {
       expect(tile(target), findsOneWidget);
     }
-    expect(tile(ServiceTarget.values[2]), findsNothing);
-    expect(find.text('45 ms'), findsNWidgets(2));
+    expect(find.text('45 ms'), findsNWidgets(3));
     expect(find.text(ServiceTarget.google.label), findsNothing);
   });
 
@@ -262,7 +263,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(asked, unorderedEquals(shownIds));
+    expect(
+      asked,
+      unorderedEquals([
+        for (final target in [first, second]) target.id,
+      ]),
+    );
     expect(cellOf(tester, first).left, cellOf(tester, second).left);
     expect(cellOf(tester, second).top, greaterThan(cellOf(tester, first).top));
     expect(cellOf(tester, first).width, rowWidth(tester));
@@ -622,6 +628,13 @@ void main() {
     );
   });
 
+  Finder sheetScrollable() => find
+      .descendant(
+        of: find.byType(ServiceStatusSheet),
+        matching: find.byType(Scrollable),
+      )
+      .first;
+
   testWidgets('tapping the card lists every service in a sheet', (
     tester,
   ) async {
@@ -641,7 +654,6 @@ void main() {
 
     expect(find.byType(ServiceStatusSheet), findsOneWidget);
     expect(asked, unorderedEquals(shownIds));
-    expect(find.text('Not checked'), findsWidgets);
     expect(
       find.descendant(
         of: find.byType(ServiceStatusSheet),
@@ -669,7 +681,18 @@ void main() {
       ),
     );
     final delegate = list.delegate as SliverChildBuilderDelegate;
-    expect(delegate.childCount, ServiceTarget.values.length);
+    expect(
+      delegate.childCount,
+      ServiceTarget.values.length + ServiceCategory.values.length,
+    );
+    await tester.scrollUntilVisible(
+      find.descendant(
+        of: find.byType(ServiceStatusSheet),
+        matching: find.text('Not checked'),
+      ),
+      120,
+      scrollable: sheetScrollable(),
+    );
     for (final tooltip in ['Check all', 'Manage services']) {
       expect(
         find.ancestor(
@@ -762,13 +785,13 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(ServiceStatusSheet),
-        matching: find.text(ServiceTarget.chatgpt.label),
+        matching: find.text(ServiceTarget.github.label),
       ),
     );
     await tester.pumpAndSettle();
 
     expect(find.byType(ServiceStatusSheet), findsOneWidget);
-    expect(asked.skip(shownIds.length), [ServiceTarget.chatgpt.id]);
+    expect(asked.skip(shownIds.length), [ServiceTarget.github.id]);
   });
   testWidgets('a route change checks the shown service again once', (
     tester,
@@ -797,9 +820,9 @@ void main() {
   });
 
   testWidgets('a row keeps its height through a check', (tester) async {
-    final claude = Completer<void>();
+    final chatgpt = Completer<void>();
     answer((params) async {
-      if (params.names.contains('claude')) await claude.future;
+      if (params.names.contains('chatgpt')) await chatgpt.future;
       return [
         for (final name in params.names)
           _item(
@@ -820,17 +843,20 @@ void main() {
     await tester.tap(find.byType(ServiceStatusCard));
     await tester.pumpAndSettle();
 
-    final row = find.widgetWithText(ListTile, ServiceTarget.claude.label);
-    await tester.ensureVisible(row);
+    final row = find.widgetWithText(ListTile, ServiceTarget.chatgpt.label);
+    await tester.scrollUntilVisible(row, 120, scrollable: sheetScrollable());
     await tester.pumpAndSettle();
     final unchecked = tester.getSize(row).height;
     await tester.tap(
-      find.descendant(of: row, matching: find.text(ServiceTarget.claude.label)),
+      find.descendant(
+        of: row,
+        matching: find.text(ServiceTarget.chatgpt.label),
+      ),
     );
     await tester.pump();
     expect(tester.getSize(row).height, unchecked);
 
-    claude.complete();
+    chatgpt.complete();
     await tester.pumpAndSettle();
     expect(
       find.descendant(of: row, matching: find.text('203.0.113.7')),
@@ -893,7 +919,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(asked, ['claude', 'google']);
+    expect(asked, ['claude', 'google', 'youtube']);
     expect(
       tester.getCenter(tile(ServiceTarget.claude)).dx,
       lessThan(tester.getCenter(tile(ServiceTarget.google)).dx),
@@ -916,7 +942,8 @@ void main() {
         )
         .map((text) => text.data)
         .take(3);
-    expect(labels, ['Claude', 'Google', 'YouTube']);
+    // Claude leads, so its category does, keeping the saved order inside.
+    expect(labels, ['Claude', 'ChatGPT', 'Gemini']);
     expect(find.text(ServiceTarget.github.label), findsNothing);
   });
 
@@ -959,14 +986,14 @@ void main() {
       of: find.widgetWithText(DecorationListItem, target.label),
       matching: find.text('Shown on the dashboard'),
     );
-    for (final target in [ServiceTarget.google, ServiceTarget.youtube]) {
+    for (final target in [
+      ServiceTarget.google,
+      ServiceTarget.youtube,
+      ServiceTarget.chatgpt,
+    ]) {
       expect(marked(target), findsOneWidget, reason: target.label);
     }
-    for (final target in [
-      ServiceTarget.github,
-      ServiceTarget.chatgpt,
-      ServiceTarget.claude,
-    ]) {
+    for (final target in [ServiceTarget.github, ServiceTarget.claude]) {
       expect(marked(target), findsNothing, reason: target.label);
     }
   });
@@ -1081,7 +1108,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tile(ServiceTarget.google), findsNothing);
-    expect(asked.skip(2), [ServiceTarget.values[2].id]);
+    expect(asked.skip(3), [ServiceTarget.values[3].id]);
   });
 
   testWidgets('an unexpected error shows the check as failed', (tester) async {
@@ -1265,5 +1292,156 @@ void main() {
         expect(tester.takeException(), isNull, reason: '$locale at $width');
       }
     }
+  });
+
+  test('every service has a check registered in the Core', () {
+    final source = File('core/service_check.go').readAsStringSync();
+    final registered = {
+      for (final match in RegExp(
+        r'\{name: "([a-z-]+)", check:',
+      ).allMatches(source))
+        match.group(1),
+    };
+    expect(registered, {for (final target in ServiceTarget.values) target.id});
+  });
+
+  testWidgets('a service without a bundled icon shows its mark', (
+    tester,
+  ) async {
+    answer((_) => const []);
+    await tester.pumpWidget(
+      app(settings: only([ServiceTarget.telegram, ServiceTarget.binance])),
+    );
+    await tester.pumpAndSettle();
+
+    for (final target in [ServiceTarget.telegram, ServiceTarget.binance]) {
+      expect(
+        find.descendant(of: tile(target), matching: find.text(target.mark!)),
+        findsOneWidget,
+      );
+    }
+    for (final target in ServiceTarget.values) {
+      expect(
+        target.mark != null || target.icon.isNotEmpty,
+        isTrue,
+        reason: target.id,
+      );
+    }
+  });
+
+  testWidgets('the sheet lists each service under its category', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 2000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    answer((_) => const []);
+    await tester.pumpWidget(
+      app(
+        settings: only([
+          ServiceTarget.claude,
+          ServiceTarget.netflix,
+          ServiceTarget.okx,
+          ServiceTarget.chatgpt,
+        ]),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(ServiceStatusCard));
+    await tester.pumpAndSettle();
+    final sheet = find.byType(ServiceStatusSheet);
+    double top(String text) => tester
+        .getTopLeft(
+          find.descendant(
+            of: sheet,
+            matching: find.ancestor(
+              of: find.text(text),
+              matching: find.byWidgetPredicate(
+                (widget) => widget is ListTile || widget is ListHeader,
+              ),
+            ),
+          ),
+        )
+        .dy;
+
+    final headers = [
+      for (final title in ['AI', 'Streaming', 'Exchanges & finance'])
+        top(title),
+    ];
+    expect(headers, orderedEquals([...headers]..sort()));
+    for (final service in ['Claude', 'ChatGPT']) {
+      expect(top(service), inExclusiveRange(headers[0], headers[1]));
+    }
+    expect(top('Netflix'), inExclusiveRange(headers[1], headers[2]));
+    expect(top('OKX'), greaterThan(headers[2]));
+    expect(
+      find.descendant(of: sheet, matching: find.text('Social')),
+      findsNothing,
+    );
+  });
+
+  Finder strip() => find.descendant(
+    of: find.byType(ServiceStatusCard),
+    matching: find.byWidgetPredicate(
+      (widget) =>
+          widget is Scrollable && widget.axisDirection == AxisDirection.right,
+    ),
+  );
+
+  testWidgets('a phone card scrolls sideways through every service', (
+    tester,
+  ) async {
+    final asked = <String>[];
+    answer((params) {
+      asked.addAll(params.names);
+      return [
+        for (final name in params.names)
+          _item(name, ServiceProbeStatus.available, delay: 45),
+      ];
+    });
+    await tester.pumpWidget(app());
+    await tester.pumpAndSettle();
+
+    final card = tester.getRect(find.byType(ServiceStatusCard));
+    final inView = [
+      for (final target in ServiceTarget.values)
+        if (tile(target).evaluate().isNotEmpty &&
+            tester.getRect(tile(target)).left < card.right)
+          target,
+    ];
+    expect(inView.length, greaterThan(2));
+
+    final last = ServiceTarget.values.last;
+    await tester.scrollUntilVisible(tile(last), 150, scrollable: strip());
+    await tester.pumpAndSettle();
+    expect(tester.getRect(tile(last)).right, lessThanOrEqualTo(card.right));
+    expect(asked, contains(last.id));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a vertical drag on the phone card scrolls the page', (
+    tester,
+  ) async {
+    answer((_) => const []);
+    final page = ScrollController();
+    addTearDown(page.dispose);
+    await tester.pumpWidget(
+      app(
+        body: SizedBox(
+          height: 400,
+          child: ListView(
+            controller: page,
+            children: const [ServiceStatusCard(), SizedBox(height: 2000)],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(strip(), const Offset(0, -60));
+    await tester.pumpAndSettle();
+    expect(page.offset, greaterThan(0));
+    final position = tester.state<ScrollableState>(strip()).position;
+    expect(position.pixels, 0);
   });
 }
