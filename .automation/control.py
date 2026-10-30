@@ -21,6 +21,9 @@ GH = 'https://api.github.com/repos/' + POLICY['github']
 CNB = 'https://api.cnb.cool/' + POLICY['cnb'] + '/-'
 # A review opened before CI settled counts as green only while the pipelines it could not see run.
 CI_GRACE = 'FlClash/review-before-ci'
+# A fetch of pinned commits during reconcile: seconds when healthy, and one hung remote must not hold the whole round.
+FETCH_TIMEOUT = 120
+GIT_TIMED_OUT = 124
 
 
 class HttpStatusError(RuntimeError):
@@ -76,9 +79,12 @@ def gating_statuses(checks):
     return [item for item in (checks or {}).get('statuses') or [] if check_name(item) != CI_GRACE]
 
 
-def git(*args, check=True, env=None):
-    result = subprocess.run(['git', *args], cwd=ROOT, env=env, text=True,
-                            capture_output=True, check=False)
+def git(*args, check=True, env=None, timeout=None):
+    try:
+        result = subprocess.run(['git', *args], cwd=ROOT, env=env, text=True,
+                                capture_output=True, check=False, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        result = subprocess.CompletedProcess(['git', *args], GIT_TIMED_OUT, '', f'timed out after {timeout}s')
     if check and result.returncode:
         raise RuntimeError(f'git {args[0]} failed: {result.stderr[-1500:]}')
     return result.stdout.strip() if check else result

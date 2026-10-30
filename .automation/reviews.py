@@ -1,3 +1,4 @@
+import contextlib
 import hashlib
 import json
 import re
@@ -5,7 +6,8 @@ import subprocess
 import sys
 import time
 
-from control import CI_GRACE, CNB, GH, POLICY, all_issues, api, check_name, git, pages, sign, verify
+from control import (CI_GRACE, CNB, FETCH_TIMEOUT, GH, GIT_TIMED_OUT, POLICY, all_issues, api, check_name, git,
+                     pages, sign, verify)
 from review_evidence import describe, repository
 
 CONTEXT = 'FlClash/paired-review'
@@ -22,6 +24,8 @@ CI_PIPELINES = ('Dependency vulnerability gate', 'Automation unit tests', 'Go de
 NOTICE = re.compile(r'<!-- flclash-review-notice (\d+) -->')
 REUSE = re.compile(r'<!-- flclash-review-reuse (\{[^\r\n]+\}) -->')
 SNAPSHOT = re.compile(r'<!-- flclash-review-snapshot (\{[^\r\n]+\}) -->')
+# Titles the controller gives issues that are not a review of the pull being looked up.
+ELSEWHERE = re.compile(r'\[PR审核\] (?:GitHub|CNB) #\d+：|\[(?:需求|安全修复|上游升级|构建待处理)\] ')
 CI_GRACE_SECONDS = 80 * 60
 # The controller's own job in reviews.yaml. It reports on the PR head and is always running while it reads CI.
 CONTROLLER_CHECK = 'review'
@@ -44,6 +48,80 @@ CHECKLIST = (
     '2. 单测的调用参数和生产调用一致：测试替身和被替换函数的签名、返回类型一致。\n'
     '3. 单测不联网。\n'
     '4. 不要 mock 掉被测对象本身。\n')
+
+
+# What one reconcile has already read. It exists only inside reconcile, whose writes all go through _write, so a
+# caller that writes through control.api between two reads, as the requirement loop does, always reads afresh.
+_round = None
+
+
+@contextlib.contextmanager
+def _one_round():
+    global _round
+    outer, _round = _round, {'rows': None, 'issues': {}, 'failed_fetches': set()}
+    try:
+        yield
+    finally:
+        _round = outer
+
+
+def _write(url, method, data):
+    """Send a write and drop what it made stale. A comment leaves the issue list's title and state as they were."""
+    found = api(url, method, data)
+    touched = re.fullmatch(re.escape(CNB) + r'/issues(?:/(\d+)(/comments)?)?', url)
+    if _round is None or not touched:
+        return found
+    _round['issues'].pop(touched[1], None)
+    if not touched[1]:
+        # A new issue changes no other row, so this list stays good for the next pull in the round.
+        if _round['rows'] is not None:
+            _round['rows'].insert(0, found)
+    elif not touched[2]:
+        _round['rows'] = None
+    return found
+
+
+def _issue(number, missing=False):
+    """Read one issue with its body. Works for a closed issue too; a 404 is never remembered."""
+    number = str(number)
+    if _round is not None and number in _round['issues']:
+        return _round['issues'][number]
+    url = f'{CNB}/issues/{number}'
+    found = api(url, missing=True) if missing else api(url)
+    if _round is not None and found:
+        _round['issues'][number] = found
+    return found
+
+
+def _issue_rows():
+    """The issue list, open first. Its rows have a title and state but no body, so they cannot verify anything."""
+    if _round is None:
+        return all_issues()
+    if _round['rows'] is None:
+        _round['rows'] = list(all_issues())
+    return _round['rows']
+
+
+def _titled(request):
+    """List rows that can hold a review of this pull, open or closed, without reading any other issue.
+
+    Only a title that says it is something else rules a row out: the controller's own titles for another pull or
+    another kind of issue. A row with a title anyone made up, or none, is still read, so a review renamed by hand
+    stays found. This only narrows the search; the signed body still decides, and find_request also follows the
+    pull's notices for a review renamed to look like one of those.
+    """
+    prefix = title_prefix(request)
+    return (row for row in _issue_rows()
+            if (title := str(row.get('title') or '')).startswith(prefix) or not ELSEWHERE.match(title))
+
+
+def _noticed(request):
+    """Review issue numbers the pull's own comments point at, in the order they were posted."""
+    github = request['platform'] == 'github'
+    path = (f'{GH}/issues/{request["number"]}/comments' if github
+            else f'{CNB}/pulls/{request["number"]}/comments')
+    return list(dict.fromkeys(n for c in pages(path, size_key='per_page' if github else 'page_size')
+                              for n in noticed_reviews(str(c.get('body', '')))))
 
 
 def budget_text(n):
@@ -143,9 +221,20 @@ def result(request, issue, comments, parts=None):
 
 
 def find_request(request, signed=True):
-    for issue in all_issues():
-        detail = api(f'{CNB}/issues/{issue["number"]}')
+    """Return the issue holding this exact request, or None. Closed ones count: closing a review cannot shed it.
+
+    A miss, the usual case for a new head, costs the rows titled for this pull and its notices, however many other
+    issues exist.
+    """
+    seen = set()
+    for row in _titled(request):
+        seen.add(str(row['number']))
+        detail = _issue(row['number'])
         if request_from(detail, signed) == request:
+            return detail
+    for number in _noticed(request):
+        detail = None if number in seen else _issue(number, missing=True)
+        if detail and request_from(detail, signed) == request:
             return detail
     return None
 
@@ -168,7 +257,7 @@ def shard_parts(request, issue, signed=True):
         return None
     parts = []
     for number in dict.fromkeys(match[1].split(',')):
-        detail = api(f'{CNB}/issues/{number}', missing=True)
+        detail = _issue(number, missing=True)
         part = request_from(detail, signed) if detail else None
         if isinstance(part, dict) and isinstance(part.get('shard'), dict) and unsharded(part) == request:
             parts.append((part, detail, list(pages(f'{CNB}/issues/{number}/comments'))))
@@ -188,10 +277,14 @@ def shards_complete(parts):
     return len(totals) == 1 and {shard['index'] for shard in live} == set(range(1, totals.pop() + 1))
 
 
-def review_title(request, title):
+def title_prefix(request):
     platform = 'GitHub' if request['platform'] == 'github' else 'CNB'
+    return f'[PR审核] {platform} #{request["number"]}：'
+
+
+def review_title(request, title):
     description = ' '.join(title.split()).replace('@', '＠')[:100] or '审核代码变更'
-    return f'[PR审核] {platform} #{request["number"]}：{description}'
+    return title_prefix(request) + description
 
 
 def requirement_brief(pull):
@@ -201,7 +294,7 @@ def requirement_brief(pull):
         return ''
     # Imported lazily: requirements imports this module at load time.
     from requirements import owner, parse
-    issue = api(f'{CNB}/issues/{match[1]}', missing=True)
+    issue = _issue(match[1], missing=True)
     if not issue or not owner(issue):
         return ''
     acceptance = parse(issue.get('body', ''))['acceptance']
@@ -285,14 +378,9 @@ def _blocking(body):
 
 def prior_blockers(request, keep=4):
     """Quote the blocking reports on earlier heads of the same pull, so reviewers need not read old issues."""
-    github = request['platform'] == 'github'
-    path = (f'{GH}/issues/{request["number"]}/comments' if github
-            else f'{CNB}/pulls/{request["number"]}/comments')
-    numbers = [n for c in pages(path, size_key='per_page' if github else 'page_size')
-               for n in noticed_reviews(str(c.get('body', '')))]
     quotes = []
-    for number in dict.fromkeys(numbers):
-        issue = api(f'{CNB}/issues/{number}', missing=True)
+    for number in _noticed(request):
+        issue = _issue(number, missing=True)
         old = request_from(issue) if issue else None
         if not old or old == request:
             continue
@@ -317,7 +405,7 @@ def ensure_request(request, title, brief=''):
            else f'https://cnb.cool/{POLICY["cnb"]}/-/pulls/{number}')
     if issue:
         if issue['title'] != display_title:
-            api(f'{CNB}/issues/{issue["number"]}', 'PATCH', {'title': display_title})
+            _write(f'{CNB}/issues/{issue["number"]}', 'PATCH', {'title': display_title})
         return heal_shards(request, issue, display_title, url)
     groups = shards(request)
     numbers = ensure_shards(request, groups, display_title, url) if groups else []
@@ -339,14 +427,14 @@ def ensure_request(request, title, brief=''):
             + (shard_notice(numbers) + '\n\n' if numbers else '')
             + '\n\n'.join(f'@{POLICY["cnb"]}({r}) 请独立审核上述 PR。'
                           for r in (ROLES[:1] if numbers else ROLES)))
-    issue = api(f'{CNB}/issues', 'POST', {'title': display_title,
+    issue = _write(f'{CNB}/issues', 'POST', {'title': display_title,
                 'body': body, 'work_mode': False, 'assignees': [POLICY['approver']]})
     body = (f'结对审核： https://cnb.cool/{POLICY["cnb"]}/-/issues/{issue["number"]}\n'
             f'base `{request["base"]}` / head `{request["head"]}`。两位审核者完成且无阻断问题后检查才通过。'
             + (f'\n<!-- flclash-review-notice {issue["number"]} -->' if platform == 'cnb' else ''))
     # existing_review reads the notice back from this same pull comment endpoint.
-    api(f'{GH}/issues/{number}/comments' if platform == 'github' else f'{CNB}/pulls/{number}/comments',
-        'POST', {'body': body})
+    _write(f'{GH}/issues/{number}/comments' if platform == 'github' else f'{CNB}/pulls/{number}/comments',
+           'POST', {'body': body})
     return issue
 
 
@@ -373,15 +461,17 @@ def heal_shards(request, issue, title, url):
         return issue
     notice = shard_notice(ensure_shards(request, groups, title, url))
     body = SHARD_NOTICE.sub(lambda _: notice, issue['body'], count=1)
-    api(f'{CNB}/issues/{issue["number"]}', 'PATCH', {'body': body})
+    _write(f'{CNB}/issues/{issue["number"]}', 'PATCH', {'body': body})
     return dict(issue, body=body)
 
 
 def ensure_shards(request, groups, title, url):
     """Open one GLM-only issue per file group, reusing any open one left by an earlier run."""
     known = {}
-    for item in all_issues():
-        detail = api(f'{CNB}/issues/{item["number"]}')
+    for item in _titled(request):
+        if item.get('state', 'open') != 'open':
+            continue
+        detail = _issue(item['number'])
         part = request_from(detail)
         if (detail['state'] == 'open' and isinstance(part, dict) and part.get('shard') in groups
                 and unsharded(part) == request):
@@ -406,7 +496,7 @@ def ensure_shards(request, groups, title, url):
                 '只有审完本组且没有阻断问题才能使用 pass / blockers=0；'
                 '否则使用 verdict=block，blockers 为正整数。request 原样保留。\n\n'
                 f'@{POLICY["cnb"]}({GLM}) 请审核本分片。')
-        known[group['index']] = str(api(f'{CNB}/issues', 'POST', {
+        known[group['index']] = str(_write(f'{CNB}/issues', 'POST', {
             'title': f'{title}（GLM 分片 {group["index"]}/{group["total"]}）', 'body': body,
             'work_mode': False, 'assignees': [POLICY['approver']]})['number'])
     return [known[group['index']] for group in groups]
@@ -449,7 +539,7 @@ def reconsider(request, issue, comments):
                     '不要重新审核，也不要调用工具；只根据你自己那份报告的结论回复一行机器结论。'
                     '报告里有未解决的阻断、未验证的验收标准或无法确认的项时必须用 block：\n'
                     + 'FLCLASH_REVIEW ' + sample)
-            api(f'{CNB}/issues/{issue["number"]}/comments', 'POST', {'body': body, 'work_mode': False})
+            _write(f'{CNB}/issues/{issue["number"]}/comments', 'POST', {'body': body, 'work_mode': False})
             continue
         marker = _checkpoint(request, role, 'reconsider')
         paths = (request.get('shard') or {}).get('paths')
@@ -460,7 +550,7 @@ def reconsider(request, issue, comments):
                 '不为了达成共识而通过；真实阻断保留，不能确认则报告block。'
                 '不等待另一位、不自行召唤。报告最后单独一行输出机器结论（无阻断时才使用下例）：\n'
                 + 'FLCLASH_REVIEW ' + sample)
-        api(f'{CNB}/issues/{issue["number"]}/comments', 'POST', {'body': body, 'work_mode': False})
+        _write(f'{CNB}/issues/{issue["number"]}/comments', 'POST', {'body': body, 'work_mode': False})
 
 
 def _number(item):
@@ -485,7 +575,7 @@ def existing_review(pull):
     request = scope('cnb', pull)
     for summary in pages(f'{CNB}/pulls/{pull["number"]}/comments', size_key='page_size'):
         for number in noticed_reviews(str(summary.get('body', ''))):
-            detail = api(f'{CNB}/issues/{number}', missing=True)
+            detail = _issue(number, missing=True)
             if detail and request_from(detail) == request:
                 return detail
     return None
@@ -558,11 +648,11 @@ def withhold(pull):
     current = marks[-1].get('state') if marks else ''
     if ci_state({'statuses': statuses}) in ('pending', 'failure'):
         if current != 'failure':
-            api(f'{CNB}/statuses/{pull["head"]["sha"]}', 'POST', {
+            _write(f'{CNB}/statuses/{pull["head"]["sha"]}', 'POST', {
                 'state': 'failure', 'context': CI_GRACE,
                 'description': 'Review opened before CI settled; merge waits for every pipeline'})
     elif current and current != 'success':
-        api(f'{CNB}/statuses/{pull["head"]["sha"]}', 'POST', {
+        _write(f'{CNB}/statuses/{pull["head"]["sha"]}', 'POST', {
             'state': 'success', 'context': CI_GRACE, 'description': 'Every pull_request pipeline has settled'})
 
 
@@ -630,7 +720,7 @@ def remember(request, issue, comments, status, parts=None):
     if parts is not None:
         payload['glm_shards'] = _shard_numbers(parts)
         note = f'（GLM 分片：{"、".join(payload["glm_shards"]) or "无"}）'
-    api(f'{CNB}/issues/{issue["number"]}/comments', 'POST', {'work_mode': False, 'body': (
+    _write(f'{CNB}/issues/{issue["number"]}/comments', 'POST', {'work_mode': False, 'body': (
         f'<!-- flclash-review-snapshot {json.dumps(sign(payload))} -->\n门禁结论记录：{verdict}{note}')})
 
 
@@ -675,7 +765,16 @@ def _fetch_rounds(request, rounds):
     """
     wanted = dict.fromkeys(sha for item in [request] + [old for old, _ in rounds] for sha in (item['base'], item['head']))
     missing = [sha for sha in wanted if git('cat-file', '-e', f'{sha}^{{commit}}', check=False).returncode]
-    return not missing or git('fetch', '--no-tags', repository(request), *missing, check=False).returncode == 0
+    if not missing:
+        return True
+    # Within a round, do not ask again for commits that just failed, nor wait again on a remote that just hung.
+    remote, failed = repository(request), _round['failed_fetches'] if _round is not None else set()
+    if remote in failed or (remote, *missing) in failed:
+        return False
+    code = git('fetch', '--no-tags', remote, *missing, check=False, timeout=FETCH_TIMEOUT).returncode
+    if code:
+        failed.add(remote if code == GIT_TIMED_OUT else (remote, *missing))
+    return code == 0
 
 
 def _scope_age(request):
@@ -715,11 +814,9 @@ def reusable(request, pull, late=False):
     """
     platform, number = request['platform'], request['number']
     github = platform == 'github'
-    path = f'{GH}/issues/{number}/comments' if github else f'{CNB}/pulls/{number}/comments'
     rounds = []
-    for found in dict.fromkeys(n for c in pages(path, size_key='per_page' if github else 'page_size')
-                               for n in noticed_reviews(str(c.get('body', '')))):
-        issue = api(f'{CNB}/issues/{found}', missing=True)
+    for found in _noticed(request):
+        issue = _issue(found, missing=True)
         old = request_from(issue) if issue else None
         if isinstance(old, dict) and old.get('platform') == platform and old.get('number') == number:
             if old == request:
@@ -782,73 +879,86 @@ def carry_over(request, pull, late=False):
             + '，本轮沿用其结论，不再召唤审核者，也不开分片。'
             + ('head 上除本门禁外的检查已全部通过。' if platform == 'github'
                else '新 base 上的 pull_request 流水线已全部重跑通过。'))
-    issue = api(f'{CNB}/issues', 'POST', {'title': review_title(request, pull['title']), 'body': body,
+    issue = _write(f'{CNB}/issues', 'POST', {'title': review_title(request, pull['title']), 'body': body,
                                          'work_mode': False, 'assignees': [POLICY['approver']]})
-    api(f'{GH}/issues/{number}/comments' if platform == 'github' else f'{CNB}/pulls/{number}/comments',
-        'POST', {'body': f'结对审核： https://cnb.cool/{POLICY["cnb"]}/-/issues/{issue["number"]}\n'
+    _write(f'{GH}/issues/{number}/comments' if platform == 'github' else f'{CNB}/pulls/{number}/comments',
+           'POST', {'body': f'结对审核： https://cnb.cool/{POLICY["cnb"]}/-/issues/{issue["number"]}\n'
                          f'base `{request["base"]}` / head `{request["head"]}`，补丁未变，沿用 {link} 的通过结论。'
                          + (f'\n<!-- flclash-review-notice {issue["number"]} -->' if platform == 'cnb' else '')})
     print(f'{platform} PR #{number}: reused review #{source["number"]} (patch-id {digest[:12]})')
-    return api(f'{CNB}/issues/{issue["number"]}')
+    return _issue(issue['number'])
+
+
+def _reconcile_pull(platform, listed, github_results):
+    # Only the list entry carries `created_at` (CNB's detail has no time field), and
+    # `ci_hold` needs it while the head has no status yet.
+    pull = api(f'{endpoint(platform)}/pulls/{listed["number"]}')
+    if listed.get('created_at') and not pull.get('created_at'):
+        pull['created_at'] = listed['created_at']
+    request = scope(platform, pull)
+    waiting, late = (False, False) if platform == 'github' else ci_hold(pull)
+    if waiting:
+        return
+    if platform == 'github':
+        from security_finish import mirror_attestation, mirror_record
+        attestation = mirror_attestation(pull)
+        if attestation:
+            github_results.setdefault(request['head'], []).append(('success', attestation))
+            print(f'GitHub PR #{request["number"]}: verified identical-tree CNB review and CI attestation')
+            return
+        forwarded = mirror_record(pull)
+        if forwarded and 'cnb_number' in forwarded:
+            url = f'https://cnb.cool/{POLICY["cnb"]}/-/pulls/{forwarded["cnb_number"]}'
+            github_results.setdefault(request['head'], []).append(('pending', url))
+            return
+    issue = carry_over(request, pull, late)
+    if issue is WAITING:
+        return
+    issue = issue or ensure_request(request, pull['title'],
+        (unsettled_brief(pull) if late else '') + requirement_brief(pull))
+    withhold(pull)
+    comments = list(pages(f'{CNB}/issues/{issue["number"]}/comments'))
+    parts = shard_parts(request, issue)
+    status = result(request, issue, comments, parts)
+    remember(request, issue, comments, status, parts)
+    if issue['state'] == 'open':
+        reconsider(request, issue, comments)
+        for part in parts or ():
+            if part[1]['state'] == 'open':
+                reconsider(*part)
+    if platform == 'github':
+        url = f'https://cnb.cool/{POLICY["cnb"]}/-/issues/{issue["number"]}'
+        github_results.setdefault(request['head'], []).append((status, url))
+    print(f'{platform} PR #{request["number"]}: {status}')
 
 
 def reconcile():
-    close_finished_reviews()
-    github_results = {}
-    for platform in ('github', 'cnb'):
-        for listed in pages(f'{endpoint(platform)}/pulls?state=open', size_key='per_page' if platform == 'github' else 'page_size'):
-            # Only the list entry carries `created_at` (CNB's detail has no time field), and
-            # `ci_hold` needs it while the head has no status yet.
-            pull = api(f'{endpoint(platform)}/pulls/{listed["number"]}')
-            if listed.get('created_at') and not pull.get('created_at'):
-                pull['created_at'] = listed['created_at']
-            request = scope(platform, pull)
-            waiting, late = (False, False) if platform == 'github' else ci_hold(pull)
-            if waiting:
-                continue
-            if platform == 'github':
-                from security_finish import mirror_attestation, mirror_record
-                attestation = mirror_attestation(pull)
-                if attestation:
-                    github_results.setdefault(request['head'], []).append(('success', attestation))
-                    print(f'GitHub PR #{request["number"]}: verified identical-tree CNB review and CI attestation')
-                    continue
-                forwarded = mirror_record(pull)
-                if forwarded and 'cnb_number' in forwarded:
-                    url = f'https://cnb.cool/{POLICY["cnb"]}/-/pulls/{forwarded["cnb_number"]}'
-                    github_results.setdefault(request['head'], []).append(('pending', url))
-                    continue
-            issue = carry_over(request, pull, late)
-            if issue is WAITING:
-                continue
-            issue = issue or ensure_request(request, pull['title'],
-                (unsettled_brief(pull) if late else '') + requirement_brief(pull))
-            withhold(pull)
-            comments = list(pages(f'{CNB}/issues/{issue["number"]}/comments'))
-            parts = shard_parts(request, issue)
-            status = result(request, issue, comments, parts)
-            remember(request, issue, comments, status, parts)
-            if issue['state'] == 'open':
-                reconsider(request, issue, comments)
-                for part in parts or ():
-                    if part[1]['state'] == 'open':
-                        reconsider(*part)
-            if platform == 'github':
-                url = f'https://cnb.cool/{POLICY["cnb"]}/-/issues/{issue["number"]}'
-                github_results.setdefault(request['head'], []).append((status, url))
-            print(f'{platform} PR #{request["number"]}: {status}')
-    for head, results in github_results.items():
-        status, url = min(results, key=lambda r: {'failure': 0, 'pending': 1, 'success': 2}[r[0]])
-        existing = api(f'{GH}/commits/{head}/status')['statuses']
-        current = next((s for s in existing if s['context'] == CONTEXT), None)
-        if not current or current['state'] != status or current.get('target_url') != url:
-            api(f'{GH}/statuses/{head}', 'POST', {'state': status, 'context': CONTEXT,
-                'target_url': url, 'description': 'Both independent reviewers must pass this base/head'})
+    with _one_round():
+        started = time.monotonic()
+        close_finished_reviews()
+        # Flushed, since Actions gives a cancelled step only what already left a piped stdout.
+        print(f'Closed finished reviews: {time.monotonic() - started:.1f}s', flush=True)
+        github_results = {}
+        for platform in ('github', 'cnb'):
+            for listed in pages(f'{endpoint(platform)}/pulls?state=open',
+                                size_key='per_page' if platform == 'github' else 'page_size'):
+                started = time.monotonic()
+                try:
+                    _reconcile_pull(platform, listed, github_results)
+                finally:
+                    print(f'{platform} PR #{listed["number"]}: {time.monotonic() - started:.1f}s', flush=True)
+        for head, results in github_results.items():
+            status, url = min(results, key=lambda r: {'failure': 0, 'pending': 1, 'success': 2}[r[0]])
+            existing = api(f'{GH}/commits/{head}/status')['statuses']
+            current = next((s for s in existing if s['context'] == CONTEXT), None)
+            if not current or current['state'] != status or current.get('target_url') != url:
+                _write(f'{GH}/statuses/{head}', 'POST', {'state': status, 'context': CONTEXT,
+                       'target_url': url, 'description': 'Both independent reviewers must pass this base/head'})
 
 
 def close_finished_reviews():
     for item in pages(f'{CNB}/issues?state=open'):
-        issue = api(f'{CNB}/issues/{item["number"]}')
+        issue = _issue(item['number'])
         request = request_from(issue)
         if not request:
             continue
@@ -862,7 +972,7 @@ def close_finished_reviews():
         if pull['state'] not in ('closed', 'merged') and not superseded:
             continue
         merged = bool(pull.get('merged') or pull.get('is_merged') or pull['state'] == 'merged')
-        api(f'{CNB}/issues/{issue["number"]}', 'PATCH', {
+        _write(f'{CNB}/issues/{issue["number"]}', 'PATCH', {
             'state': 'closed', 'state_reason': 'completed' if merged else 'not_planned'})
 
 

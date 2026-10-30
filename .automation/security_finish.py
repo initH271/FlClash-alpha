@@ -6,7 +6,7 @@ import re
 import tomllib
 
 import pause
-from control import CNB, GH, POLICY, api, check_name, comment, gating_statuses, git, pages, sign, sync_branch, verify
+from control import CNB, FETCH_TIMEOUT, GH, POLICY, api, check_name, comment, gating_statuses, git, pages, sign, sync_branch, verify
 from reviews import find_request, result, scope, state, reconcile as review_reconcile
 from security_groups import GROUPS, repair_branch
 from security_watch import active_developer, record
@@ -75,7 +75,8 @@ def passed_checks(number, request=None):
     sha = checks.get('sha', '')
     if not re.fullmatch(r'[a-f0-9]{40}', sha):
         return False
-    git('fetch', '--no-tags', f'https://cnb.cool/{POLICY["cnb"]}.git', sha, request['base'], request['head'])
+    git('fetch', '--no-tags', f'https://cnb.cool/{POLICY["cnb"]}.git', sha, request['base'], request['head'],
+        timeout=FETCH_TIMEOUT)
     merged = git('merge-tree', '--write-tree', request['base'], request['head'], check=False)
     return merged.returncode == 0 and git('rev-parse', sha + '^{tree}') == merged.stdout.splitlines()[0]
 

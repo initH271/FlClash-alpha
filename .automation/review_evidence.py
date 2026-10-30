@@ -1,14 +1,16 @@
 import json
 import re
 
-from control import POLICY, git
+from control import FETCH_TIMEOUT, POLICY, git
 
 
 def evidence(request):
     base, head = request['base'], request['head']
     if not all(re.fullmatch(r'[a-f0-9]{40}', sha) for sha in (base, head)):
         raise ValueError('Review evidence requires exact commits')
-    git('fetch', '--no-tags', repository(request), base, head)
+    missing = [sha for sha in (base, head) if git('cat-file', '-e', f'{sha}^{{commit}}', check=False).returncode]
+    if missing:
+        git('fetch', '--no-tags', repository(request), *missing, timeout=FETCH_TIMEOUT)
     ancestor = git('merge-base', base, head)
     files = [p for p in git('diff', '--name-only', '-z', f'{base}...{head}').split('\0') if p]
     def blob(sha, path):

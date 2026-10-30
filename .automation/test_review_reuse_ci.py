@@ -236,7 +236,7 @@ class FetchTests(Base):
         self.local('bundle', 'unbundle', str(bundle))
         self.fetched, self.answer = [], 0
 
-    def controller_git(self, *args, check=True, env=None):
+    def controller_git(self, *args, check=True, env=None, timeout=None):
         if args[0] != 'fetch':
             return self.local(*args, check=check, env=env)
         self.fetched.append(args)
