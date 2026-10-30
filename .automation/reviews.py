@@ -1,11 +1,12 @@
 import hashlib
 import json
 import re
+import subprocess
 import sys
 import time
 
 from control import CI_GRACE, CNB, GH, POLICY, all_issues, api, check_name, git, pages, sign, verify
-from review_evidence import describe
+from review_evidence import describe, repository
 
 CONTEXT = 'FlClash/paired-review'
 ROLES = ('审查助手', 'GLM复核助手')
@@ -19,7 +20,14 @@ SHARD_NOTICE = re.compile(r'GLM复核助手按文件分片审核：[^\n]*\n<!-- 
 CI_PIPELINES = ('Dependency vulnerability gate', 'Automation unit tests', 'Go dependency regression tests',
                 'Flutter and Android requirement tests', 'Rust dependency regression tests')
 NOTICE = re.compile(r'<!-- flclash-review-notice (\d+) -->')
+REUSE = re.compile(r'<!-- flclash-review-reuse (\{[^\r\n]+\}) -->')
+SNAPSHOT = re.compile(r'<!-- flclash-review-snapshot (\{[^\r\n]+\}) -->')
 CI_GRACE_SECONDS = 80 * 60
+# The controller's own job in reviews.yaml. It reports on the PR head and is always running while it reads CI.
+CONTROLLER_CHECK = 'review'
+CHECK_RUNNING = ('queued', 'in_progress', 'waiting', 'requested', 'pending')
+# reusable's answer while a same-patch reuse waits for CI: open nothing and write nothing on this run.
+WAITING = object()
 # Tool calls a reviewer may spend per summon. A budget written only in the prompt has not
 # stopped GLM, so progress is also posted per event instead of relying on the count alone.
 BUDGET = {'review': 40, 'reconsider': 12}
@@ -119,6 +127,8 @@ def result(request, issue, comments, parts=None):
     """
     if issue['state'] != 'open':
         return 'failure'
+    if reused_from(request, issue):
+        return 'success'
     latest = role_reports(request, issue, comments)
     if parts is not None:
         latest.pop(GLM, None)
@@ -556,6 +566,232 @@ def withhold(pull):
             'state': 'success', 'context': CI_GRACE, 'description': 'Every pull_request pipeline has settled'})
 
 
+def patch_id(base, head):
+    """Fingerprint the pull's own change, merge-base..head, which a base that only moves forward leaves alone."""
+    found = git('merge-base', base, head, check=False)
+    if found.returncode:
+        return None
+    diff = git('diff', '--binary', '--no-renames', '--no-color', '--no-ext-diff',
+               found.stdout.strip(), head, check=False)
+    if diff.returncode or not diff.stdout.strip():
+        return None
+    out = subprocess.run(['git', 'patch-id', '--stable'], input=diff.stdout,
+                         text=True, capture_output=True, check=False)
+    return out.stdout.split()[0] if not out.returncode and out.stdout.strip() else None
+
+
+def _owner_payload(pattern, item):
+    author = item.get('author') or {}
+    match = pattern.search(item.get('body', ''))
+    if not match or author.get('username') != POLICY['approver'] or author.get('is_npc') is not False:
+        return None
+    try:
+        return verify(json.loads(match[1]))
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
+def reused_from(request, issue):
+    payload = _owner_payload(REUSE, issue)
+    return payload if isinstance(payload, dict) and payload.get('request') == identity(request) else None
+
+
+def _record(request, comments):
+    """The latest signed conclusion the controller recorded on a review Issue, or None."""
+    record = None
+    for comment in sorted(comments, key=lambda c: (c.get('created_at', ''), str(c.get('id', '')))):
+        payload = _owner_payload(SNAPSHOT, comment)
+        if isinstance(payload, dict) and payload.get('request') == identity(request):
+            record = payload
+    return record
+
+
+def snapshot(request, comments):
+    """The latest gate conclusion the controller recorded on a review Issue: pass, block or None."""
+    return (_record(request, comments) or {}).get('verdict')
+
+
+def _shard_numbers(parts):
+    return sorted(str(found['number']) for _, found, _ in parts)
+
+
+def remember(request, issue, comments, status, parts=None):
+    """Record each change of a review's gate conclusion, so a later base can reuse it after the Issue closes.
+
+    `status` already reads the shards when `parts` is given. The record names them, because such a pass rests
+    on their reports and there is none from GLM on the main issue.
+    """
+    latest = snapshot(request, comments)
+    verdict = {'success': 'pass', 'failure': 'block'}.get(status, 'block' if latest == 'pass' else None)
+    if verdict is None or verdict == latest:
+        return
+    payload = {'request': identity(request), 'verdict': verdict}
+    note = ''
+    if parts is not None:
+        payload['glm_shards'] = _shard_numbers(parts)
+        note = f'（GLM 分片：{"、".join(payload["glm_shards"]) or "无"}）'
+    api(f'{CNB}/issues/{issue["number"]}/comments', 'POST', {'work_mode': False, 'body': (
+        f'<!-- flclash-review-snapshot {json.dumps(sign(payload))} -->\n门禁结论记录：{verdict}{note}')})
+
+
+def _fresh_ci(pull, since):
+    """success once every pull_request pipeline passed in a run newer than the reused review; else pending or failure.
+
+    Passes older than the review have not run on this base yet, so they read as pending, not as a verdict.
+    """
+    statuses = (api(f'{CNB}/pulls/{pull["number"]}/commit-statuses') or {}).get('statuses') or []
+    state = ci_state({'statuses': statuses})
+    if state != 'success':
+        return state
+    newest = {}
+    for item in statuses:
+        newest[check_name(item)] = max(newest.get(check_name(item), ''), item.get('created_at') or '')
+    return 'success' if all(newest.get(name, '') > since for name in CI_PIPELINES) else 'pending'
+
+
+def _github_ci(head):
+    """success when a check besides the controller and its gate exists and all passed; else pending or failure.
+
+    A head with no such check yet reads as pending, since its workflows may not have registered.
+    """
+    runs = api(f'{GH}/commits/{head}/check-runs?per_page=100') or {}
+    rows = runs.get('check_runs') or []
+    if runs.get('total_count', len(rows)) > len(rows):
+        return 'failure'
+    statuses = (api(f'{GH}/commits/{head}/status') or {}).get('statuses') or []
+    found = ([run.get('conclusion') if run.get('status') == 'completed' else run.get('status')
+              for run in rows if run.get('name') != CONTROLLER_CHECK]
+             + [item.get('state') for item in statuses if item.get('context') != CONTEXT])
+    counted = [state for state in found if state not in ('skipped', 'neutral')]
+    if not counted or any(state in CHECK_RUNNING for state in counted):
+        return 'pending'
+    return 'success' if all(state == 'success' for state in counted) else 'failure'
+
+
+def _fetch_rounds(request, rounds):
+    """Bring every commit a reuse compares into this checkout, by sha; True when they are all here.
+
+    The controller checks out main, so a CNB or fork head, or a head since replaced by a force push, may be missing.
+    """
+    wanted = dict.fromkeys(sha for item in [request] + [old for old, _ in rounds] for sha in (item['base'], item['head']))
+    missing = [sha for sha in wanted if git('cat-file', '-e', f'{sha}^{{commit}}', check=False).returncode]
+    return not missing or git('fetch', '--no-tags', repository(request), *missing, check=False).returncode == 0
+
+
+def _scope_age(request):
+    """Seconds since the later of the base and head commits, or None when that cannot be read or lies in the future."""
+    found = git('show', '-s', '--format=%ct', request['base'], request['head'], check=False)
+    stamps = found.stdout.split() if not found.returncode else []
+    age = time.time() - max(map(int, stamps)) if stamps else -1
+    return age if age >= 0 else None
+
+
+def _conclusion(old, issue):
+    """What an earlier round lends to a reuse: its record if nothing contradicts it, else 'block' or None.
+
+    The record is only as new as the last controller run before the head moved, so a block or malformed report
+    posted since, on the main issue or any shard, still counts. A pass has to read back the shards it named: one
+    that was deleted or no longer verifies leaves nothing to rest it on, and the round is not reused.
+    """
+    comments = list(pages(f'{CNB}/issues/{issue["number"]}/comments'))
+    parts = shard_parts(old, issue)
+    latest = role_reports(old, issue, comments)
+    if parts is not None:
+        latest.pop(GLM, None)
+    if shards_blocked(parts or ()) or any(value in ('block', 'malformed') for value in latest.values()):
+        return 'block', None
+    record = _record(old, comments) or {}
+    shards = None if parts is None else _shard_numbers(parts)
+    if record.get('verdict') == 'pass' and record.get('glm_shards') != shards:
+        return None, None
+    return record.get('verdict'), shards
+
+
+def reusable(request, pull, late=False):
+    """Return (old request, issue, patch id, GLM shards) of an earlier passing round to reuse, WAITING or None.
+
+    Only a patch that a passing round already covers waits for CI, up to CI_GRACE_SECONDS from the later of the base
+    and head commits; `late` means ci_hold has already given up on it. Every other case is a full review, at once.
+    """
+    platform, number = request['platform'], request['number']
+    github = platform == 'github'
+    path = f'{GH}/issues/{number}/comments' if github else f'{CNB}/pulls/{number}/comments'
+    rounds = []
+    for found in dict.fromkeys(n for c in pages(path, size_key='per_page' if github else 'page_size')
+                               for n in noticed_reviews(str(c.get('body', '')))):
+        issue = api(f'{CNB}/issues/{found}', missing=True)
+        old = request_from(issue) if issue else None
+        if isinstance(old, dict) and old.get('platform') == platform and old.get('number') == number:
+            if old == request:
+                return None
+            if not reused_from(old, issue):
+                rounds.append((old, issue))
+    label = f'{platform} PR #{number}'
+    if rounds and not _fetch_rounds(request, rounds):
+        print(f'{label}: could not fetch the commits a reuse compares; full review')
+        return None
+    current = patch_id(request['base'], request['head']) if rounds else None
+    chosen = None
+    for old, issue in rounds:
+        if not current or patch_id(old['base'], old['head']) != current:
+            continue
+        verdict, shards = _conclusion(old, issue)
+        if verdict == 'block':
+            return None
+        if verdict == 'pass' and git('merge-base', '--is-ancestor', old['base'], request['base'],
+                                     check=False).returncode == 0:
+            chosen = (old, issue, current, shards)
+    if not chosen:
+        return None
+    source = chosen[1]['number']
+    ci = _github_ci(request['head']) if github else _fresh_ci(pull, chosen[1].get('created_at') or '~')
+    if ci == 'success':
+        return chosen
+    if ci == 'failure':
+        print(f'{label}: same patch as review #{source} but CI failed; full review')
+        return None
+    age = None if late else _scope_age(request)
+    if age is None or age >= CI_GRACE_SECONDS:
+        print(f'{label}: same patch as review #{source} but CI unsettled past the wait limit; full review')
+        return None
+    print(f'{label}: same patch as review #{source}; waiting for CI')
+    return WAITING
+
+
+def carry_over(request, pull, late=False):
+    """Open a review Issue that reuses an earlier passing round instead of summoning reviewers, or pass on WAITING."""
+    found = reusable(request, pull, late)
+    if not found or found is WAITING:
+        return found
+    old, source, digest, shards = found
+    platform, number = request['platform'], request['number']
+    link = f'https://cnb.cool/{POLICY["cnb"]}/-/issues/{source["number"]}'
+    payload = {'request': identity(request), 'source': identity(old), 'source_issue': str(source['number']),
+               'source_base': old['base'], 'source_head': old['head'], 'patch_id': digest, 'source_patch_id': digest}
+    if shards is not None:
+        payload['source_glm_shards'] = shards
+    url = (f'https://github.com/{POLICY["github"]}/pull/{number}' if platform == 'github'
+           else f'https://cnb.cool/{POLICY["cnb"]}/-/pulls/{number}')
+    body = (f'PR 自动结对审核（沿用）：{url}\n\n'
+            f'<!-- flclash-pr-review {json.dumps(sign(request))} -->\n'
+            f'<!-- flclash-review-reuse {json.dumps(sign(payload))} -->\n\n'
+            f'base 快进到 `{request["base"]}`，head `{request["head"]}` 的补丁 patch-id `{digest}` '
+            f'与 {link}（base `{old["base"]}`，head `{old["head"]}`，patch-id `{digest}`）相同，'
+            '那一轮两位审核者都已通过'
+            + (f'（GLM 由分片 {"、".join(f"#{n}" for n in shards)} 通过）' if shards else '')
+            + '，本轮沿用其结论，不再召唤审核者，也不开分片。'
+            + ('head 上除本门禁外的检查已全部通过。' if platform == 'github'
+               else '新 base 上的 pull_request 流水线已全部重跑通过。'))
+    issue = api(f'{CNB}/issues', 'POST', {'title': review_title(request, pull['title']), 'body': body,
+                                         'work_mode': False, 'assignees': [POLICY['approver']]})
+    api(f'{GH}/issues/{number}/comments' if platform == 'github' else f'{CNB}/pulls/{number}/comments',
+        'POST', {'body': f'结对审核： https://cnb.cool/{POLICY["cnb"]}/-/issues/{issue["number"]}\n'
+                         f'base `{request["base"]}` / head `{request["head"]}`，补丁未变，沿用 {link} 的通过结论。'
+                         + (f'\n<!-- flclash-review-notice {issue["number"]} -->' if platform == 'cnb' else '')})
+    print(f'{platform} PR #{number}: reused review #{source["number"]} (patch-id {digest[:12]})')
+    return api(f'{CNB}/issues/{issue["number"]}')
+
+
 def reconcile():
     close_finished_reviews()
     github_results = {}
@@ -582,12 +818,16 @@ def reconcile():
                     url = f'https://cnb.cool/{POLICY["cnb"]}/-/pulls/{forwarded["cnb_number"]}'
                     github_results.setdefault(request['head'], []).append(('pending', url))
                     continue
-            issue = ensure_request(request, pull['title'],
-                                   (unsettled_brief(pull) if late else '') + requirement_brief(pull))
+            issue = carry_over(request, pull, late)
+            if issue is WAITING:
+                continue
+            issue = issue or ensure_request(request, pull['title'],
+                (unsettled_brief(pull) if late else '') + requirement_brief(pull))
             withhold(pull)
             comments = list(pages(f'{CNB}/issues/{issue["number"]}/comments'))
             parts = shard_parts(request, issue)
             status = result(request, issue, comments, parts)
+            remember(request, issue, comments, status, parts)
             if issue['state'] == 'open':
                 reconsider(request, issue, comments)
                 for part in parts or ():

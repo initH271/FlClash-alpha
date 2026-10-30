@@ -194,7 +194,25 @@ Conflicts remain for human resolution.
 GitHub PR opened/reopened/synchronize/edited events trigger a trusted-main
 controller. The 15-minute controller also discovers CNB PRs, bot-created GitHub
 PRs and base changes, and refreshes results without rerunning existing requests.
-New base/head means a new review; old passes cannot authorize candidate promotion.
+A new head, or a base that is not a fast-forward of the reviewed one, means a new review.
+When only the base moved forward and the pull's own patch (`git patch-id --stable` of
+merge-base..head) is unchanged, the controller opens a signed reuse Issue instead: it names
+the earlier round, its base/head and both patch-ids, and passes only if that round's recorded
+conclusion is a double pass, no round with the same patch was recorded as blocked, and CI passed:
+on CNB every pull_request pipeline again, with runs newer than that round; on GitHub at least one
+check run or status besides this gate and the controller's own `review` job, all completed with
+success (skipped/neutral not counted). While CI is unsettled the controller opens and writes nothing,
+so the gate stays pending, and the next run decides: GitHub's hourly controller schedule, or any earlier
+wake. CI that ended with a failure means a full review, and so does CI still unsettled 80 minutes after
+the later of the base and head commits, or with a commit dated in the future; each leaves a log line.
+A different patch never waits. Commits a comparison needs are fetched by sha first, from the pull's own
+platform; a failed fetch means a full review and a log line. Fork pulls are not excluded: their heads
+are fetched by sha from the target repository, and one that cannot be fetched takes the same path.
+Closing a reuse Issue by hand blocks that scope only: a reuse round is never a source, so its record does
+not stop a later base from reusing the reviewed round. Otherwise the full review runs. A round GLM passed through shards reuses like any other: its record
+names the shards, and the reuse Issue opens none and needs no GLM report. A block or malformed report
+on the round's main issue or any of its shards, even one posted after the pass was recorded, rules
+out reuse, and so does a recorded shard that can no longer be read back.
 GitHub main requires the FlClash/paired-review status and an up-to-date branch.
 CNB runs no paired-review gate pipeline: the controller reads both reports directly
 and forwards or merges nothing until the review for that base/head passes, so a
