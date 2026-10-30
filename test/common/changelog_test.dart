@@ -1,4 +1,5 @@
 import 'package:fl_clash/common/changelog.dart';
+import 'package:fl_clash/common/package.dart';
 import 'package:fl_clash/models/changelog.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -46,6 +47,41 @@ void main() {
         version?.visibleGroups.single.entries.single.text,
         'Handle a --> sequence',
       );
+    });
+
+    test('ignores the needs-copy marker a draft body carries', () {
+      final body = _body(_payload).replaceFirst(
+        '- Override scripts\n',
+        '- Override scripts\n<!-- changelog:needs-copy 1a2b3c4 -->\n',
+      );
+
+      final version = parseReleaseChangelog(body);
+
+      expect(
+        version?.visibleGroups.single.entries.single.text,
+        'Override scripts',
+      );
+      expect(parseReleaseBody(body), ['Override scripts']);
+    });
+
+    test('still reads a body published before the user facing rules', () {
+      const body =
+          'FlClash-alpha 0.9.2-alpha.18\n\n'
+          '<!-- flclash:changelog:begin -->\n'
+          '### Bug Fixes\n'
+          '- **automation** 修掉 OSV 超时越过截止时间的边界\n'
+          '<!-- flclash:changelog:end -->\n\n'
+          '<!-- flclash:changelog:json\n'
+          '{"schemaVersion":2,"versions":[{"version":"0.9.2-alpha.18",'
+          '"tag":"v0.9.2-alpha.18","date":"","prerelease":false,"groups":'
+          '[{"type":"fix","entries":[{"id":"e0d04a4","scope":"automation",'
+          '"text":"修掉 OSV 超时越过截止时间的边界"}]}]}]}\n'
+          '-->\n';
+
+      final version = parseReleaseChangelog(body);
+
+      expect(version?.tag, 'v0.9.2-alpha.18');
+      expect(version?.visibleGroups.single.entries.single.scope, 'automation');
     });
 
     test('returns null for a body without the payload', () {

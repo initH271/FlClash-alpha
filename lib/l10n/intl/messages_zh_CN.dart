@@ -350,11 +350,11 @@ class MessageLookup extends MessageLookupByLibrary {
     "changeProxyFailedTip": MessageLookupByLibrary.simpleMessage(
       "切换代理失败，已恢复上一次的选择",
     ),
-    "changelogBreaking": MessageLookupByLibrary.simpleMessage("重大变更"),
-    "changelogFeatures": MessageLookupByLibrary.simpleMessage("新功能"),
-    "changelogFixes": MessageLookupByLibrary.simpleMessage("问题修复"),
-    "changelogPerformance": MessageLookupByLibrary.simpleMessage("性能优化"),
-    "changelogReverts": MessageLookupByLibrary.simpleMessage("已回滚"),
+    "changelogBreaking": MessageLookupByLibrary.simpleMessage("要注意"),
+    "changelogFeatures": MessageLookupByLibrary.simpleMessage("新玩意儿"),
+    "changelogFixes": MessageLookupByLibrary.simpleMessage("修好了"),
+    "changelogPerformance": MessageLookupByLibrary.simpleMessage("更快了"),
+    "changelogReverts": MessageLookupByLibrary.simpleMessage("撤回了"),
     "checkCertificate": MessageLookupByLibrary.simpleMessage("校验 TLS 证书"),
     "checkCertificateDesc": MessageLookupByLibrary.simpleMessage(
       "关闭证书校验后，订阅和备份可能遭中间人攻击。",

@@ -9,6 +9,7 @@ existing personal key from Actions Secrets, verifies the pinned certificate,
 and publishes an immutable versioned Release with APK, SHA256SUMS.txt and
 update.json. Increment `.github/release.json` build for every release and edit
 `.github/release-notes.md` before pushing main. Never reuse a published build.
+Write each user-facing commit's `Changelog:` trailer per [CHANGELOG_STYLE.md](CHANGELOG_STYLE.md).
 Application ID stays com.follow.clash.dev. The private key is not in either repo.
 
 CNB runs a one-CPU mirror job on main pushes, manual triggers, and every 15
