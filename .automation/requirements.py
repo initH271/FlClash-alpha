@@ -494,9 +494,30 @@ def env_retry(number, action):
     env_notice(number, ENV_RETRY, action['sn'], action.get('count', 1), head)
 
 
-def review_block(pull):
+REWORK = re.compile(r'REWORK:[ \t]*(.*)', re.S)
+
+
+def owner_rework(number, comments):
+    """Return the blocker list of the owner's newest `REWORK:` comment that no dispatch has answered yet.
+
+    Every later signed dispatch consumes it, so one ask moves the ladder once and never replays on a new head.
+    """
+    asks = [item for item in comments if owner(item) and REWORK.fullmatch(item.get('body', '').strip())]
+    if not asks:
+        return ''
+    ask = max(asks, key=lambda item: item.get('created_at', ''))
+    if any(item['at'] > ask.get('created_at', '') for item in known_marks(number, comments)):
+        return ''
+    blockers = REWORK.fullmatch(ask['body'].strip())[1].strip()
+    return ('owner 在需求 Issue 要求返工，逐条处理下列阻断后推同一分支：\n' + blockers)[:1500] if blockers else ''
+
+
+def review_block(pull, number='', comments=()):
     if not pull:
         return False, ''
+    rework = owner_rework(number, comments)
+    if rework:
+        return True, rework
     request = scope('cnb', pull)
     if state(request) != 'failure':
         return False, ''
@@ -782,7 +803,7 @@ def reconcile():
         if unvouched:
             green, failed = False, True
         scan_failed = unreachable(pull, pull_statuses(pull['number'])) if failed and not green and pull else None
-        blocked, text = review_block(pull) if failed or (pull and not green) else (False, '')
+        blocked, text = review_block(pull, number, issue_comments) if failed or (pull and not green) else (False, '')
         if failed and not text:
             text = REUSE_UNVOUCHED if unvouched else 'CI 未通过。先读失败日志，再推同一分支。'
             blocked = False

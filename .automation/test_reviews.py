@@ -429,6 +429,106 @@ class NoticeTests(unittest.TestCase):
             self.assertIsNone(reviews.existing_review(self.pull))
 
 
+DIFF = ('diff --git a/core/a.go b/core/a.go\nindex 1111111..2222222 100644\n--- a/core/a.go\n+++ b/core/a.go\n'
+        '@@ -10,2 +12,3 @@ func run()\n-old\n-old2\n+++ looks like a header\n+b\n+c\n@@ -40,0 +45 @@\n+d\n'
+        'diff --git a/gone.txt b/gone.txt\ndeleted file mode 100644\n--- a/gone.txt\n+++ /dev/null\n'
+        '@@ -1,2 +0,0 @@\n-x\n-y\n')
+
+
+class PromptTests(unittest.TestCase):
+    """What a summoned reviewer is told, built by the real prompt code over the HTTP and git layers only."""
+
+    api, pages = NoticeTests.api, NoticeTests.pages
+
+    def setUp(self):
+        env = patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'})
+        env.start()
+        self.addCleanup(env.stop)
+        self.pull = {'number': '12', 'base': {'sha': 'a' * 40}, 'head': {'sha': 'b' * 40, 'ref': 'automation/req-9'}}
+        self.request = reviews.scope('cnb', self.pull)
+        self.issues, self.comments = {}, {}
+
+    @staticmethod
+    def git(*args, check=True, env=None):
+        """Answer like control.git: stripped stdout with check=True, the finished process with check=False."""
+        stdout = {'merge-base': 'c' * 40, 'merge-tree': 'd' * 40, 'rev-parse': 'e' * 40}.get(args[0], '')
+        if args[0] == 'diff':
+            stdout = DIFF if '-U0' in args else 'core/a.go\0gone.txt\0'
+        if check:
+            return stdout.strip()
+        return subprocess.CompletedProcess(['git', *args], 0, stdout=stdout, stderr='')
+
+    def network(self):
+        stack = contextlib.ExitStack()
+        for target, fake in (('reviews.api', self.api), ('reviews.pages', self.pages), ('control.pages', self.pages),
+                             ('review_evidence.git', self.git), ('reviews.git', self.git)):
+            stack.enter_context(patch(target, side_effect=fake))
+        return stack
+
+    def earlier_round(self):
+        """An older head of the same pull whose GLM report blocked, announced on the pull like a real one."""
+        old = dict(self.request, head='9' * 40)
+        self.issues['41'] = {'number': '41', 'state': 'closed', 'author': {'username': 'Aharon', 'is_npc': False},
+                             'body': '<!-- flclash-pr-review ' + json.dumps(reviews.sign(old)) + ' -->'}
+        verdict = lambda v, n: 'FLCLASH_REVIEW ' + json.dumps({'request': reviews.identity(old), 'verdict': v,
+                                                               'blockers': n})
+        self.comments['issues/41/comments'] = [
+            {'id': '1', 'author': {'username': f'{reviews.POLICY["cnb"]}(GLM复核助手)', 'is_npc': True},
+             'body': '阻断 1：core/a.go:12-14 少了空值检查，＠审查助手 请看\n@someone\n' + verdict('block', 1)},
+            {'id': '2', 'author': {'username': f'{reviews.POLICY["cnb"]}(审查助手)', 'is_npc': True},
+             'body': '审查助手认为可以合并\n' + verdict('pass', 0)}]
+        self.comments['pulls/12/comments'] = [{'id': '3', 'body': '<!-- flclash-review-notice 41 -->'}]
+
+    def test_the_review_summon_reserves_posting_reports_progress_and_scopes_the_diff(self):
+        self.earlier_round()
+        with self.network():
+            issue = reviews.ensure_request(self.request, '需求实现')
+        body = issue['body']
+        for text in ('1 次留给发布最终报告', '取证和进度评论合计最多 39 次', '每审完一个文件或一组验收条目',
+                     reviews.PROGRESS, '用到第 38 次时停止取证', '「未完成」状态评论', '审到哪里、还差什么',
+                     'git show <head>:<路径>', '路径:起止行号', '上游原样', '不计入 blockers',
+                     '- `core/a.go`：12-14、45（+4/−2）', '- `gone.txt`：整个文件删除（+0/−2）',
+                     '前几轮的阻断清单', 'core/a.go:12-14 少了空值检查', '逐条对照验收标准原文',
+                     '测试替身和被替换函数的签名、返回类型一致', '单测不联网', '不要 mock 掉被测对象本身'):
+            self.assertIn(text, body)
+        self.assertNotIn('审查助手认为可以合并', body)
+        self.assertNotIn('@someone', body)
+        self.assertEqual(1, body.count('FLCLASH_REVIEW {'))
+
+    def test_the_bounded_recheck_uses_the_reconsider_budget_instead_of_eight_calls(self):
+        issue = {'number': '42', 'state': 'open', 'created_at': '2026-09-20T00:00:00Z'}
+        report = lambda role, verdict, n: {
+            'id': '1', 'created_at': '2026-09-20T00:01:00Z',
+            'author': {'username': f'{reviews.POLICY["cnb"]}({role})', 'is_npc': True},
+            'body': 'FLCLASH_REVIEW ' + json.dumps({'request': reviews.identity(self.request), 'verdict': verdict,
+                                                   'blockers': n})}
+        with self.network():
+            reviews.reconsider(self.request, issue, [report('审查助手', 'block', 1), report('GLM复核助手', 'pass', 0)])
+        (posted,) = self.comments['issues/42/comments']
+        for text in ('取证和进度评论合计最多 11 次', '1 次留给发布最终报告', 'git show <head>:<路径>',
+                     '- `core/a.go`：12-14、45（+4/−2）'):
+            self.assertIn(text, posted['body'])
+        self.assertNotIn('最多8次', posted['body'])
+
+    def test_a_progress_note_is_neither_a_verdict_nor_a_malformed_report(self):
+        issue = {'state': 'open', 'created_at': '2026-09-20T00:00:00Z'}
+        author = {'username': f'{reviews.POLICY["cnb"]}(GLM复核助手)', 'is_npc': True}
+        note = {'id': '1', 'created_at': '2026-09-20T00:01:00Z', 'author': author,
+                'body': reviews.PROGRESS + '\n已审 core/a.go，未完成：gone.txt'}
+        self.assertEqual({}, reviews.role_reports(self.request, issue, [note]))
+        self.assertEqual('pending', reviews.result(self.request, issue, [note]))
+        self.assertEqual({'GLM复核助手': 'malformed'},
+                         reviews.role_reports(self.request, issue, [dict(note, body='已审 core/a.go')]))
+
+    def test_the_recovery_summon_carries_the_same_budget_and_evidence_rules(self):
+        import npc_recovery
+        issue = {'title': '[PR审核] CNB #12：x', 'author': {'username': reviews.POLICY['approver'], 'is_npc': False},
+                 'body': '<!-- flclash-pr-review ' + json.dumps(reviews.sign(self.request)) + ' -->'}
+        instruction = npc_recovery.task(issue)[3]
+        for text in ('1 次留给发布最终报告', '取证和进度评论合计最多 11 次', 'git show <head>:<路径>', '上游原样'):
+            self.assertIn(text, instruction)
+
+
 class WithholdTests(unittest.TestCase):
     def run_withhold(self, ci, grace=(), ref='refs/heads/automation/req-9'):
         rows = statuses(ci)['statuses'] + [
