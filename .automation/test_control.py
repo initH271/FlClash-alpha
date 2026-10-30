@@ -1,11 +1,13 @@
 import json
 import os
 import pathlib
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
 
 import control
+import reviews
 import scheduler
 
 
@@ -109,6 +111,112 @@ class RecoveryTests(unittest.TestCase):
         with patch.object(scheduler, 'api', api), patch.object(scheduler, 'dispatch') as dispatch:
             scheduler.schedule()
         dispatch.assert_not_called()
+
+
+OUTCOMES = {'failure': False, 'cancelled': False, 'success': True, 'skipped': True, None: True}
+TAG, ISSUE = 'v999.0.0', 7
+MAIN, HEAD, UPSTREAM, TREE = 'a' * 40, 'b' * 40, 'c' * 40, 'd' * 40
+
+
+def outcome_env(outcome):
+    env = {'UPSTREAM_APPROVAL_KEY': 'unit-test-key', 'CNB_AUTOMATION_TOKEN': 'unit-test-cnb'}
+    if outcome:
+        env['FLCLASH_SECURITY_OUTCOME'] = outcome
+    cleared = dict(os.environ)
+    cleared.pop('FLCLASH_SECURITY_OUTCOME', None)
+    return patch.dict(os.environ, dict(cleared, **env), clear=True)
+
+
+class SecurityHoldTests(unittest.TestCase):
+    """Only the HTTP layer (api, pages) and git subprocesses are faked; dispatch runs for real."""
+
+    def approvals(self, outcome):
+        posts, pushes = [], []
+        branch = f'automation/upstream-{TAG}'
+        with outcome_env(outcome):
+            request = control.marker({'tag': TAG, 'sha': UPSTREAM, 'upstream': control.POLICY['upstream']})
+            envelope = control.sign({'issue': str(ISSUE), 'base': MAIN, 'tree': TREE, 'upstream_sha': UPSTREAM})
+        owner_ok = {'author': {'username': control.POLICY['approver'], 'is_npc': False}, 'body': 'OK'}
+
+        def api(url, method='GET', data=None, missing=False, timeout=60):
+            if method == 'POST':
+                posts.append(url)
+                return {}
+            if url.endswith(f'/issues/{ISSUE}'):
+                return {'body': request, 'state': 'open'}
+            if 'workflows/build.yaml/runs' in url:
+                return {'workflow_runs': []}
+            if url.endswith('/git/ref/heads/main'):
+                return {'object': {'sha': MAIN}}
+            if url.endswith('/git/ref/heads/' + branch):
+                return {'object': {'sha': HEAD}}
+            if '/pulls?state=open' in url:
+                return [{'number': 1}]
+            self.fail('Unexpected API call: ' + url)
+
+        def pages(url, page_key='page', size_key='page_size'):
+            if url.endswith('/issues?state=open'):
+                return iter([{'title': f'[上游升级] FlClash {TAG}', 'number': ISSUE}])
+            return iter([owner_ok])
+
+        def git(*args, check=True, env=None):
+            if args[0] == 'push':
+                pushes.append(args)
+            out = {'rev-parse': HEAD, 'write-tree': TREE}.get(args[0], '')
+            return out if check else subprocess.CompletedProcess(['git', *args], 0, out, '')
+
+        with tempfile.TemporaryDirectory() as directory, outcome_env(outcome):
+            root = pathlib.Path(directory)
+            (root / '.automation').mkdir()
+            (root / '.automation/candidate.json').write_text(json.dumps(envelope))
+            with patch.object(control, 'ROOT', root), patch.object(control, 'api', api), \
+                    patch.object(control, 'pages', pages), patch.object(control, 'git', git), \
+                    patch.object(reviews, 'reconcile') as reconcile, \
+                    patch.object(reviews, 'require_candidate'):
+                control.approvals()
+        return posts, pushes, reconcile
+
+    def test_failed_security_finish_records_approval_but_holds_the_build(self):
+        for outcome, dispatches in OUTCOMES.items():
+            with self.subTest(outcome=outcome):
+                posts, pushes, reconcile = self.approvals(outcome)
+                self.assertTrue(pushes)
+                reconcile.assert_called_once()
+                built = [url for url in posts if url.endswith('/build.yaml/dispatches')]
+                self.assertEqual(1 if dispatches else 0, len(built))
+
+    def schedule(self, outcome):
+        run = {'id': 10, 'display_title': 'Android ' + MAIN, 'status': 'completed', 'conclusion': 'failure'}
+        posts = []
+
+        def api(url, method='GET', data=None, missing=False, timeout=60):
+            if method == 'POST':
+                posts.append(url)
+                return {}
+            if 'workflows/build.yaml/runs' in url:
+                return {'workflow_runs': [run]}
+            if '/git/ref/heads/automation/recovery-' in url:
+                return None
+            if url.endswith('/artifacts'):
+                return {'artifacts': [{'name': 'FlClash-arm64-log-history', 'expired': False}]}
+            if url.endswith('/jobs'):
+                return {'jobs': [{'steps': [{'name': 'Publish release', 'conclusion': 'failure'}],
+                                  'check_run_url': 'https://api.github.com/check-runs/1'}]}
+            if url.endswith('/annotations'):
+                return []
+            self.fail('Unexpected API call: ' + url)
+
+        with outcome_env(outcome), patch.object(scheduler, 'api', api), patch.object(control, 'api', api):
+            scheduler.schedule()
+        return posts
+
+    def test_failed_security_finish_holds_stopped_build_recovery(self):
+        for outcome, dispatches in OUTCOMES.items():
+            with self.subTest(outcome=outcome):
+                posts = self.schedule(outcome)
+                built = [url for url in posts if url.endswith('/build.yaml/dispatches')]
+                self.assertEqual(1 if dispatches else 0, len(built))
+                self.assertEqual(2 if dispatches else 0, len(posts))
 
 
 class SourceTreeTests(unittest.TestCase):

@@ -180,6 +180,19 @@ def dispatch(source, reuse_run='', fallback='false'):
                                  'cnb_fallback': fallback}})
 
 
+def security_hold():
+    """True when this run's security finish step failed, so builds that lead to a release wait.
+
+    Only failure and cancelled hold. The step runs whenever these callers run, so skipped
+    never pairs with them in the workflow; a missing value means a local run outside it.
+    """
+    outcome = os.environ.get('FLCLASH_SECURITY_OUTCOME', '')
+    if outcome in ('failure', 'cancelled'):
+        print(f'Security finish {outcome}; build dispatch held until a later pass succeeds')
+        return True
+    return False
+
+
 def source_tree():
     descriptor, path = tempfile.mkstemp(prefix='flclash-index-')
     os.close(descriptor)
@@ -279,6 +292,8 @@ def resume_candidate(sha, branch, number):
         validate_source()
     except ValueError as error:
         print(f'Candidate waiting: {error}')
+        return
+    if security_hold():
         return
     dispatch(sha)
 
