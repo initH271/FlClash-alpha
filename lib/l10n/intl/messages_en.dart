@@ -1714,6 +1714,18 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "serviceAvailable": MessageLookupByLibrary.simpleMessage("Available"),
     "serviceBlocked": MessageLookupByLibrary.simpleMessage("Blocked"),
+    "serviceCategoryAi": MessageLookupByLibrary.simpleMessage("AI"),
+    "serviceCategoryDeveloper": MessageLookupByLibrary.simpleMessage(
+      "Developer & tools",
+    ),
+    "serviceCategoryFinance": MessageLookupByLibrary.simpleMessage(
+      "Exchanges & finance",
+    ),
+    "serviceCategoryGaming": MessageLookupByLibrary.simpleMessage("Gaming"),
+    "serviceCategorySocial": MessageLookupByLibrary.simpleMessage("Social"),
+    "serviceCategoryStreaming": MessageLookupByLibrary.simpleMessage(
+      "Streaming",
+    ),
     "serviceCheckAll": MessageLookupByLibrary.simpleMessage("Check all"),
     "serviceComingSoon": MessageLookupByLibrary.simpleMessage("Coming soon"),
     "serviceDisallowedIsp": MessageLookupByLibrary.simpleMessage(

@@ -7765,6 +7765,61 @@ class AppLocalizations {
     );
   }
 
+  /// `AI`
+  String get serviceCategoryAi {
+    return Intl.message('AI', name: 'serviceCategoryAi', desc: '', args: []);
+  }
+
+  /// `Streaming`
+  String get serviceCategoryStreaming {
+    return Intl.message(
+      'Streaming',
+      name: 'serviceCategoryStreaming',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Social`
+  String get serviceCategorySocial {
+    return Intl.message(
+      'Social',
+      name: 'serviceCategorySocial',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Exchanges & finance`
+  String get serviceCategoryFinance {
+    return Intl.message(
+      'Exchanges & finance',
+      name: 'serviceCategoryFinance',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Developer & tools`
+  String get serviceCategoryDeveloper {
+    return Intl.message(
+      'Developer & tools',
+      name: 'serviceCategoryDeveloper',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Gaming`
+  String get serviceCategoryGaming {
+    return Intl.message(
+      'Gaming',
+      name: 'serviceCategoryGaming',
+      desc: '',
+      args: [],
+    );
+  }
+
   /// `{count} timed out`
   String groupTimeoutCount(Object count) {
     return Intl.message(
