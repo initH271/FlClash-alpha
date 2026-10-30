@@ -161,6 +161,10 @@ class CiChangesTests(unittest.TestCase):
         self.assertEqual(set(changes.JOBS), changes.needed_jobs(['plugins/x/README.md']))
         self.assertEqual({'automation', 'flutter', 'android_build'}, changes.needed_jobs(['assets/data/a.md']))
 
+    def test_the_release_identity_tests_run_and_changing_them_runs_every_job(self):
+        self.assertIn('python3 -m unittest tool.test_release_identity', WORKFLOW.read_text())
+        self.assertEqual(set(changes.JOBS), changes.needed_jobs(['tool/release_identity.py']))
+
     def test_unknown_paths_run_every_job(self):
         for path in ('pubspec.yaml', 'plugins/rust_api/rust/src/lib.rs', 'tool/changelog.dart', '.github/release.json',
                      '.github/actions/setup-android-toolchain/action.yml', '.github/scripts/ci_changes.py',
