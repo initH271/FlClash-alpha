@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:fl_clash/common/link.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -169,6 +171,47 @@ void main() {
         ]),
         'https://example.com/first.yaml',
       );
+    });
+  });
+
+  group('RoutePushSink', () {
+    Future<void> pushRoute(WidgetTester tester, String location) async {
+      final message = const JSONMethodCodec().encodeMethodCall(
+        MethodCall('pushRouteInformation', {'location': location}),
+      );
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        SystemChannels.navigation.name,
+        message,
+        (_) {},
+      );
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> pumpApp(WidgetTester tester) async {
+      tester.binding.addObserver(routePushSink);
+      addTearDown(() => tester.binding.removeObserver(routePushSink));
+      await tester.pumpWidget(const MaterialApp(home: Text('home')));
+    }
+
+    testWidgets('a pushed install-config link pushes no route', (
+      tester,
+    ) async {
+      await pumpApp(tester);
+      await pushRoute(
+        tester,
+        'flclash://install-config?url=https%3A%2F%2Fexample.com%2Fsub',
+      );
+      expect(tester.takeException(), isNull);
+      expect(find.text('home', skipOffstage: false), findsOneWidget);
+    });
+
+    testWidgets('a pushed root path does not stack a second home', (
+      tester,
+    ) async {
+      await pumpApp(tester);
+      await pushRoute(tester, '/');
+      expect(tester.takeException(), isNull);
+      expect(find.text('home', skipOffstage: false), findsOneWidget);
     });
   });
 }

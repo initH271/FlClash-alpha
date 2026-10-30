@@ -330,6 +330,19 @@ void main() {
       expect(popped, isTrue);
     });
 
+    testWidgets('an empty capture neither pops nor hints', (tester) async {
+      var popped = false;
+      await pumpScanPage(tester, onPopped: (_) => popped = true);
+
+      platform.emit(const BarcodeCapture());
+      await pumpFrames(tester);
+
+      expect(popped, isFalse);
+      expect(find.byType(ScanPage), findsOneWidget);
+      expect(find.text(currentAppLocalizations.qrcodeDesc), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('captures racing the exit transition pop only once', (
       tester,
     ) async {
