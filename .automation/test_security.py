@@ -34,35 +34,97 @@ class Clock:
 
 
 class SecurityTests(unittest.TestCase):
-    def test_osv_tls_eof_retries_read_query_without_changing_payload(self):
+    def test_osv_timeout_retries_read_query_without_changing_payload(self):
         payload = {'queries': []}
-        failure = urllib.error.URLError(ssl.SSLEOFError('connection closed'))
-        with patch.object(scan, 'api', side_effect=[failure, {'results': []}]) as api, \
-                patch.object(scan.time, 'sleep') as sleep:
-            self.assertEqual({'results': []}, scan.osv_query('https://api.osv.dev/v1/querybatch', 'POST', payload))
+        clock = Clock(start=1000.0)
+        with patch.object(scan, 'api', side_effect=[TimeoutError(), {'results': []}]) as api, \
+                patch.object(scan.time, 'monotonic', clock), \
+                patch.object(scan.time, 'sleep', side_effect=clock.advance) as sleep:
+            self.assertEqual({'results': []}, scan.osv_query('https://api.osv.dev/v1/querybatch', 'POST', payload,
+                                                             until=1300.0))
             self.assertEqual(2, api.call_count)
-            self.assertEqual(api.call_args_list[0], api.call_args_list[1])
+            self.assertEqual(call('https://api.osv.dev/v1/querybatch', 'POST', payload, timeout=20),
+                             api.call_args_list[1])
             self.assertEqual([call(5)], sleep.call_args_list)
 
+    def test_osv_wrapped_timeout_retries_without_changing_payload(self):
+        payload = {'queries': []}
+        clock = Clock(start=1000.0)
+        failure = urllib.error.URLError(TimeoutError('timed out'))
+        with patch.object(scan, 'api', side_effect=[failure, {'results': []}]) as api, \
+                patch.object(scan.time, 'monotonic', clock), \
+                patch.object(scan.time, 'sleep', side_effect=clock.advance) as sleep:
+            self.assertEqual({'results': []}, scan.osv_query('https://api.osv.dev/v1/querybatch', 'POST', payload,
+                                                             until=1300.0))
+            self.assertEqual(call('https://api.osv.dev/v1/querybatch', 'POST', payload, timeout=20),
+                             api.call_args_list[1])
+            self.assertEqual([call(5)], sleep.call_args_list)
+
+    def test_osv_tls_eof_retries_without_changing_payload(self):
+        payload = {'queries': []}
+        clock = Clock(start=1000.0)
+        failure = urllib.error.URLError(ssl.SSLEOFError('connection closed'))
+        with patch.object(scan, 'api', side_effect=[failure, {'results': []}]) as api, \
+                patch.object(scan.time, 'monotonic', clock), patch.object(scan.time, 'sleep', clock.advance):
+            self.assertEqual({'results': []}, scan.osv_query('https://api.osv.dev/v1/querybatch', 'POST', payload,
+                                                             until=1300.0))
+            self.assertEqual(2, api.call_count)
+            self.assertEqual(api.call_args_list[0], api.call_args_list[1])
+
+    def test_osv_timeout_is_what_is_left_after_the_wait(self):
+        clock = Clock(start=1000.0)
+        with patch.object(scan, 'api', side_effect=[TimeoutError(), TimeoutError(), {'results': []}]) as api, \
+                patch.object(scan.time, 'monotonic', clock), patch.object(scan.time, 'sleep', clock.advance):
+            # 1000 -> 1005 leaves 30s: capped at 20. 1005 -> 1025 leaves 10s: not capped.
+            self.assertEqual({'results': []}, scan.osv_query('https://api.osv.dev/v1/querybatch', 'POST', {},
+                                                             until=1035.0))
+        self.assertEqual([20, 20, 10], [item.kwargs['timeout'] for item in api.call_args_list])
+
+    def test_osv_request_timeout_after_a_wait_shorter_than_the_cap(self):
+        clock = Clock(start=1000.0)
+        # 1030 leaves 25s at 1005, so the 5s wait is taken; 1005 -> 1010 leaves 20s exactly.
+        with patch.object(scan, 'api', side_effect=[TimeoutError(), {'results': []}]) as api, \
+                patch.object(scan.time, 'monotonic', clock), \
+                patch.object(scan.time, 'sleep', side_effect=clock.advance) as sleep:
+            self.assertEqual({'results': []}, scan.osv_query('https://api.osv.dev/v1/querybatch', 'POST', {},
+                                                             until=1030.0))
+        self.assertEqual([call(5)], sleep.call_args_list)
+        self.assertEqual([20, 20], [item.kwargs['timeout'] for item in api.call_args_list])
+
+    def test_osv_request_timeout_floors_the_time_left_before_the_deadline(self):
+        clock = Clock(start=1000.0)
+        # 1017.9 leaves 17.9s after the wait: the request gets 17, not 18.
+        with patch.object(scan, 'api', side_effect=[TimeoutError(), {'results': []}]) as api, \
+                patch.object(scan.time, 'monotonic', clock), \
+                patch.object(scan.time, 'sleep', side_effect=clock.advance) as sleep:
+            self.assertEqual({'results': []}, scan.osv_query('https://api.osv.dev/v1/querybatch', 'POST', {},
+                                                             until=1017.9))
+        self.assertEqual([call(5)], sleep.call_args_list)
+        self.assertEqual([17, 12], [item.kwargs['timeout'] for item in api.call_args_list])
+        self.assertGreater(1017.9 - clock.now, 12)
+
     def test_osv_exhausted_network_retries_fail_instead_of_reporting_clean(self):
+        clock = Clock(start=1000.0)
         with patch.object(scan, 'api', side_effect=TimeoutError) as api, \
-                patch.object(scan.time, 'sleep') as sleep:
+                patch.object(scan.time, 'monotonic', clock), \
+                patch.object(scan.time, 'sleep', side_effect=clock.advance) as sleep:
             with self.assertRaises(scan.EnvironmentFailure) as raised:
-                scan.osv_query('https://api.osv.dev/v1/querybatch', 'POST', {})
+                scan.osv_query('https://api.osv.dev/v1/querybatch', 'POST', {}, until=1000.0 + 300)
             self.assertEqual(5, api.call_count)
             self.assertEqual([call(5), call(20), call(60), call(180)], sleep.call_args_list)
         self.assertEqual('osv-unreachable', raised.exception.kind)
         self.assertEqual(5, raised.exception.detail['attempts'])
 
     def test_osv_gives_up_before_the_deadline_cannot_cover_the_next_wait(self):
-        clock = Clock()
+        clock = Clock(start=1000.0)
         with patch.object(scan, 'api', side_effect=TimeoutError) as api, \
                 patch.object(scan.time, 'monotonic', clock), patch.object(scan.time, 'sleep', clock.advance):
             with self.assertRaises(scan.EnvironmentFailure):
                 scan.osv_query('https://api.osv.dev/v1/querybatch', 'POST', {}, until=1006)
-        # The 5s wait fits; the 20s one would leave no room for a request.
+        # The 5s wait still leaves a request; the 20s one would not.
         self.assertEqual(2, api.call_count)
         self.assertEqual(5, clock.elapsed)
+        self.assertEqual([1], [item.kwargs['timeout'] for item in api.call_args_list[1:]])
 
     def test_osv_retries_server_errors_but_not_other_http_or_application_errors(self):
         failure = scan.HttpStatusError('POST api.osv.dev returned HTTP 503: unavailable', 503)
@@ -105,6 +167,25 @@ class SecurityTests(unittest.TestCase):
         [marker] = env_failure.parse(stdout.getvalue())
         self.assertEqual('osv-unreachable', marker['kind'])
         self.assertEqual('a' * 40, marker['sha'])
+        self.assertFalse(report.exists())
+
+    def test_osv_unreachable_main_retries_five_times_then_exits_with_75(self):
+        report = pathlib.Path(tempfile.mkdtemp()) / 'report.json'
+        clock = Clock(start=1000.0)
+        with patch.object(scan, 'api', side_effect=TimeoutError) as api, \
+                patch.object(scan.time, 'monotonic', clock), patch.object(scan.time, 'sleep', clock.advance), \
+                patch.object(scan, 'inventory', return_value=([{'file': 'core/go.mod', 'ecosystem': 'Go',
+                                                               'name': 'example.org/module', 'version': 'v1.0.0'}],
+                                                              [])), \
+                patch.object(scan, 'head_sha', return_value='b' * 40), \
+                patch.dict(os.environ, {'FLCLASH_NETWORK_DEADLINE': '1300'}), \
+                patch.object(scan.time, 'time', return_value=0.0), \
+                contextlib.redirect_stdout(io.StringIO()) as stdout:
+            code = scan.main([str(ROOT), str(report)])
+        self.assertEqual(75, code)
+        self.assertEqual(5, api.call_count)
+        self.assertEqual(1, stdout.getvalue().count(env_failure.MARKER))
+        self.assertEqual('osv-unreachable', env_failure.parse(stdout.getvalue())[0]['kind'])
         self.assertFalse(report.exists())
 
     def test_new_findings_still_fail_without_an_environment_marker(self):
