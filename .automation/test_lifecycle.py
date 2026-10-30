@@ -31,6 +31,15 @@ class LifecycleTests(unittest.TestCase):
             dispatch.assert_called_once()
             pages.assert_not_called()
 
+    def test_the_schedule_also_wakes_a_security_group_pull(self):
+        with (patch.dict(os.environ, {'CNB_EVENT': 'crontab: */15 * * * *'}),
+              patch.object(wake, 'pages', side_effect=lambda url: (
+                  [{'number': '4', 'head': {'ref': 'refs/heads/security/group-rust-api'}}]
+                  if '/pulls?' in url else [])),
+              patch.object(wake, 'dispatch') as dispatch):
+            wake.wake()
+            dispatch.assert_called_once()
+
     def test_security_developer_report_wakes_but_owner_dispatch_does_not_loop(self):
         issue = {'state': 'open', 'body': '<!-- flclash-security-group {} -->'}
         for author, expected in (({'username': '507space/FlClash-alpha(开发助手)', 'is_npc': True}, True),

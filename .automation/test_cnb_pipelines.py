@@ -70,25 +70,22 @@ class CnbPipelineTests(unittest.TestCase):
         return yaml.safe_load(CNB.read_text(encoding='utf-8'))['main']
 
     def test_ci_pipelines_match_the_pull_request_jobs(self):
-        import sys
-        sys.path.insert(0, str(CNB.parent / '.automation'))
-        import reviews
+        from reviews import CI_PIPELINES
         entries = pipelines()
         if entries is None:
-            for name in reviews.CI_PIPELINES:
+            for name in CI_PIPELINES:
                 self.assertIn(f'    - name: {name}\n', self.source)
             return
-            self.assertEqual(list(reviews.CI_PIPELINES[:-1]),
-                             [entry['name'] for entry in entries if entry['name'] != 'Paired review gate'])
+        # The paired review gate lives under pull_request.target, so CI_PIPELINES names it last.
+        self.assertEqual(list(CI_PIPELINES[:-1]), [entry['name'] for entry in entries])
+        self.assertEqual('Paired review gate', CI_PIPELINES[-1])
 
     def test_every_pipeline_wakes_the_controller_when_it_ends(self):
-        import sys
-        sys.path.insert(0, str(CNB.parent / '.automation'))
-        import reviews
+        from reviews import CI_PIPELINES
         job = "python3 .automation/wake.py ci-done '{}'"
         entries = pipelines()
         # The paired review gate is a pull_request.target job, so it has no end stage of its own.
-        for name in reviews.CI_PIPELINES[:-1]:
+        for name in CI_PIPELINES[:-1]:
             self.assertIn(job.format(name), self.source)
             if entries is None:
                 continue
@@ -105,9 +102,13 @@ class CnbPipelineTests(unittest.TestCase):
 
     def test_the_quarter_hour_schedule_watches_stalls_and_wakes_the_controller(self):
         entries = self.schedules()
-        jobs = entries['crontab: */15 * * * *']
         if entries is None:
+            self.assertIn('"crontab: */15 * * * *":', self.source)
+            self.assertRegex(self.source, r'(?s)"crontab: \*/15 \* \* \* \*":.*python3 \.automation/wake\.py watchdog')
+            self.assertRegex(self.source, r'(?s)"crontab: \*/15 \* \* \* \*":.*github-dispatch\.yml')
+            self.assertRegex(self.source, r'(?s)"crontab: \*/15 \* \* \* \*":.*python3 \.automation/wake\.py\n')
             return
+        jobs = entries['crontab: */15 * * * *']
         self.assertIn('python3 .automation/wake.py watchdog', jobs[0]['stages'][0]['script'])
         self.assertEqual('3m', jobs[0]['stages'][0]['timeout'])
         self.assertIn('github-dispatch.yml', jobs[1]['stages'][0]['imports'])
@@ -118,6 +119,7 @@ class CnbPipelineTests(unittest.TestCase):
         entries = self.schedules()
         if entries is None:
             self.assertIn('"crontab: 7 * * * *":', self.source)
+            self.assertIn('    - *mirror\n', self.source)
             return
         self.assertNotIn('*mirror', entries['crontab: */15 * * * *'])
         self.assertEqual(['Mirror signed GitHub release to CNB'],
