@@ -131,6 +131,7 @@ class ChangelogParser {
             id: commit.shortHash,
             scope: _normalizeScope(scope),
             text: _text(changelog, description),
+            needsCopy: !hasCopy,
           ),
         ),
       );

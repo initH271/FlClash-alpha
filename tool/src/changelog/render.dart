@@ -21,6 +21,10 @@ const releaseEndMarker = '<!-- flclash:changelog:end -->';
 const releaseJsonBeginMarker = '<!-- flclash:changelog:json';
 const releaseJsonEndMarker = '-->';
 
+/// Follows an entry whose text is still the commit subject. It is a comment
+/// on its own line, so neither the release page nor the app shows it.
+const releaseNeedsCopyMarker = '<!-- changelog:needs-copy';
+
 const telegramLimit = 900;
 
 const emptyVersionNote = 'Internal improvements only.';
@@ -64,6 +68,9 @@ String renderRelease(ChangelogVersion version) {
     buffer.writeln('### ${group.type.title}');
     for (final entry in group.entries) {
       buffer.writeln('- ${_prefix(entry)}${entry.text}');
+      if (entry.needsCopy) {
+        buffer.writeln('$releaseNeedsCopyMarker ${entry.id} -->');
+      }
     }
     buffer.writeln();
   }

@@ -171,6 +171,26 @@ void main() {
     expect(notes, isNot(contains('empty scans')));
   });
 
+  test('an entry without copy is flagged in the notes, not the payload', () {
+    commit('feat: seed');
+    tag('alpha-0.8.98-2026094001');
+    commit('fix(core): keep sockets protected');
+    final result = AlphaReleaseNotes.generate(
+      root: repo.path,
+      version: '0.8.98',
+      build: 2026094002,
+    );
+    final marker = RegExp(r'<!-- changelog:needs-copy [0-9a-f]{7} -->');
+
+    expect(result.notes, contains('- **core** Keep sockets protected\n'));
+    expect(marker.allMatches(result.notes), hasLength(1));
+    expect(result.warnings, anyElement(contains('no "Changelog:" trailer')));
+    final payload = result.notes.split('<!-- flclash:changelog:json').last;
+    expect(payload, isNot(contains('needs')));
+    final version = app.parseReleaseChangelog(result.notes)!;
+    expect(version.groups.single.entries.single.text, 'Keep sockets protected');
+  });
+
   test('merge commits do not duplicate their branch commits', () {
     commit('feat: branched feature\n\nChangelog: Branched feature');
     tag('alpha-0.8.98-2026094001');
