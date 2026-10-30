@@ -70,8 +70,9 @@ class LoopBreakerTests(unittest.TestCase):
                 'author': {'username': f'{control.POLICY["cnb"]}({role})', 'is_npc': True}}
 
     def decide(self, comments, rows, tree='', **kwargs):
-        return req.decide(self.issue, comments, rows, tree, False, False, kwargs.get('review_failed', False),
-                          kwargs.get('review_text', ''), self.now, has_pull=kwargs.get('has_pull', False))
+        return req.decide(self.issue, comments, rows, tree, False, kwargs.get('checks_green', False),
+                          kwargs.get('review_failed', False), kwargs.get('review_text', ''), self.now,
+                          has_pull=kwargs.get('has_pull', False), behind=kwargs.get('behind', False))
 
     def test_the_dispatch_carries_the_counted_breaker_rules(self):
         parsed = dict(req.parse(BODY), number='9')
@@ -103,6 +104,41 @@ class LoopBreakerTests(unittest.TestCase):
         comments.append(self.report('【熔断】', '2026-09-22T02:35:00Z'))
         rows = [self.attempt('success', '2026-09-22T02:30:00Z')]
         self.assertNotEqual('diagnose', self.decide(comments, rows, tree='tree-9').get('phase'))
+
+    def test_green_checks_never_forward_an_unhandled_breaker(self):
+        comments = [self.marker('dev', 60, '', '2026-09-22T02:00:00Z'),
+                    self.report('阶段评论：export_test 未改完', '2026-09-22T02:20:00Z'),
+                    self.report('【熔断】\nexport_test 连续失败 3 次', '2026-09-22T02:30:00Z')]
+        rows = [self.attempt('success', '2026-09-22T02:00:00Z')]
+        for behind in (False, True):
+            action = self.decide(comments, rows, tree='tree-1', checks_green=True, has_pull=True, behind=behind)
+            self.assertEqual(('dispatch', 'diagnose'), (action['kind'], action.get('phase')))
+            self.assertIn('export_test 连续失败 3 次', action['instruction'])
+        # While that diagnose runs or answers, green checks still wait for the developer's next round.
+        comments.append(self.marker('diagnose', 60, 'tree-1', '2026-09-22T02:40:00Z'))
+        rows.append(self.attempt('running', '2026-09-22T02:40:00Z', role='审查助手', sn='cnb-review-2'))
+        self.assertEqual('wait', self.decide(comments, rows, tree='tree-1', checks_green=True, has_pull=True)['kind'])
+
+    def test_a_breaker_past_the_diagnose_cap_stops_instead_of_forwarding(self):
+        comments = [self.marker(phase, 60, f'tree-{minute}', f'2026-09-22T02:{minute:02d}:00Z')
+                    for minute, phase in ((0, 'diagnose'), (10, 'diagnose'), (20, 'diagnose'), (30, 'targeted'))]
+        comments.append(self.report('【熔断】', '2026-09-22T02:35:00Z'))
+        rows = [self.attempt('success', '2026-09-22T02:30:00Z')]
+        action = self.decide(comments, rows, tree='tree-9', checks_green=True, has_pull=True)
+        self.assertEqual(('stop', 'stuck'), (action['kind'], action.get('phase')))
+        self.assertIn('owner', action['body'])
+        comments.append(self.marker('stuck', 60, 'tree-9', '2026-09-22T02:40:00Z'))
+        self.assertEqual('wait', self.decide(comments, rows, tree='tree-9', checks_green=True, has_pull=True)['kind'])
+
+    def test_a_new_developer_round_without_a_breaker_forwards_green_checks(self):
+        comments = [self.marker('dev', 60, '', '2026-09-22T02:00:00Z'),
+                    self.report('【熔断】', '2026-09-22T02:30:00Z'),
+                    self.marker('targeted', 60, 'tree-1', '2026-09-22T02:50:00Z'),
+                    self.report('验收条目全部转绿', '2026-09-22T03:00:00Z')]
+        rows = [self.attempt('success', '2026-09-22T02:50:00Z')]
+        self.assertEqual('forward', self.decide(comments, rows, tree='tree-2', checks_green=True, has_pull=True)['kind'])
+        self.assertEqual('sync-main', self.decide(comments, rows, tree='tree-2', checks_green=True, has_pull=True,
+                                                  behind=True)['kind'])
 
     def test_the_digest_keeps_the_tail_and_the_failure_lines(self):
         lines = ['Traceback (most recent call last):', 'step FAILED: export_test'] + [

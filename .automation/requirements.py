@@ -240,8 +240,10 @@ def ladder(issue, comments, rows, tree, contained, checks_green, review_failed, 
         return {'kind': 'hold', 'ref': hold, 'sn': next(
             (row['sn'] for row in rows if row['state'] not in TERMINAL and row['role'] in ROLES), '')}
     scoped = [item for item in known if item.get('scope') == parsed['scope'] and item.get('phase') != 'invalid']
+    breaker = breaker_report(comments, scoped)
     # Quota and stuck stop spending developer rounds; they never hold back work that already passed.
-    if checks_green:
+    # A breaker is the developer admitting the work is unfinished, so green checks must not merge it.
+    if checks_green and not breaker:
         return {'kind': 'sync-main'} if behind else {'kind': 'forward'}
     stuck = any(item.get('phase') == 'stuck' for item in scoped)
     if stuck and review_only and behind:
@@ -297,11 +299,12 @@ def ladder(issue, comments, rows, tree, contained, checks_green, review_failed, 
     current = later[-1] if later else None
     if current and current['state'] not in TERMINAL:
         return {'kind': 'wait'}
-    report = reported(comments, last['at'], '开发助手')
-    if (current and BREAKER in report
-            and sum(item.get('phase') == 'diagnose' for item in scoped) < 3):
+    if current and breaker:
         # The developer stopped on its own breaker; another developer round would repeat the same failure.
-        return dispatch_action(parsed, 'diagnose', 60, tree, '', '', report, '审查助手', sha)
+        if sum(item.get('phase') == 'diagnose' for item in scoped) < 3:
+            return dispatch_action(parsed, 'diagnose', 60, tree, '', '', breaker, '审查助手', sha)
+        return {'kind': 'stop', 'phase': 'stuck', 'rung': last['rung'], 'tree': tree or '',
+                'body': '开发助手再次熔断，诊断已用满 3 次。停止派发，也不转发未完成的进度，交给 owner 处理。'}
     if current and current['state'] == 'success' and tree and not review_failed:
         if not has_pull:
             return {'kind': 'open-pr', 'tree': tree}
@@ -322,6 +325,18 @@ def ladder(issue, comments, rows, tree, contained, checks_green, review_failed, 
             log = f'https://cnb.cool/{POLICY["cnb"]}/-/build/logs/{current["sn"]}'
         return dispatch_action(parsed, 'retry', last['rung'], tree, log, '', '', '开发助手', sha)
     return dispatch_action(parsed, 'diagnose', 60, tree, '', '', reported(comments, last['at'], '开发助手'), '审查助手', sha)
+
+
+def breaker_report(comments, scoped):
+    """Return the breaker stage comment since the last developer dispatch, or ''."""
+    rounds = [item for item in scoped if item.get('phase') in ('dev', 'retry', 'targeted')]
+    name = f'{POLICY["cnb"]}(开发助手)'
+    for item in comments:
+        author = item.get('author') or {}
+        if (rounds and item.get('created_at', '') >= rounds[-1]['at'] and author.get('is_npc') is True
+                and author.get('username') == name and BREAKER in (item.get('body') or '')):
+            return item['body']
+    return ''
 
 
 def _stamp(value):
