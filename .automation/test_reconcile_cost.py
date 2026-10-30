@@ -294,16 +294,16 @@ class ReconcileCostTests(unittest.TestCase):
         self.assertRegex(server.printed, r'(?m)^cnb PR #125: \d+\.\d+s$')
         self.assertNotIn('flclash-pr-review', server.printed)
 
-    def test_a_raising_pull_logs_its_line_and_the_error_ends_the_round(self):
+    def test_a_raising_pull_logs_its_line_and_the_next_pull_still_runs(self):
         server = self.steady(5)
         printed = io.StringIO()
         with (patch.object(reviews, 'close_finished_reviews'),
               patch.object(reviews, 'pages', side_effect=server.pages),
               patch.object(reviews, '_reconcile_pull', side_effect=RuntimeError('boom')),
-              contextlib.redirect_stdout(printed), self.assertRaises(RuntimeError)):
+              contextlib.redirect_stdout(printed), self.assertRaises(reviews.RoundIncomplete)):
             reviews.reconcile()
         self.assertRegex(printed.getvalue(), r'(?m)^github PR #121: \d+\.\d+s$')
-        self.assertNotIn('PR #122', printed.getvalue())
+        self.assertRegex(printed.getvalue(), r'(?m)^github PR #122: \d+\.\d+s$')
 
 
 class RoundCacheTests(unittest.TestCase):

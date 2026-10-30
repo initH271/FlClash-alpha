@@ -65,6 +65,8 @@ class NpcRecoveryTests(unittest.TestCase):
                 if method == 'POST':
                     posted.append(url)
                     return {}
+                if '/pulls/' in url:
+                    return {'head': {'ref': 'feature'}}
                 return {'status': 'pending'} if '/build/status/' in url else issue
             with (patch.object(recovery, 'api', side_effect=api),
                   patch.object(recovery, 'pages', side_effect=lambda url: [] if url.endswith('/comments') else [issue]),

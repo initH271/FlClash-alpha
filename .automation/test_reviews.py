@@ -539,9 +539,7 @@ class PromptTests(unittest.TestCase):
 
     def test_the_recovery_summon_carries_the_same_budget_and_evidence_rules(self):
         import npc_recovery
-        issue = {'title': '[PR审核] CNB #12：x', 'author': {'username': reviews.POLICY['approver'], 'is_npc': False},
-                 'body': '<!-- flclash-pr-review ' + json.dumps(reviews.sign(self.request)) + ' -->'}
-        instruction = npc_recovery.task(issue)[3]
+        instruction = npc_recovery.review_instruction(self.request, reviews.BUDGET['reconsider'])
         for text in ('1 次留给发布最终报告', '取证和进度评论合计最多 11 次', 'git show <head>:<路径>', '上游原样'):
             self.assertIn(text, instruction)
 

@@ -8,6 +8,7 @@ import time
 
 from control import (CI_GRACE, CNB, FETCH_TIMEOUT, GH, GIT_TIMED_OUT, POLICY, all_issues, api, check_name, git,
                      pages, sign, verify)
+import pause
 from review_evidence import describe, repository
 
 CONTEXT = 'FlClash/paired-review'
@@ -34,7 +35,7 @@ CHECK_RUNNING = ('queued', 'in_progress', 'waiting', 'requested', 'pending')
 WAITING = object()
 # Tool calls a reviewer may spend per summon. A budget written only in the prompt has not
 # stopped GLM, so progress is also posted per event instead of relying on the count alone.
-BUDGET = {'review': 40, 'reconsider': 12}
+BUDGET = {'review': 40, 'reconsider': 12, 'resend': 4}
 PROGRESS = 'FLCLASH_PROGRESS'
 EVIDENCE_RULES = (
     '每条阻断项都要附原文：用 `git show <head>:<路径>` 读出，写成 `路径:起止行号`，下面原样粘贴不超过 15 行，不改写。'
@@ -513,7 +514,7 @@ def _owner_comment(comments, marker):
 
 
 def reconsider(request, issue, comments):
-    from npc_recovery import latest_attempts
+    from npc_recovery import FINISHED, latest_attempts
     latest = role_reports(request, issue, comments)
     attempts = latest_attempts(issue, comments)
     for role, status in latest.items():
@@ -523,7 +524,7 @@ def reconsider(request, issue, comments):
         if status == 'block' and latest.get(other) != 'pass':
             continue
         attempt = attempts.get(role)
-        if attempt and api(f'{CNB}/build/status/{attempt[1]["sn"]}')['status'] not in ('success', 'error', 'failure'):
+        if attempt and api(f'{CNB}/build/status/{attempt[1]["sn"]}')['status'] not in FINISHED:
             continue
         sample = json.dumps({'request': identity(request), 'verdict': 'pass', 'blockers': 0})
         reconsidered = _owner_comment(comments, _checkpoint(request, role, 'reconsider'))
@@ -896,6 +897,14 @@ def carry_over(request, pull, late=False):
     return _issue(issue['number'])
 
 
+def _on_hold(pull):
+    """True while the owner holds this pull's requirement. Only automation/req-* can be held, so others read nothing."""
+    ref = pull['head']['ref'].removeprefix('refs/heads/')
+    if not ref.startswith('automation/req-'):
+        return False
+    return bool(pause.paused('branch', ref, list(pages(f'{CNB}/issues/{ref.removeprefix("automation/req-")}/comments'))))
+
+
 def _reconcile_pull(platform, listed, github_results):
     # Only the list entry carries `created_at` (CNB's detail has no time field), and
     # `ci_hold` needs it while the head has no status yet.
@@ -931,7 +940,7 @@ def _reconcile_pull(platform, listed, github_results):
     parts = shard_parts(request, issue)
     status = result(request, issue, comments, parts)
     remember(request, issue, comments, status, parts)
-    if issue['state'] == 'open':
+    if issue['state'] == 'open' and not _on_hold(pull):
         reconsider(request, issue, comments)
         for part in parts or ():
             if part[1]['state'] == 'open':
@@ -942,48 +951,84 @@ def _reconcile_pull(platform, listed, github_results):
     print(f'{platform} PR #{request["number"]}: {status}')
 
 
+class RoundIncomplete(RuntimeError):
+    """Some part of a round failed. Everything else was still handled, and the job must still end red."""
+
+
+def _attempt(failed, label, step, *args):
+    """Run one pull's or one gate's step, keeping its error from ending the round. True when it finished."""
+    try:
+        step(*args)
+        return True
+    except Exception as error:
+        failed.append(label)
+        print(f'{label}: failed, continuing the round: {type(error).__name__}: {error}', flush=True)
+        return False
+
+
+def _write_gate(head, results):
+    status, url = min(results, key=lambda r: {'failure': 0, 'pending': 1, 'success': 2}[r[0]])
+    existing = api(f'{GH}/commits/{head}/status')['statuses']
+    current = next((s for s in existing if s['context'] == CONTEXT), None)
+    if not current or current['state'] != status or current.get('target_url') != url:
+        _write(f'{GH}/statuses/{head}', 'POST', {'state': status, 'context': CONTEXT,
+               'target_url': url, 'description': 'Both independent reviewers must pass this base/head'})
+
+
+def _reconcile_platform(platform, github_results, failed, unread):
+    for listed in pages(f'{endpoint(platform)}/pulls?state=open',
+                        size_key='per_page' if platform == 'github' else 'page_size'):
+        started = time.monotonic()
+        label = f'{platform} PR #{listed["number"]}'
+        if not _attempt(failed, label, _reconcile_pull, platform, listed, github_results) and platform == 'github':
+            unread.add(listed['head']['sha'])
+        print(f'{label}: {time.monotonic() - started:.1f}s', flush=True)
+
+
 def reconcile():
+    """Handle every pull even if one fails, leave the gate of a head it could not read, and raise at the end."""
+    failed = []
     with _one_round():
         started = time.monotonic()
-        close_finished_reviews()
+        _attempt(failed, 'closing finished reviews', close_finished_reviews)
         # Flushed, since Actions gives a cancelled step only what already left a piped stdout.
         print(f'Closed finished reviews: {time.monotonic() - started:.1f}s', flush=True)
-        github_results = {}
+        github_results, unread = {}, set()
         for platform in ('github', 'cnb'):
-            for listed in pages(f'{endpoint(platform)}/pulls?state=open',
-                                size_key='per_page' if platform == 'github' else 'page_size'):
-                started = time.monotonic()
-                try:
-                    _reconcile_pull(platform, listed, github_results)
-                finally:
-                    print(f'{platform} PR #{listed["number"]}: {time.monotonic() - started:.1f}s', flush=True)
+            _attempt(failed, f'{platform} pull list', _reconcile_platform, platform, github_results, failed, unread)
         for head, results in github_results.items():
-            status, url = min(results, key=lambda r: {'failure': 0, 'pending': 1, 'success': 2}[r[0]])
-            existing = api(f'{GH}/commits/{head}/status')['statuses']
-            current = next((s for s in existing if s['context'] == CONTEXT), None)
-            if not current or current['state'] != status or current.get('target_url') != url:
-                _write(f'{GH}/statuses/{head}', 'POST', {'state': status, 'context': CONTEXT,
-                       'target_url': url, 'description': 'Both independent reviewers must pass this base/head'})
+            # Another pull on this head may have passed, but the gate takes the worst of all of them.
+            if head not in unread:
+                _attempt(failed, f'gate of {head[:12]}', _write_gate, head, results)
+    if failed:
+        raise RoundIncomplete(f'{len(failed)} failed: ' + ', '.join(failed))
 
 
 def close_finished_reviews():
+    failed = []
     for item in pages(f'{CNB}/issues?state=open'):
-        issue = _issue(item['number'])
-        request = request_from(issue)
-        if not request:
-            continue
-        platform = request.get('platform')
-        number = request.get('number', '')
-        if platform not in ('github', 'cnb') or not str(number).isdigit():
-            continue
-        pull = api(f'{endpoint(platform)}/pulls/{number}')
-        # A GLM shard belongs to the same base/head as its full review and is superseded with it.
-        superseded = (pull['state'] == 'open' and scope(platform, pull) != unsharded(request))
-        if pull['state'] not in ('closed', 'merged') and not superseded:
-            continue
-        merged = bool(pull.get('merged') or pull.get('is_merged') or pull['state'] == 'merged')
-        _write(f'{CNB}/issues/{issue["number"]}', 'PATCH', {
-            'state': 'closed', 'state_reason': 'completed' if merged else 'not_planned'})
+        _attempt(failed, f'closing review #{item["number"]}', _close_if_finished, item)
+    if failed:
+        raise RoundIncomplete(', '.join(failed))
+
+
+def _close_if_finished(item):
+    issue = _issue(item['number'])
+    request = request_from(issue)
+    if not request:
+        return
+    platform = request.get('platform')
+    number = request.get('number', '')
+    if platform not in ('github', 'cnb') or not str(number).isdigit():
+        return
+    pull = api(f'{endpoint(platform)}/pulls/{number}')
+    # A GLM shard belongs to the same base/head as its full review and is superseded with it.
+    superseded = (pull['state'] == 'open' and scope(platform, pull) != unsharded(request))
+    if pull['state'] not in ('closed', 'merged') and not superseded:
+        return
+    merged = bool(pull.get('merged') or pull.get('is_merged') or pull['state'] == 'merged')
+    _write(f'{CNB}/issues/{issue["number"]}', 'PATCH', {
+        'state': 'closed', 'state_reason': 'completed' if merged else 'not_planned'})
 
 
 def require_candidate(head, base):
