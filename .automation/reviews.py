@@ -259,7 +259,13 @@ def ci_hold(pull):
     if state == 'success':
         return False, False
     stamps = [item.get('created_at') for item in (checks or {}).get('statuses') or [] if item.get('created_at')]
-    if stamps and _since(min(stamps)) < CI_GRACE_SECONDS:
+    # With no status at all there is still a start: the PR itself. `/pulls/{n}` carries no time,
+    # so `reconcile` keeps the list entry's `created_at` for this.
+    started = min(stamps) if stamps else pull.get('created_at')
+    if not started:
+        print(f'cnb PR #{_number(pull)}: waiting for CI (no PR created_at)')
+        return True, False
+    if _since(started) < CI_GRACE_SECONDS:
         print(f'cnb PR #{_number(pull)}: waiting for CI')
         return True, False
     print(f'cnb PR #{_number(pull)}: CI unsettled after 80m, review opened')
@@ -268,9 +274,12 @@ def ci_hold(pull):
 
 def unsettled_brief(pull):
     """Name the pipelines a review opened past the grace could not wait for."""
-    states = {}
     from wake import SETTLED
     statuses = (api(f'{CNB}/pulls/{pull["number"]}/commit-statuses') or {}).get('statuses') or []
+    if not statuses:
+        return ('开审时这个 head 没有任何 CI 状态，没有 CI 证据；所有条目按未验证处理，'
+                '不能因为 CI 没跑完就通过。\n\n')
+    states = {}
     for item in statuses:
         states.setdefault(check_name(item), []).append(item['state'])
     open_names = [name for name in CI_PIPELINES
@@ -301,8 +310,12 @@ def reconcile():
     close_finished_reviews()
     github_results = {}
     for platform in ('github', 'cnb'):
-        for pull in pages(f'{endpoint(platform)}/pulls?state=open', size_key='per_page' if platform == 'github' else 'page_size'):
-            pull = api(f'{endpoint(platform)}/pulls/{pull["number"]}')
+        for listed in pages(f'{endpoint(platform)}/pulls?state=open', size_key='per_page' if platform == 'github' else 'page_size'):
+            # Only the list entry carries `created_at` (CNB's detail has no time field), and
+            # `ci_hold` needs it while the head has no status yet.
+            pull = api(f'{endpoint(platform)}/pulls/{listed["number"]}')
+            if listed.get('created_at') and not pull.get('created_at'):
+                pull['created_at'] = listed['created_at']
             request = scope(platform, pull)
             waiting, late = (False, False) if platform == 'github' else ci_hold(pull)
             if waiting:

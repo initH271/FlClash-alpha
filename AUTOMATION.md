@@ -256,9 +256,14 @@ wait; listing it would make the review and the gate wait on each other. A missin
 one that has not settled leaves that head `pending`: while the earliest status is
 younger than 80 minutes the controller prints `cnb PR #n: waiting for CI` and opens
 nothing; a settled non-success prints `cnb PR #n: CI failed, review deferred` and
-also opens nothing. Past 80 minutes it opens the review anyway, prints
-`cnb PR #n: CI unsettled after 80m, review opened`, and the brief names the pipelines
-that had not finished as unverified. Reviews that already exist, other branches and
+also opens nothing. A head with no status at all counts from the `created_at` of its
+entry in the open PR list, because `/pulls/{n}` returns no time field; one without
+even that timestamp prints `cnb PR #n: waiting for CI (no PR created_at)` and opens
+nothing rather than waiting forever. Past 80 minutes it opens the review anyway,
+prints `cnb PR #n: CI unsettled after 80m, review opened`, and the brief names the
+pipelines that had not finished as unverified; when the head carried no status at
+all, the brief instead states there is no CI evidence and treats every entry as
+unverified. Reviews that already exist, other branches and
 GitHub PRs keep their previous timing. The controller finds an existing review from
 the notice it left on the PR (`/pulls/{n}/comments`): the
 `<!-- flclash-review-notice <review issue> -->` marker, or for notices written before

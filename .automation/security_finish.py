@@ -16,8 +16,7 @@ PATHS = {'go-core': {'core/go.mod', 'core/go.sum'},
          'rust-api': {'plugins/rust_api/rust/Cargo.lock'}}
 NATIVE_CHECKS = ('Dependency vulnerability gate', 'Go dependency regression tests',
                  'Rust dependency regression tests')
-CHECKS = {*NATIVE_CHECKS, 'Paired review gate'}
-GATE_TIMED_OUT = {'error', 'failure', 'cancel', 'cancelled'}
+CHECKS = set(NATIVE_CHECKS)
 
 
 def compatible(old, new):
@@ -64,26 +63,12 @@ def safe_files(base, head, group=None):
     return True
 
 
-def review_gate_satisfied(statuses, request):
-    # The gate only polls for 32 minutes; a review for the same base/head that finishes
-    # later must still count. A lone timed-out gate may be answered for by the trusted
-    # state of this request: a running gate, or a second entry, is not that settled failure.
-    gates = [s for s in statuses if check_name(s) == 'Paired review gate']
-    return (len(gates) == 1 and gates[0]['state'] in GATE_TIMED_OUT
-            and request is not None and state(request) == 'success')
-
-
 def passed_checks(number, request=None):
     checks = api(f'{CNB}/pulls/{number}/commit-statuses')
-    statuses = gating_statuses(checks)
-    late_review_passed = review_gate_satisfied(statuses, request)
-    if late_review_passed:
-        # The reviewed gate is credited in `names` only; the list keeps no gate row because
-        # `review_gate_satisfied` saw that row alone and settled.
-        statuses = [s for s in statuses if check_name(s) != 'Paired review gate']
+    # The gate starts before the review exists and outlives it, so its rows never decide what
+    # was verified; the caller has already required the review verdict itself.
+    statuses = [s for s in gating_statuses(checks) if check_name(s) != 'Paired review gate']
     names = {check_name(s) for s in statuses if s['state'] == 'success'}
-    if late_review_passed:
-        names.add('Paired review gate')
     passed = CHECKS <= names and all(s['state'] == 'success' for s in statuses)
     if not passed or request is None:
         return passed
