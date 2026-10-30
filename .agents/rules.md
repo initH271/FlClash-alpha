@@ -674,6 +674,9 @@ collected commit missing a trailer reuses its subject: the generator warns and l
 `<!-- changelog:needs-copy <id> -->` line in the release notes, and for `feat`, `fix` and `perf` the hook says so
 without blocking.
 
+A `## <displayVersion>` section in `.github/release-notes.md` replaces the generated entries of that release; a
+malformed section fails the release. The format is in [CHANGELOG_STYLE.md](../CHANGELOG_STYLE.md).
+
 ## Migrations
 
 An upgrade starts from the last release, not from the previous development build. Before writing a legacy reader, a

@@ -59,13 +59,16 @@ String renderMarkdown(Changelog changelog) {
   return buffer.toString();
 }
 
-String renderRelease(ChangelogVersion version) {
+String renderRelease(
+  ChangelogVersion version, {
+  String Function(ChangelogType type)? groupTitle,
+}) {
   final buffer = StringBuffer()..writeln(releaseBeginMarker);
   if (version.isEmpty) {
     buffer.writeln('- $emptyVersionNote');
   }
   for (final group in version.groups) {
-    buffer.writeln('### ${group.type.title}');
+    buffer.writeln('### ${groupTitle?.call(group.type) ?? group.type.title}');
     for (final entry in group.entries) {
       buffer.writeln('- ${_prefix(entry)}${entry.text}');
       if (entry.needsCopy) {

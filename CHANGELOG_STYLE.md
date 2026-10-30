@@ -44,8 +44,24 @@ fix(core): protect sockets opened while no tun handler is active
 Changelog: VPN 重启后不再自己绕自己，流量终于学会出门了
 ```
 
-- 每个用户可见的提交都要在合并前写好 `Changelog:`。合并后提交说明就改不了了。
+- 每个用户可见的提交都要在合并前写好 `Changelog:`。合并后提交说明就改不了，只能靠发版时手写（见下一节）。
 - 没写 trailer 的用户可见提交会沿用提交主题进入日志：生成时打印警告，并在发版 Markdown 里留下 `<!-- changelog:needs-copy <id> -->`。发版前看到它，说明有一条文案漏了。
 - 内部改动默认不收录，范围见 `tool/src/changelog/parser.dart` 的 `internalChangelogScopes`，以及 feat、fix、perf、revert 以外的提交类型。这些提交写了 `Changelog: <文案>` 依然会收录。
 - `Changelog: skip` 一定不收录。
 - 整版没有可收录的条目时，日志只显示一句兜底文案，不用手写。
+
+## 发版时手写
+
+发版 PR 可以在 `.github/release-notes.md` 里写当前版本的一节。有这一节时，弹窗和 Release 页面都只显示这一节的内容，自动生成的条目全部不用：
+
+```markdown
+## 0.9.2-alpha.18
+
+### 修好了
+- VPN 重启后不再自己绕自己，流量终于学会出门了
+```
+
+- `## ` 后面写 `.github/release.json` 的 `displayVersion`，和它对不上的节不生效。这样忘了改文件时，上一版的文案不会再发一次，而是退回自动生成，并打印警告。
+- 分组标题只有五个：新玩意儿、修好了、更快了、要注意、撤回了。每条一行，以 `- ` 开头。
+- 这一节写错（标题不认识、条目不在分组下、有别的文字、分组是空的）时，测试和发版都会直接报错，不会退回自动生成。既然写了就是想覆盖，悄悄发出自动文案才是最难发现的错。不想手写了就删掉这一节。
+- 版本标题之前的文字不生效，可以留作备注。

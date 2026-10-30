@@ -4,6 +4,7 @@ import '../changelog/git.dart';
 import '../changelog/models.dart';
 import '../changelog/parser.dart';
 import '../changelog/render.dart';
+import 'manual.dart';
 
 /// Shown when a release carries no user facing entry at all.
 const alphaEmptyNote = '这版主要在幕后拧螺丝，你什么都不用做，照常用就好。';
@@ -129,15 +130,24 @@ class AlphaReleaseNotes {
           ))
             item,
     ];
+    final manual = parseManualNotes(
+      _showFile(root, sourceSha, manualNotesPath),
+      displayVersion ?? version,
+    );
     final release = ChangelogVersion(
       version: displayVersion ?? version,
       tag: displayVersion == null
           ? 'alpha-$version-$build'
           : 'v$displayVersion',
       date: '',
-      groups: groupItems(items),
+      groups: manual.groups ?? groupItems(items),
     );
-    final rendered = renderRelease(release);
+    final rendered = renderRelease(
+      release,
+      groupTitle: manual.groups == null
+          ? null
+          : (type) => manualGroupTitles[type]!,
+    );
     return AlphaReleaseNotes(
       notes:
           'FlClash-alpha ${displayVersion ?? '$version（构建 $build）'}\n\n'
@@ -145,7 +155,11 @@ class AlphaReleaseNotes {
       baseTag: baseTag,
       baseSha: baseSha,
       sourceSha: sourceSha,
-      warnings: List.unmodifiable(parser.warnings),
+      warnings: List.unmodifiable(
+        manual.groups == null
+            ? [...manual.warnings, ...parser.warnings]
+            : ['Using the hand written section of $manualNotesPath.'],
+      ),
     );
   }
 }
@@ -172,6 +186,15 @@ List<RawCommit> _commits(String root, String base, String source) {
         : fields[2];
     return RawCommit(hash: fields[0], subject: subject, body: fields[3]);
   }).toList();
+}
+
+/// From the source commit, so a dry run of an older source sees its own file.
+String? _showFile(String root, String commit, String path) {
+  try {
+    return _git(root, ['show', '$commit:$path']);
+  } on GitException {
+    return null;
+  }
 }
 
 String _git(String root, List<String> arguments) {
