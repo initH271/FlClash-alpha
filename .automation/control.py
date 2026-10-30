@@ -171,9 +171,13 @@ def supersede_older(tag, new_number):
             try:
                 if in_progress(old['number'], match[1]):
                     continue
-                comment(old['number'], f'已被 {tag} 取代（#{new_number}）。')
+                # Close first, so a failed close never leaves a misleading "superseded" comment behind.
                 api(f'{CNB}/issues/{old["number"]}', 'PATCH', {'state': 'closed', 'state_reason': 'not_planned'})
                 print(f'Closed superseded CNB Issue #{old["number"]}')
+                try:
+                    comment(old['number'], f'已被 {tag} 取代（#{new_number}）。')
+                except Exception as error:
+                    print(f'Superseded CNB Issue #{old["number"]} is closed but the comment failed: {error}')
             except Exception as error:
                 print(f'Supersede check failed for #{old["number"]}: {error}')
     except Exception as error:
