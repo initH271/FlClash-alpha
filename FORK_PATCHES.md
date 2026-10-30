@@ -9,7 +9,7 @@
 | 基线 | 值 |
 | --- | --- |
 | 上游版本 | `v0.9.2`（`7fd417fb`），同 `.automation/policy.json` 的 `upstream_tag` |
-| 正文对应的 fork 提交 | `f6c6d99c` |
+| 正文对应的 fork 提交 | `984799d4` |
 | 重新列差异 | `git diff --stat <上游 tag> HEAD` |
 
 仓库文档索引见 [AGENTS.md](AGENTS.md)。相关文档：[AUTOMATION.md](AUTOMATION.md)、[RELEASE_CHANNELS.md](RELEASE_CHANNELS.md)、[ROLLING_LOG_HISTORY.md](ROLLING_LOG_HISTORY.md)、[SECURITY_AUTOMATION.md](SECURITY_AUTOMATION.md)。
@@ -160,6 +160,41 @@
 - **为什么**：原因未记录。提交 `1b86dd13` 只记录了删除。
 - **核对**：上游改这些文件时，合并会报 modify/delete 冲突，继续删除即可。上游文档新增对 `site/` 的引用时一并去掉。
 
+### D6. 内部提交不进更新说明（#115）
+
+- **文件**：上游文件 `tool/src/changelog/parser.dart`；fork 文件 `tool/src/release_notes/range.dart`。
+- **改了什么**：`internalChangelogScopes` 里的内部 scope 默认不进更新说明，除非提交带 `Changelog:` trailer；非内部 scope 缺 trailer 时告警；整版没有任何条目时显示 `alphaEmptyNote` 这句中文兜底。
+- **为什么**：更新对话框读起来像 CI 日志，读者不关心构建细节。
+- **核对**：上游改 `parser.dart` 的 scope 判断或 trailer 解析时重看。兜底：`test/tool/changelog_parser_test.dart`、`test/tool/release_notes_test.dart`。
+
+### D7. needs-copy 标记（#115）
+
+- **文件**：上游文件 `tool/src/changelog/models.dart`、`tool/src/changelog/render.dart`、`tool/src/changelog/parser.dart`。
+- **改了什么**：`ChangelogEntry` 加 `needsCopy`；没有 trailer 的条目，渲染时在后面留一行 `<!-- changelog:needs-copy` 注释（`releaseNeedsCopyMarker`）。
+- **为什么**：只靠 stderr 告警容易漏看。
+- **核对**：上游改渲染或解析时重看，确认注释不进 JSON。兜底：`test/common/changelog_test.dart`、`test/tool/changelog_render_test.dart`。
+
+### D8. 更新日志规范（#115）
+
+- **文件**：上游文件 `.agents/rules.md`、`.agents/commands.md`、`tool/hooks/commit_msg.sh`、`tool/src/changelog/parser.dart`、`test/widgets/update_dialog_test.dart`；fork 文件 `CHANGELOG_STYLE.md`、`RELEASE_CHANNELS.md`。
+- **改了什么**：`Changelog:` trailer 不再限定英文，改按 `CHANGELOG_STYLE.md` 用中文写；hook、parser 警告和规则文字同步改过。
+- **为什么**：更新对话框的读者不关心构建细节，文案用中文。
+- **核对**：上游改 hook 或这些规则段落时，确认 hook、parser 警告和规则说法一致。兜底：`test/tool/changelog_parser_test.dart`、`test/widgets/update_dialog_test.dart`。
+
+### D9. 手写发版说明（#115）
+
+- **文件**：上游文件 `tool/src/changelog/render.dart`、`.agents/rules.md`；fork 文件 `tool/src/release_notes/manual.dart`、`tool/src/release_notes/range.dart`、`CHANGELOG_STYLE.md`、`test/tool/release_notes_manual_test.dart`。
+- **改了什么**：`.github/release-notes.md` 里按版本命名的节（`## <版本>`）覆盖该版本的自动条目。
+- **为什么**：已合并的提交没法改写。
+- **核对**：上游改 `render.dart` 时重看。兜底：`test/tool/release_notes_manual_test.dart`。
+
+### D10. 中文分组标题（#115）
+
+- **文件**：上游文件 `arb/intl_zh_CN.arb` 和生成文件、`test/widgets/update_dialog_test.dart`。
+- **改了什么**：zh_CN 的 `changelogBreaking`、`changelogFeatures`、`changelogFixes`、`changelogPerformance`、`changelogReverts` 等分组标题改成口语（「新玩意儿」「修好了」）。
+- **为什么**：和条目语气一致。
+- **核对**：上游改这些 key 时保留 fork 的中文，再重新生成 `lib/l10n/`。兜底：`test/widgets/update_dialog_test.dart`。
+
 ## E. 自动化控制器
 
 ### E1. 控制器与流水线
@@ -309,6 +344,71 @@
 - **改了什么**：`_OutboundIpLine` 显示 IP 和节点名。
 - **为什么**：owner 要看每次检查走的节点（#109）。
 - **核对**：上游改 `_OutboundIpLine`、`_ServiceRow` 副标题或 `ServiceCheck.node` 时重新核对。兜底："a sheet row puts the node after its address"。
+
+### I10. 服务状态：新增服务（#113）
+
+- **文件**：上游文件 `core/service_check.go`、`lib/common/service_probe.dart`、`lib/views/dashboard/widgets/service_status.dart`、`test/views/dashboard/service_status_test.dart`、`test/common/service_probe_test.dart`；fork 文件 `core/service_rules_extra.go`、`core/service_rules_extra_test.go`。
+- **改了什么**：新增 7 个 checker；`ServiceTarget` 加 `mark`；`_ServiceBadge` 画字母标记。
+- **为什么**：覆盖 owner 用的交易所和社交应用。
+- **核对**：上游改 `serviceCheckers`、`ServiceTarget` 字段或 `_ServiceBadge` 时重看。兜底：测试 "every service has a check registered in the Core"、`cd core && CGO_ENABLED=0 go test -run 'TestBinance|TestBybit' .`。
+
+### I11. 服务状态：分类文案（#113）
+
+- **文件**：上游文件 `arb/intl_en.arb`、`arb/intl_es.arb`、`arb/intl_fr.arb`、`arb/intl_ja.arb`、`arb/intl_ko.arb`、`arb/intl_ru.arb`、`arb/intl_zh_CN.arb` 和 `lib/l10n/` 生成文件。
+- **改了什么**：6 个 `serviceCategory*` key（Ai、Streaming、Social、Finance、Developer、Gaming），7 种语言。
+- **为什么**：面板分类标题（I12）。
+- **核对**：上游 arb 冲突时保留这些 key，再重新生成 `lib/l10n/`。兜底：`test/l10n`。
+
+### I12. 服务状态：面板分类（#113）
+
+- **文件**：上游文件 `lib/views/dashboard/widgets/service_status.dart`、`test/views/dashboard/service_status_test.dart`；fork 文件 `lib/common/service_category.dart`、`test/common/service_category_test.dart`。
+- **改了什么**：`ServiceStatusSheet` 按类别列出服务，组顺序按每组第一个服务的已存顺序。
+- **为什么**：owner 要分组。
+- **核对**：上游新增服务没有分类时会编译失败（穷举 switch）；面板列表结构变化时重看。兜底：`test/common/service_category_test.dart`。
+
+### I13. 服务状态：手机卡片横向滚动（#113）
+
+- **文件**：上游文件 `lib/views/dashboard/widgets/service_status.dart`、`test/views/dashboard/service_status_test.dart`。
+- **改了什么**：`_ServiceStrip` 取代手机上的网格；只检测可见的格子。
+- **为什么**：手机上显示全部服务。
+- **核对**：上游改 `ServiceStatusCard.build`、`_syncShown`、`shownServiceCountProvider`、`_ServiceGrid` 时重看。兜底："a phone card scrolls sideways through every service"、"a vertical drag on the phone card scrolls the page"。
+
+## J. 仪表盘磁贴
+
+### J1. 磁贴扩展机制（#116）
+
+- **文件**：上游文件 `lib/enum/enum.dart`、`lib/views/dashboard/widget_registry.dart`；fork 文件 `lib/views/dashboard/fork/fork_tiles.dart`、`test/views/dashboard/fork/fork_tiles_test.dart`。
+- **改了什么**：`DashboardWidget` 开头留一段 fork 磁贴（`fork*`）；`widget_registry.dart` 的三个 switch 各加一行 `_ => forkTileOf(this)...` 兜底，分发给 `forkTiles`。
+- **为什么**：让升级上游时冲突最少。
+- **核对**：上游改 enum 位置或 switch 结构（比如改成 Map）时，确认兜底还在、fork 段还在上游值前面。删掉兜底会直接编译失败。fork 磁贴名定下后不能改，`fork_tiles_test.dart` 的 `shippedForkTileNames` 守着。宽度 ≥640dp 时用桌面布局（`lib/views/dashboard/layout.dart` 的 `_minDesktopWidth`），fork 磁贴不出现。兜底：`test/views/dashboard/fork/fork_tiles_test.dart`。
+
+### J2. 推送通道磁贴（#116）
+
+- **文件**：上游文件 `arb/intl_en.arb`、`arb/intl_es.arb`、`arb/intl_fr.arb`、`arb/intl_ja.arb`、`arb/intl_ko.arb`、`arb/intl_ru.arb`、`arb/intl_zh_CN.arb`、`lib/models/generated/config.g.dart`、`lib/enum/enum.dart`；fork 文件 `lib/views/dashboard/fork/push_channel.dart`、`test/views/dashboard/fork/push_channel_test.dart`。
+- **改了什么**：新增 `forkPushChannel` 磁贴。
+- **为什么**：一眼看出 FCM 有没有走代理。
+- **核对**：上游改 `ConnectionsPolling`（`lib/views/dashboard/widgets/connections_table.dart`）、`TrackerInfo`、`DashboardCard` 的接口时重看。`config.g.dart` 冲突时重新生成，不要手动合。兜底：`test/views/dashboard/fork/push_channel_test.dart`。
+
+### J3. 分流自检磁贴（#116）
+
+- **文件**：上游文件 `arb/intl_en.arb`、`arb/intl_es.arb`、`arb/intl_fr.arb`、`arb/intl_ja.arb`、`arb/intl_ko.arb`、`arb/intl_ru.arb`、`arb/intl_zh_CN.arb`、`lib/models/generated/config.g.dart`、`lib/enum/enum.dart`、`test/views/dashboard/edit_test.dart`（一行：视图高度 1400 改 1800）；fork 文件 `lib/providers/fork/route_check.dart`、`lib/views/dashboard/fork/route_check.dart`、`test/providers/fork/route_check_test.dart`、`test/views/dashboard/fork/route_check_test.dart`。
+- **改了什么**：新增 `forkRouteCheck` 磁贴，数据层和界面分开。
+- **为什么**：排查规则分流。
+- **核对**：上游改 `RoutedProbe`（`lib/providers/routed_probe.dart`）、`ProbeParams`（`lib/models/core.dart`）、`outboundIpProbeProvider` 时重看。上游改 `edit_test.dart` 时确认那一行加高还在；上游改 dashboard 布局分支时确认 fork 磁贴在手机布局还能出现。兜底：`test/providers/fork/route_check_test.dart`、`test/views/dashboard/fork/route_check_test.dart`。
+
+### J4. 手动覆盖修复（#116）
+
+- **文件**：fork 文件 `lib/common/network_policy.dart`、`lib/manager/network_automation_manager.dart`、`lib/providers/network_features.dart`、`test/common/network_policy_test.dart`。
+- **改了什么**：策略增加覆盖状态；自动化状态对外发布；增加恢复请求（`networkResumeRequestProvider`）和网络读取的替换点（`networkSnapshotReaderProvider`）。
+- **为什么**：命中规则时手动启动，会被下一次检查停掉。
+- **核对**：跑 `test/common/network_policy_test.dart`，并核对 `setRunning` 仍记录用户意图（C2）。这几个文件都是 fork 自己的，一般不冲突。
+
+### J5. 自动暂停磁贴（#116）
+
+- **文件**：上游文件 `lib/enum/enum.dart`、`test/views/dashboard/edit_test.dart`、7 个 arb、`lib/l10n/` 和 `lib/models/generated/config.g.dart` 等生成文件；fork 文件 `lib/views/dashboard/fork/fork_tiles.dart`、`lib/views/dashboard/fork/auto_pause.dart`、`test/views/dashboard/fork/auto_pause_test.dart`、`test/views/dashboard/fork/fork_tiles_test.dart`。
+- **改了什么**：新增 `forkAutoPause` 磁贴。
+- **为什么**：区分规则停止和手动停止，并提供覆盖和恢复（J4）。
+- **核对**：跑 `test/views/dashboard`，核对 `edit_test.dart` 的 `seed` 和 `maxScrollExtent - 330` 偏移；`lib/l10n/` 重新生成。
 
 ## 可以考虑去掉的补丁
 
