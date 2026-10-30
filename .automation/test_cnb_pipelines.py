@@ -19,6 +19,7 @@ DISCOVER = "python3 -m unittest discover -s .automation -p 'test_*.py'"
 QUARTER = 'crontab: */15 * * * *'
 HOURLY = 'crontab: 7 * * * *'
 OWNER = 'owner/**'
+DEPENDENCY_GATE = 'Dependency vulnerability gate'
 PUSH_BASE = 'export CNB_PULL_REQUEST_TARGET_SHA="$(python3 .automation/ci_paths.py base)"'
 
 
@@ -269,11 +270,14 @@ class CnbPipelineTests(unittest.TestCase):
                 self.assertEqual(job.format(entry['name']), stage['script'])
         self.both(check)
 
-    def test_owner_branches_push_the_five_pull_request_pipelines(self):
+    def test_owner_branches_push_the_pull_request_pipelines_except_the_dependency_gate(self):
         def check():
             main, owner = pipelines(), owner_pipelines()
-            self.assertEqual([entry['name'] for entry in main], [entry['name'] for entry in owner])
-            for ours, theirs in zip(owner, main):
+            self.assertEqual({entry['name'] for entry in main} - {DEPENDENCY_GATE}, {entry['name'] for entry in owner},
+                             'owner/** runs every main.pull_request pipeline but the dependency gate: a push has no '
+                             'diff base for it, and GitHub security.yaml scans dependencies on the owner PR')
+            self.assertEqual(len(owner), len({entry['name'] for entry in owner}))
+            for ours, theirs in zip(owner, [entry for entry in main if entry['name'] != DEPENDENCY_GATE]):
                 if ours['name'] != PIPELINE:
                     self.assertEqual(theirs, ours, ours['name'])
             ours = next(entry for entry in owner if entry['name'] == PIPELINE)
@@ -287,7 +291,8 @@ class CnbPipelineTests(unittest.TestCase):
     def test_owner_pipelines_are_aliases_not_copies(self):
         _, body = _top(self.source, f'"{OWNER}"')
         owner = '\n'.join(body)
-        for anchor in ('dependency-gate', 'go-tests', 'flutter-tests', 'rust-tests'):
+        self.assertNotIn('dependency-gate', self.source)
+        for anchor in ('go-tests', 'flutter-tests', 'rust-tests'):
             self.assertEqual(1, self.source.count(f'- &{anchor}\n'), anchor)
             self.assertIn(f'    - *{anchor}\n', owner + '\n')
         self.assertIn('<<: *automation-unit-tests', owner)

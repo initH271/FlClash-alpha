@@ -24,8 +24,7 @@
       timeout: 2m
 main:
   pull_request:
-    - &dependency-gate
-      name: Dependency vulnerability gate
+    - name: Dependency vulnerability gate
       runner: { cpus: 1 }
       stages:
         - name: Block new high-risk dependency vulnerabilities
@@ -223,10 +222,9 @@ main:
           timeout: 2m
   "crontab: 7 * * * *":
     - *mirror
-# Owner branches run the five main.pull_request pipelines on push, measured from their merge-base with main.
+# Owner branches run main.pull_request on push, measured from their merge-base with main. GitHub scans dependencies.
 "owner/**":
   push:
-    - *dependency-gate
     - <<: *automation-unit-tests
       stages:
         - <<: *automation-stage
