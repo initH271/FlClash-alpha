@@ -6,14 +6,15 @@ body:
   - type: markdown
     attributes:
       value: |
-        ## 在提交问题之前，请确认以下事项：
-        1. 请务必给issue填写一个简洁明了的标题，以便他人快速检索
-        2. 请确保[已有的问题](https://github.com/chen08209/FlClash/issues?q=is%3Aissue) 中没有人提交过相似issue，否则请在已有的issue下进行讨论
-        3. 请务必按照模板规范详细描述问题，否则issue将会被直接关闭
-        ## Before submitting the issue, please make sure of the following checklist:
-        1. Please be sure to fill in a concise and clear title for the issue so that others can quickly search
-        2. Please make sure there is no similar issue in the [existing issues](https://github.com/chen08209/FlClash/issues?q=is%3Aissue), otherwise please discuss under the existing issue
-        3. Please describe the problem in detail according to the template specification, otherwise issue will be closed directly.
+        **本仓库是 FlClash 的 fork，开发在 CNB 上进行，问题优先在 CNB 提交**
+        **This repository is a fork of FlClash. Development happens on CNB; please file issues there first.**
+        CNB issues: https://cnb.cool/507space/FlClash-alpha/-/issues
+
+        在此提交前，请确认 / Before submitting here:
+        1. 标题简洁明了 / Use a concise, clear title
+        2. 已搜索过[本仓库已有的问题](https://github.com/initH271/FlClash-alpha/issues?q=is%3Aissue)，没有重复 / Search the [existing issues](https://github.com/initH271/FlClash-alpha/issues?q=is%3Aissue) first
+        3. 按模板详细描述，否则 issue 可能被直接关闭 / Fill in the template, otherwise the issue may be closed
+        4. 日志中不要包含订阅链接、令牌、节点地址 / Remove subscription links, tokens and node addresses from logs
   - type: textarea
     id: description
     attributes:
@@ -21,10 +22,10 @@ body:
       description: 详细清晰地描述你遇到的问题，并配合截图 / Describe the problem you encountered in detail and clearly, and provide screenshots
     validations:
       required: true
-  - type: textarea
+  - type: input
     attributes:
       label: 软件版本 / Version
-      description: 请提供FlClash的具体版本 / Please provide the specific version of FlClash.
+      description: 设置页显示的版本号，如 0.9.2-alpha.17 / Version shown on the settings page, e.g. 0.9.2-alpha.17
     validations:
       required: true
   - type: textarea
@@ -33,25 +34,24 @@ body:
       description: 请提供复现问题的步骤 / Steps to reproduce the behavior
     validations:
       required: true
-  - type: dropdown
-    attributes:
-      label: 操作系统 / OS
-      options:
-        - Android
-        - Windows
-        - MacOS
-        - Linux
-    validations:
-      required: true
   - type: input
     attributes:
-      label: 操作系统版本 / OS Version
-      description: 请提供你的操作系统版本，Linux请额外提供桌面环境及窗口系统 / Please provide your OS version, for Linux, please also provide the desktop environment and window system
+      label: 设备型号与 Android 版本 / Device and Android version
+      description: 本 fork 只提供 Android 客户端 / This fork ships the Android client only
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: 是否开着 TUN / VPN 模式 / TUN or VPN mode on
+      options:
+        - 开着 / On
+        - 关着 / Off
+        - 不确定 / Not sure
     validations:
       required: true
   - type: textarea
     attributes:
       label: 日志(勿上传日志文件，请粘贴日志内容) / Log (Do not upload the log file, paste the log content directly)
-      description: 请提供完整或相关部分的Debug日志（请在“软件左侧菜单”->“设置”->“日志等级”调整到debug / Please provide a complete or relevant Debug log (please adjust it to debug in the left menu of software-> Settings-> Log Level)
+      description: 请提供完整或相关部分的 Debug 日志（设置 -> 日志等级 调到 debug）。贴之前先删掉敏感信息 / Provide a complete or relevant Debug log (Settings -> Log Level -> debug). Remove sensitive information first
     validations:
       required: true

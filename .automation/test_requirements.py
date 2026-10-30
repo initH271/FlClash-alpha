@@ -4,6 +4,7 @@ import io
 import json
 import os
 import pathlib
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -286,6 +287,37 @@ class RequirementTests(unittest.TestCase):
                        '-m', 'Merge main into automation/req-9', '-m', 'FlClash-Actor: controller'), calls)
         push.assert_called_once_with('automation/req-9', 'new-commit')
         self.assertIn('合入', note.call_args.args[1])
+        (record,) = req.markers([{'body': note.call_args.args[1]}])
+        self.assertEqual(('sync', 'new-commit', 's' * 40), (record['phase'], record['head'], record['from']))
+
+    def test_a_sync_shaped_head_whose_pipelines_may_reuse_ci_needs_the_signed_sync_record(self):
+        import ci_paths
+        with tempfile.TemporaryDirectory() as directory:
+            git = lambda *args: ci_paths.run_git('-C', directory, '-c', 'user.name=t', '-c', 'user.email=t@t', *args)
+            git('init', '-q')
+            for path, text in (('.cnb.yml', 'python3 .automation/ci_paths.py reuse'), ('README.md', 'a'),
+                               ('lib/a.dart', 'b')):
+                (pathlib.Path(directory) / path).parent.mkdir(exist_ok=True)
+                (pathlib.Path(directory) / path).write_text(text)
+            git('add', '-A')
+            tree = git('write-tree')
+            base = git('commit-tree', tree, '-m', 'base')
+            own = git('commit-tree', tree, '-p', base, '-m', 'own')
+            head = git('commit-tree', tree, '-p', own, '-p', base, '-m', 'Merge main into automation/req-9',
+                       '-m', 'FlClash-Actor: controller')
+            signed = {'body': req.envelope({'issue': '9', 'phase': 'sync', 'head': head, 'from': own})}
+            forged = {'body': req.envelope({'issue': '9', 'phase': 'sync', 'head': own, 'from': base})}
+            with patch.object(control, 'ROOT', pathlib.Path(directory)):
+                self.assertTrue(req.reuse_unvouched('9', head, [forged]))
+                self.assertFalse(req.reuse_unvouched('9', head, [signed]))
+                self.assertFalse(req.reuse_unvouched('9', own, []))
+                self.assertFalse(req.reuse_unvouched('8', head, []))
+
+    def test_an_unvouched_reuse_never_forwards(self):
+        with patch.object(req, 'reuse_unvouched', return_value=True):
+            forward, sync, merge, act = self.runtime_inputs(('success',) * 5)
+        self.assertNotEqual('forward', act.call_args.args[1]['kind'])
+        sync.assert_not_called()
 
     def test_open_github_pull_only_fast_forwards_to_the_new_commit(self):
         pull = {'number': 4, 'head': {'sha': 'o' * 40}, 'html_url': 'https://github.com/x/pull/4'}
@@ -871,3 +903,101 @@ class RequirementTests(unittest.TestCase):
         action = self.decide(comments, rows, tree='tree-1', review_failed=True, env_failure=None)
         self.assertEqual('dispatch', action['kind'])
         self.assertEqual(120, action['rung'])
+
+
+class OwnerReworkTests(unittest.TestCase):
+    """The owner's `REWORK:` comment drives reconcile through the HTTP and git layers only."""
+
+    def setUp(self):
+        env = patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'})
+        env.start()
+        self.addCleanup(env.stop)
+        self.owner = {'username': control.POLICY['approver'], 'is_npc': False}
+        self.issue = {'number': '9', 'title': '[需求] 导出', 'state': 'open', 'body': BODY, 'author': self.owner}
+        self.pull = {'number': '5', 'state': 'open', 'base': {'sha': 'b' * 40},
+                     'head': {'sha': 'h' * 40, 'ref': 'refs/heads/automation/req-9'}}
+        self.posted = []
+
+    def marker(self, phase, rung, tree, at):
+        payload = {'issue': '9', 'scope': req.parse(BODY)['scope'], 'phase': phase, 'rung': rung, 'tree': tree}
+        run = {'context': {'npc.slug': control.POLICY['cnb'], 'sn': 'cnb-run-' + phase, 'npc.name': '开发助手'},
+               'statuses': [{'state': 'success', 'description': ''}]}
+        return {'created_at': at, 'body': req.envelope(payload), 'statuses': {'npc': [run]}}
+
+    def ask(self, body, at='2026-09-22T02:30:00Z', author=None):
+        return {'created_at': at, 'body': body, 'author': author or self.owner}
+
+    def api(self, url, method='GET', data=None, missing=False, timeout=60):
+        if method == 'POST':
+            self.posted.append(data['body'])
+            return {'id': str(len(self.posted))}
+        if url.endswith('/issues/9'):
+            return self.issue
+        if url.endswith('/pulls/5'):
+            return self.pull
+        if url.endswith('/commit-statuses'):
+            return ci_checks(('success',) * 5)
+        if '/build/status/' in url:
+            return {}
+        if url.endswith('/git/ref/heads/main'):
+            return {'object': {'sha': 'm' * 40}}
+        raise AssertionError(f'unexpected request {method} {url}')
+
+    @staticmethod
+    def git(*args, check=True, env=None):
+        """Answer like control.git: stripped stdout with check=True, the finished process with check=False."""
+        stdout = ('a' * 40 if args[1:] == ('FETCH_HEAD',) else 'tree-new') if args[0] == 'rev-parse' else ''
+        code = 1 if args[:2] == ('merge-base', '--is-ancestor') and args[2] != 'm' * 40 else 0
+        if check:
+            if code:
+                raise RuntimeError(f'git {args[0]} failed')
+            return stdout
+        return subprocess.CompletedProcess(['git', *args], code, stdout=stdout, stderr='')
+
+    def reconcile(self, comments):
+        listed = dict(self.pull, head=dict(self.pull['head'], repo={'path': control.POLICY['cnb']}))
+
+        def pages(url, page_key='page', size_key='page_size'):
+            if url.endswith('/pulls?state=all'):
+                return iter([listed])
+            if '/issues?state=' in url:
+                return iter([{'number': '9'}])
+            return iter(comments if url.endswith('/issues/9/comments') else [])
+        self.posted = []
+        with (patch.object(control, 'api', side_effect=self.api), patch.object(reviews, 'api', side_effect=self.api),
+              patch.object(control, 'pages', side_effect=pages), patch.object(reviews, 'pages', side_effect=pages),
+              patch.object(control, 'git', side_effect=self.git), contextlib.redirect_stdout(io.StringIO())):
+            req.reconcile()
+        return self.posted
+
+    def dispatched(self, body):
+        return [item for item in req.markers([{'body': body}]) if item.get('phase') == 'targeted']
+
+    def test_an_owner_rework_dispatches_a_targeted_round_that_raises_the_rung(self):
+        dev = self.marker('dev', 60, 'tree-old', '2026-09-22T02:00:00Z')
+        (body,) = self.reconcile([dev, self.ask('REWORK:\n1. core/log_history.go:40 漏了空值检查')])
+        (payload,) = self.dispatched(body)
+        self.assertEqual(120, payload['rung'])
+        self.assertIn(f'@{control.POLICY["cnb"]}(开发助手)', body)
+        self.assertIn('core/log_history.go:40 漏了空值检查', body)
+
+    def test_only_the_owner_and_only_a_rework_first_line_count(self):
+        dev = self.marker('dev', 60, 'tree-old', '2026-09-22T02:00:00Z')
+        npc = {'username': f'{control.POLICY["cnb"]}(审查助手)', 'is_npc': True}
+        self.assertEqual(1, len(self.reconcile([dev, self.ask('REWORK: 改空值检查')])))
+        for ask in (self.ask('REWORK: 改空值检查', author=npc),
+                    self.ask('REWORK: 改空值检查', author={'username': 'visitor', 'is_npc': False}),
+                    self.ask('REWORK: 改空值检查', author=dict(self.owner, is_npc=True)),
+                    self.ask('请返工\nREWORK: 改空值检查'), self.ask('rework: 改空值检查'),
+                    self.ask('REWORK 改空值检查'), self.ask('REWORK:   ')):
+            self.assertEqual([], self.reconcile([dev, ask]), ask)
+
+    def test_a_dispatch_after_the_rework_consumes_it_on_this_and_later_heads(self):
+        dev = self.marker('dev', 60, 'tree-old', '2026-09-22T02:00:00Z')
+        ask = self.ask('REWORK: 改空值检查')
+        targeted = self.marker('targeted', 120, 'tree-new', '2026-09-22T02:40:00Z')
+        posted = self.reconcile([dev, ask, targeted])
+        self.assertEqual([], [p for body in posted for p in self.dispatched(body)])
+        self.assertEqual('', req.owner_rework('9', [dev, ask, targeted]))
+        later = self.ask('REWORK: 还差导出测试', at='2026-09-22T02:50:00Z')
+        self.assertIn('还差导出测试', req.owner_rework('9', [dev, ask, targeted, later]))

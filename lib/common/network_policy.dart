@@ -99,24 +99,36 @@ class NetworkRules {
   });
 
   static bool matches(NetworkSnapshot snapshot, String value) =>
-      _rules(value).any((rule) {
+      matchingRule(snapshot, value) != null;
+
+  /// The first rule, as written, that the snapshot falls under.
+  static String? matchingRule(NetworkSnapshot snapshot, String value) =>
+      _rules(value).where((rule) {
         final gateway = rule.toLowerCase().startsWith('gateway:');
         final target = gateway ? rule.substring(8).trim() : rule;
         final addresses = gateway ? snapshot.gateways : snapshot.addresses;
         return addresses.any((address) => _matches(address, target));
-      });
+      }).firstOrNull;
 }
 
 class AutomaticStopPolicy {
   bool _pausedByPolicy = false;
+  bool _overridden = false;
   int _userRevision = 0;
 
   bool get pausedByPolicy => _pausedByPolicy;
 
+  /// A manual start on a matching network outranks the rules until the
+  /// network stops matching, the session stops, or the user hands back.
+  bool get overridden => _overridden;
+
   void userIntent() {
     _userRevision++;
     _pausedByPolicy = false;
+    _overridden = true;
   }
+
+  void resumeAutomatic() => _overridden = false;
 
   Future<void> reconcile({
     required bool enabled,
@@ -125,7 +137,8 @@ class AutomaticStopPolicy {
     required Future<bool> Function(bool running) apply,
   }) async {
     final revision = _userRevision;
-    if (enabled && matches && running) {
+    if (!enabled || !matches || !running) _overridden = false;
+    if (enabled && matches && running && !_overridden) {
       _pausedByPolicy = true;
       try {
         final applied = await apply(false);

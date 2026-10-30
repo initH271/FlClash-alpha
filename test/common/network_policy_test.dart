@@ -161,4 +161,82 @@ void main() {
     );
     expect(policy.pausedByPolicy, false);
   });
+
+  group('manual override', () {
+    late AutomaticStopPolicy policy;
+    late List<bool> calls;
+    Future<bool> apply(bool running) async {
+      calls.add(running);
+      return true;
+    }
+
+    Future<void> check({required bool matches, required bool running}) =>
+        policy.reconcile(
+          enabled: true,
+          matches: matches,
+          running: running,
+          apply: apply,
+        );
+
+    setUp(() {
+      policy = AutomaticStopPolicy();
+      calls = [];
+    });
+
+    test(
+      'a manual start on a matching network survives later checks',
+      () async {
+        await check(matches: true, running: true);
+        policy.userIntent();
+        // Coming back to the foreground or a network event checks again.
+        await check(matches: true, running: true);
+        await check(matches: true, running: true);
+        expect(calls, [false]);
+      },
+    );
+
+    test('leaving the matching network ends the override', () async {
+      policy.userIntent();
+      await check(matches: true, running: true);
+      expect(policy.overridden, true);
+      await check(matches: false, running: true);
+      expect(policy.overridden, false);
+      await check(matches: true, running: true);
+      expect(calls, [false]);
+      expect(policy.pausedByPolicy, true);
+    });
+
+    test('a manual stop does not arm an override', () async {
+      policy.userIntent();
+      await check(matches: true, running: false);
+      expect(policy.overridden, false);
+      await check(matches: true, running: true);
+      expect(calls, [false]);
+    });
+
+    test('handing back lets the next check stop the session', () async {
+      policy.userIntent();
+      await check(matches: true, running: true);
+      policy.resumeAutomatic();
+      expect(policy.overridden, false);
+      await check(matches: true, running: true);
+      expect(calls, [false]);
+      expect(policy.pausedByPolicy, true);
+    });
+  });
+
+  test('matchingRule names the first rule the network falls under', () {
+    const snapshot = NetworkSnapshot(
+      addresses: ['10.0.0.8'],
+      gateways: ['192.168.10.1'],
+    );
+    expect(
+      NetworkRules.matchingRule(
+        snapshot,
+        '172.16.0.0/12, gateway:192.168.10.1\n10.0.0.0/8',
+      ),
+      'gateway:192.168.10.1',
+    );
+    expect(NetworkRules.matchingRule(snapshot, '172.16.0.0/12'), isNull);
+  });
 }

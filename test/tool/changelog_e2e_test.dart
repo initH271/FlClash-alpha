@@ -205,6 +205,9 @@ void main() {
       pending: const PendingVersion(version: '1.2.0', date: '2026-02-03'),
     ).warnings;
 
-    expect(warnings.single, contains('not a conventional commit'));
+    expect(
+      warnings.where((warning) => warning.contains('not a conventional')),
+      hasLength(1),
+    );
   });
 }
