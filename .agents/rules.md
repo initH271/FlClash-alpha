@@ -621,6 +621,17 @@ request (`security.yaml`); the CNB owner branch only builds and tests, since a p
 On a push the path checks measure from the branch's merge-base with `main` (`ci_paths.py base`), and run everything when
 that cannot be found. The end-stage `wake.py ci-done` sees no requirement branch on a push and does nothing.
 
+### Reviewer non-delivery
+
+A reviewer that ends a summon without a report is summoned again by `.automation/npc_recovery.py`, up to twice per
+request and role, then the review issue gets one stop notice. Do not summon it again by hand. Not posting, running out
+of turns, HTTP 429 and running past the deadline all count, and none of them ever passes the gate.
+
+When a reviewer has delivered nothing on two runs in a row for the same request, the maintainer reviews in its place
+instead of waiting for a third, and posts the review on the pull request. The gate cannot take that review as the
+reviewer's conclusion yet, so a merge still needs the owner to lift the protection. This covers only a reviewer that
+delivered nothing: a delivered block stands until a new head passes, and it is not a non-delivery however wrong it looks.
+
 ## Commit Messages
 
 Subjects follow Conventional Commits and are enforced by the `commit-msg` hook in `.pre-commit-config.yaml`, which runs

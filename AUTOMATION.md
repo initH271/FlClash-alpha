@@ -170,13 +170,31 @@ closed shard, and a pass on it does not count. The exception is a closed shard w
 latest GLM report is a block or malformed: closing it cannot shed that result, so GLM
 stays blocked until the base/head changes.
 
-The controller checks failed NPC executions every 15 minutes (or with the manual
-`recovery` operation). Only trusted/signed tasks are eligible. A task/role gets one
-bounded retry if execution failed without a report; cancelled/running jobs and
-completed reports are not retried. Each controller pass starts at most two retries.
-A failed retry leaves one explicit stopped notice, without an infinite model loop.
-Recovery asks the NPC to reuse existing work and publish a partial report before
-its budget ends. These prompt budgets do not guarantee platform timeout enforcement.
+The controller checks NPC tasks every 15 minutes while any is open (or with the manual
+`recovery` operation). Only trusted/signed tasks are eligible, and each pass sends at
+most two summons. One failed issue does not stop the pass; the step still ends red.
+
+A review follows each role's latest summon. The role is summoned again when that summon
+has no report and its run finished, whatever the state: a run in `success` may have left
+its report in the closing message without posting it, and that is how #363 and #366
+waited over an hour. A run still going is never summoned over. It is stopped once overdue,
+40 minutes after the first summon or 20 after any later one, and the next pass finds it
+finished. A summon no run picked up counts as undelivered at the same deadlines. The wait
+after a run ends is 3 minutes, or 15 then 30 minutes when the model answered HTTP 429.
+Each request and role gets two such summons, then one signed stop notice and nothing
+more; a resend does not use up the bounded recheck. A missing report never passes.
+
+The controller reads the run's stage log first. If the closing message holds this
+request's machine line, the summon quotes it, with four tool calls to check and post it.
+The quote is not a report: it sits in an owner comment, and its `@` and comment markers are
+neutralised. Otherwise the reviewer gets the review budget, or the recheck budget for a
+recheck.
+
+Any other task gets one bounded retry if its execution failed without a report;
+cancelled/running jobs and completed reports are not retried, and a failed retry leaves
+one explicit stopped notice. Recovery asks the NPC to reuse existing work and publish a
+partial report before its budget ends. These prompt budgets do not guarantee platform
+timeout enforcement.
 Old build-failure Issues close only after a successfully published descendant of
 their failed source commit; unrelated failures remain open.
 
@@ -216,8 +234,10 @@ out reuse, and so does a recorded shard that can no longer be read back.
 GitHub main requires the FlClash/paired-review status and an up-to-date branch.
 CNB runs no paired-review gate pipeline: the controller reads both reports directly
 and forwards or merges nothing until the review for that base/head passes, so a
-corrected blocking report takes effect on its next run. One bounded recovery is available for failed trusted tasks without a report.
-GitHub result polling uses the existing schedule.
+corrected blocking report takes effect on its next run.
+GitHub result polling uses the existing schedule. An API error on one pull, gate or review
+Issue is logged and the round goes on, ending red at the end. A head with a pull that failed
+keeps its gate as it was, since the gate is the worst over every pull on that head.
 
 Candidate construction no longer dispatches a release build immediately. The
 controller resumes it only after both reports pass, and promotion checks the
