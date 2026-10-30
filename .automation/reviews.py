@@ -212,6 +212,13 @@ def _since(stamp):
     return time.time() - datetime.datetime.fromisoformat(stamp.replace('Z', '+00:00')).timestamp()
 
 
+def orphaned(pull):
+    """Return True for a requirement PR whose requirement issue is closed; it gets no new review."""
+    match = re.fullmatch(r'automation/req-(\d+)', str(pull['head']['ref']).removeprefix('refs/heads/'))
+    issue = api(f'{CNB}/issues/{match[1]}', missing=True) if match else None
+    return bool(issue) and issue.get('state') != 'open'
+
+
 def noticed_reviews(body):
     """Return the review issue numbers a pull comment points at, marker first, then the issue link."""
     link = re.escape(f'https://cnb.cool/{POLICY["cnb"]}/-/issues/') + r'(\d+)'
@@ -304,6 +311,9 @@ def reconcile():
         for pull in pages(f'{endpoint(platform)}/pulls?state=open', size_key='per_page' if platform == 'github' else 'page_size'):
             pull = api(f'{endpoint(platform)}/pulls/{pull["number"]}')
             request = scope(platform, pull)
+            if orphaned(pull):
+                print(f'{platform} PR #{request["number"]}: requirement closed, no review')
+                continue
             waiting, late = (False, False) if platform == 'github' else ci_hold(pull)
             if waiting:
                 continue

@@ -253,6 +253,15 @@ def watchdog(now=None):
             print(f'Woke requirement #{number}: {key}')
 
 
+def watchdog_with_status():
+    watchdog()
+    try:
+        import status
+        status.refresh()
+    except Exception as error:  # The status view must never stop the wake bridge.
+        print(f'Status issue skipped: {type(error).__name__}')
+
+
 if __name__ == '__main__':
-    commands = {'watchdog': watchdog, 'ci-done': lambda name='': ci_done(name)}
+    commands = {'watchdog': watchdog_with_status, 'ci-done': lambda name='': ci_done(name)}
     commands.get(sys.argv[1] if sys.argv[1:] else '', wake)(*sys.argv[2:])

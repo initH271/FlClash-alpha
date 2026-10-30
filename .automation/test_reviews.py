@@ -183,7 +183,7 @@ class ReconcileTests(unittest.TestCase):
         return {'state': 'open', 'number': '12', 'title': '需求实现', 'base': {'sha': 'a' * 40},
                 'head': {'sha': 'b' * 40, 'ref': ref}}
 
-    def reconcile(self, checks, ref='refs/heads/automation/req-9', notices=(), issue=None):
+    def reconcile(self, checks, ref='refs/heads/automation/req-9', notices=(), issue=None, requirement='open'):
         pull = self.pull(ref)
         with patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'}):
             signed = json.dumps(reviews.sign(reviews.scope('cnb', pull)))
@@ -198,6 +198,8 @@ class ReconcileTests(unittest.TestCase):
                 return {'statuses': []}
             if url.endswith('/issues/77'):
                 return issue
+            if url.endswith('/issues/9'):
+                return {'number': '9', 'state': requirement} if requirement else None
             if url.endswith('/pulls/12'):
                 return pull
             raise AssertionError(f'unexpected request {method} {url}')
@@ -224,6 +226,17 @@ class ReconcileTests(unittest.TestCase):
                                                        'state': 'pending', 'created_at': stamp(10)}]})
         ensure.assert_not_called()
         self.assertIn('waiting for CI', printed)
+
+    def test_a_pull_whose_requirement_is_closed_gets_no_new_review(self):
+        ensure, printed = self.reconcile(statuses(('success',) * 5), requirement='closed')
+        ensure.assert_not_called()
+        self.assertIn('cnb PR #12: requirement closed, no review', printed)
+
+    def test_an_open_or_unreadable_requirement_keeps_the_review(self):
+        for requirement in ('open', None):
+            ensure, printed = self.reconcile(statuses(('success',) * 5), requirement=requirement)
+            ensure.assert_called_once()
+            self.assertNotIn('requirement closed', printed)
 
     def test_a_failed_pipeline_defers_the_review(self):
         ensure, printed = self.reconcile(statuses(('success', 'failure', 'success', 'success', 'success')))
