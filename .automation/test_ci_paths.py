@@ -103,7 +103,8 @@ class ReuseTests(unittest.TestCase):
     def test_the_whitelist_reuses_only_disjoint_areas_and_neutral_paths(self):
         cases = {(('README.md',), ('lib/a.dart',)): True, (('docs/x.md', 'LICENSE'), ('core/x.go',)): True,
                  (('core/x.go',), ('lib/a.dart', 'test/a_test.dart')): True,
-                 (('services/helper/src/main.rs',), ('android/a.kt',)): True,
+                 (('services/helper/src/main.rs',), ('android/a.kt',)): False,
+                 (('android/a.kt',), ('lib/a.dart',)): False, (('lib/a.dart',), ('android/a.kt',)): False,
                  (('lib/a.dart',), ('test/a_test.dart',)): False, (('android/a.kt',), ('core/x.go',)): False,
                  (('pubspec.lock',), ('lib/a.dart',)): False, (('README.md',), ('pubspec.yaml',)): False,
                  (('.cnb.yml',), ('lib/a.dart',)): False, (('lib/a.dart',), ('.automation/wake.py',)): False,

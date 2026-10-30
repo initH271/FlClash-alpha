@@ -24,12 +24,13 @@ TRIGGERS = {
 }
 
 # Reuse whitelist. NEUTRAL paths feed no pipeline. Each area feeds pipelines no other area feeds.
-# Any other path (pubspec, lockfiles, .cnb*, .automation/, tool/, plugins/, build configs) is a
-# shared build input, so touching it on either side reruns every pipeline.
+# Any other path (android/, pubspec, lockfiles, .cnb*, .automation/, tool/, plugins/, build configs)
+# is a shared build input, so touching it on either side reruns every pipeline; android/ feeds both
+# the flutter and the android stages, so it cannot be an area of its own.
 NEUTRAL = ('docs/', 'snapshots/', 'LICENSE')
 AREAS = {
     'dart': ('lib/', 'test/', 'arb/', 'assets/'),
-    'native': ('android/', 'core/'),
+    'native': ('core/',),
     'rust': ('services/',),
     'desktop': ('linux/', 'macos/', 'windows/'),
 }
