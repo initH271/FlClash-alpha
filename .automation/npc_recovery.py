@@ -2,9 +2,10 @@ import hashlib
 import json
 import re
 
+import pause
 from control import CNB, POLICY, api, comment, pages, parse_request, sign, verify
-from reviews import (BUDGET, EVIDENCE_RULES, ROLES, _checkpoint, _owner_comment, budget_text, identity, progress,
-                     request_from, role_reports)
+from reviews import (BUDGET, EVIDENCE_RULES, ROLES, _checkpoint, _owner_comment, budget_text, endpoint, identity,
+                     progress, request_from, role_reports)
 from security_watch import record
 from security_groups import GROUPS, repair_branch
 
@@ -185,11 +186,18 @@ def _last_summon(issue, comments, role):
     return max(stamps, default='')
 
 
+def _held(request):
+    """True while the owner holds the requirement this review's pull implements. Only automation/req-* can be held."""
+    pull = api(f'{endpoint(request["platform"])}/pulls/{request["number"]}')
+    return bool(pause.paused('branch', pull['head']['ref'].removeprefix('refs/heads/')))
+
+
 def recover_review(issue, request, comments, now, room):
     """Summon again each reviewer whose latest summon has ended without a report; return how many were sent.
 
     A summon counts as ended when its run finished, or when it is overdue and no run ever started. A run still going
     is only stopped once overdue, never summoned over; the next pass then finds it finished. No report never passes.
+    A HOLD stops all of it, so nothing is read, stopped or posted, and the deadlines simply resume after RELEASE.
     """
     latest = role_reports(request, issue, comments)
     attempts = latest_attempts(issue, comments)
@@ -201,6 +209,10 @@ def recover_review(issue, request, comments, now, room):
         if (latest.get(role) == 'pass' or not since
                 or role_reports(request, {'created_at': since}, comments).get(role)):
             continue
+        # Read only when there is something to act on: this costs the pull and the requirement's comments.
+        if _held(request):
+            print(f'Review #{issue["number"]} waits: its requirement is on HOLD')
+            return sent
         overdue = _since(since, now) > (REVIEW_SECONDS if since == issue.get('created_at') else FOLLOWUP_SECONDS)
         sn = context.get('sn', '') if attempted == since else ''
         stage = {}

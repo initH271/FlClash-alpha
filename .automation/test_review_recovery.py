@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 import npc_recovery as recovery
+import pause
 import reviews
 
 UTC = datetime.timezone.utc
@@ -69,6 +70,9 @@ class ReviewRecoveryCase(unittest.TestCase):
         self.builds = {}
         self.stages = {}
         self.stopped = []
+        self.ref = 'fix/owner-branch'
+        self.requirement = []
+        self.pull_reads = []
 
     def review(self, request, summons, number='363', attempts=(attempt(SCOUT, 'cnb-first'),)):
         return {'number': number, 'state': 'open', 'title': '[PR审核] GitHub #125：x', 'created_at': stamp(0),
@@ -88,6 +92,9 @@ class ReviewRecoveryCase(unittest.TestCase):
         posted = []
 
         def api(url, method='GET', data=None, missing=False, timeout=60):
+            if '/pulls/' in url:
+                self.pull_reads.append(url)
+                return {'head': {'ref': self.ref}}
             if '/build/stop/' in url:
                 self.stopped.append(url.rsplit('/', 1)[-1])
                 return {}
@@ -100,6 +107,7 @@ class ReviewRecoveryCase(unittest.TestCase):
         def pages(url):
             return comments if url.endswith('/comments') else issues
         with (patch.object(recovery, 'api', side_effect=api), patch.object(recovery, 'pages', side_effect=pages),
+              patch.object(pause, 'pages', side_effect=lambda url: self.requirement),
               patch.object(recovery, 'comment', side_effect=lambda n, body, *a: posted.append(body)),
               contextlib.redirect_stdout(io.StringIO())):
             recovery.recover(at(minutes))
@@ -359,6 +367,71 @@ class RateLimitTests(ReviewRecoveryCase):
             self.assertFalse(recovery.rate_limited({'error': error}))
 
 
+class HoldTests(ReviewRecoveryCase):
+    def setUp(self):
+        super().setUp()
+        self.ref = 'refs/heads/automation/req-291'
+        self.requirement = [owner_note(1, 'HOLD')]
+        self.logged = stage_log('完成。\n\n' + self.conclusion())
+        self.stages['cnb-first/p/stage-0'] = self.logged
+
+    def test_a_silent_reviewer_is_not_resummoned_and_its_log_is_not_posted(self):
+        self.assertEqual([], self.run_pass([self.answer(GLM)], 5))
+
+    def test_a_rate_limited_reviewer_is_not_resummoned_past_its_backoff(self):
+        self.stages['cnb-first/p/stage-0'] = dict(stage_log('x', finish='error'), error=(
+            '[LLM request error model=glm-5.3-flash path=/x] 429 status code (no body)'))
+        self.assertEqual([], self.run_pass([self.answer(GLM)], 200))
+
+    def test_an_overdue_run_is_left_running(self):
+        self.builds['cnb-first'] = build('running')
+        self.assertEqual([], self.run_pass([self.answer(GLM)], 200))
+        self.assertEqual([], self.stopped)
+
+    def test_no_stop_notice_is_written_past_the_limit_and_the_gate_stays_pending(self):
+        key = recovery.hashlib.sha256(f'363:{reviews.identity(self.request)}:{SCOUT}'.encode()).hexdigest()
+        retry = recovery.recovery_marker(key, 'retry')
+        notes = [self.answer(GLM), owner_note(5, retry), owner_note(10, retry)]
+        self.assertEqual([], self.run_pass(notes, 200))
+        self.assertEqual('pending', reviews.result(self.request, self.issue, notes))
+
+    def test_a_shard_of_a_held_requirement_waits_too(self):
+        part = dict(self.request, shard={'index': 1, 'total': 2, 'paths': ['core/a.go']})
+        shard = self.review(part, f'@{REPO}({GLM}) 请审核本分片。', '364', [attempt(GLM, 'cnb-shard')])
+        self.assertEqual([], self.run_pass([], 200, [shard]))
+
+    def test_release_lets_the_resend_go_on_the_next_pass(self):
+        self.requirement.append(owner_note(3, 'RELEASE'))
+        self.assertEqual(1, len(self.run_pass([self.answer(GLM)], 5)))
+
+    def test_only_a_comment_that_is_exactly_hold_counts(self):
+        self.requirement = [owner_note(1, 'HOLD 一下')]
+        self.assertEqual(1, len(self.run_pass([self.answer(GLM)], 5)))
+
+    def test_nothing_is_read_for_a_review_with_nothing_to_do(self):
+        self.assertEqual([], self.run_pass([self.answer(SCOUT), self.answer(GLM)], 200))
+        self.assertEqual([], self.pull_reads)
+
+    def test_a_pull_that_cannot_be_read_sends_nothing(self):
+        def api(url, method='GET', data=None, missing=False, timeout=60):
+            if '/pulls/' in url:
+                raise RuntimeError('HTTP 500')
+            return self.issue
+        posted = []
+        with (patch.object(recovery, 'api', side_effect=api),
+              patch.object(recovery, 'pages', side_effect=lambda url: [self.answer(GLM)] if url.endswith('/comments') else [self.issue]),
+              patch.object(recovery, 'comment', side_effect=lambda *a: posted.append(a)),
+              contextlib.redirect_stdout(io.StringIO()), self.assertRaises(RuntimeError)):
+            recovery.recover(at(5))
+        self.assertEqual([], posted)
+
+    def test_a_hold_does_not_reach_a_pull_that_is_not_a_requirement(self):
+        # pause.paused only covers automation/req-*: an owner pull has no requirement issue to hold.
+        self.ref = 'fix/owner-branch'
+        self.assertEqual(1, len(self.run_pass([self.answer(GLM)], 5)))
+        self.assertEqual(1, len(self.run_pass([self.answer(GLM), owner_note(4, 'HOLD')], 5)))
+
+
 class PassIsolationTests(ReviewRecoveryCase):
     def test_one_issue_failing_leaves_the_rest_handled_and_the_step_red(self):
         issues = [dict(self.issue, number='1'), dict(self.issue, number='2')]
@@ -368,6 +441,8 @@ class PassIsolationTests(ReviewRecoveryCase):
         def api(url, method='GET', data=None, missing=False, timeout=60):
             if url.endswith('/issues/1'):
                 raise recovery_error
+            if '/pulls/' in url:
+                return {'head': {'ref': 'feature'}}
             if '/build/status/' in url:
                 return build()
             if '/build/logs/stage/' in url:

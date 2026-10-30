@@ -183,6 +183,10 @@ finished. A summon no run picked up counts as undelivered at the same deadlines.
 after a run ends is 3 minutes, or 15 then 30 minutes when the model answered HTTP 429.
 Each request and role gets two such summons, then one signed stop notice and nothing
 more; a resend does not use up the bounded recheck. A missing report never passes.
+While the owner holds a requirement with `HOLD`, the review of its `automation/req-<n>` pull,
+shards included, gets none of this: no run stopped, no log read, no summon, no stop notice.
+`RELEASE` resumes it on the next pass. A pull on any other branch has no requirement to hold,
+so `HOLD` does not reach its review.
 
 The controller reads the run's stage log first. If the closing message holds this
 request's machine line, the summon quotes it, with four tool calls to check and post it.
