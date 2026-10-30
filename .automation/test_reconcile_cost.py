@@ -294,7 +294,7 @@ class ReconcileCostTests(unittest.TestCase):
         self.assertRegex(server.printed, r'(?m)^cnb PR #125: \d+\.\d+s$')
         self.assertNotIn('flclash-pr-review', server.printed)
 
-    def test_a_pull_that_raises_still_logs_its_line(self):
+    def test_a_raising_pull_logs_its_line_and_the_error_ends_the_round(self):
         server = self.steady(5)
         printed = io.StringIO()
         with (patch.object(reviews, 'close_finished_reviews'),
@@ -303,6 +303,7 @@ class ReconcileCostTests(unittest.TestCase):
               contextlib.redirect_stdout(printed), self.assertRaises(RuntimeError)):
             reviews.reconcile()
         self.assertRegex(printed.getvalue(), r'(?m)^github PR #121: \d+\.\d+s$')
+        self.assertNotIn('PR #122', printed.getvalue())
 
 
 class RoundCacheTests(unittest.TestCase):
@@ -358,6 +359,7 @@ class RoundCacheTests(unittest.TestCase):
                 'title': reviews.review_title(other, 't'),
                 'body': f'<!-- flclash-pr-review {json.dumps(reviews.sign(other))} -->'})
             self.assertEqual(created['number'], reviews.find_request(other)['number'])
+            self.assertIsNot(created, reviews._round['rows'][0])
             self.assertEqual(pages, self.server.calls['issue_list_page'])
 
     def test_a_missing_issue_is_not_remembered(self):
@@ -369,6 +371,42 @@ class RoundCacheTests(unittest.TestCase):
     def test_every_write_in_the_module_goes_through_the_one_that_invalidates(self):
         source = pathlib.Path(reviews.__file__).read_text()
         self.assertEqual([], re.findall(r"\bapi\([^()]*(?:\([^()]*\)[^()]*)*'(?:POST|PATCH)'", source))
+
+
+class RenamedPullTests(unittest.TestCase):
+    """A pull renamed after its review opened, whose review then closed with a block, behind a long history."""
+
+    def setUp(self):
+        key = patch.dict(os.environ, KEY)
+        key.start()
+        self.addCleanup(key.stop)
+        self.server = Cost(370)
+        for item in (patch.object(reviews, 'api', side_effect=self.server.api),
+                     patch.object(reviews, 'pages', side_effect=self.server.pages),
+                     patch.object(reviews, 'all_issues', side_effect=self.server.all_issues)):
+            item.start()
+            self.addCleanup(item.stop)
+        self.request = {'platform': 'github', 'number': '7', 'base': 'a' * 40, 'head': 'b' * 40}
+        self.server.add_pull('github', 7, 'a' * 40, 'b' * 40)
+        # No notice on the pull: the list row alone has to lead to this issue.
+        self.issue = self.server.add(reviews.review_title(self.request, '旧标题'), self.request)
+        self.issue['title'] = reviews.review_title(self.request, '新标题')
+        self.issue['state'] = 'closed'
+        role = reviews.ROLES[0]
+        report = {'request': reviews.identity(self.request), 'verdict': 'block', 'blockers': 1}
+        self.server.notes[self.issue['number']].append({
+            'id': '1', 'created_at': stamp(0), 'body': 'FLCLASH_REVIEW ' + json.dumps(report),
+            'author': {'username': f'{reviews.POLICY["cnb"]}({role})', 'is_npc': True}})
+
+    def test_find_request_reaches_it_reading_only_that_issue(self):
+        self.assertEqual(self.issue['number'], reviews.find_request(self.request)['number'])
+        self.assertEqual(1, self.server.calls['issue_detail'])
+
+    def test_its_block_still_fails_the_gate(self):
+        self.assertEqual('failure', reviews.state(self.request))
+        self.assertEqual(1, self.server.calls['issue_detail'])
+        notes = self.server.notes[self.issue['number']]
+        self.assertEqual('block', reviews.role_reports(self.request, self.issue, notes)[reviews.ROLES[0]])
 
 
 class FetchTests(unittest.TestCase):
@@ -388,11 +426,17 @@ class FetchTests(unittest.TestCase):
             answers = [reviews._fetch_rounds(request, []) for request in requests]
         return answers, fetched
 
-    def test_a_hung_remote_is_waited_on_once_in_a_round(self):
+    def test_after_a_timeout_another_pull_does_not_wait_on_that_remote(self):
+        # Its missing commits differ, so only a remote-wide memory can spare it. The second answer would be a success.
         other = dict(self.request, head='c' * 40)
-        answers, fetched = self.run_rounds([reviews.GIT_TIMED_OUT], [self.request, other])
+        answers, fetched = self.run_rounds([reviews.GIT_TIMED_OUT, 0], [self.request, other])
         self.assertEqual([False, False], answers)
         self.assertEqual(1, len(fetched))
+        self.assertNotIn('c' * 40, fetched[0][0])
+
+    def test_the_fetch_it_does_make_carries_the_timeout(self):
+        answers, fetched = self.run_rounds([0], [self.request])
+        self.assertEqual([True], answers)
         self.assertEqual(reviews.FETCH_TIMEOUT, fetched[0][1])
 
     def test_a_plain_failure_only_rules_out_the_same_commits(self):

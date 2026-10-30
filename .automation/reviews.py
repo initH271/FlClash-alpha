@@ -75,7 +75,7 @@ def _write(url, method, data):
     if not touched[1]:
         # A new issue changes no other row, so this list stays good for the next pull in the round.
         if _round['rows'] is not None:
-            _round['rows'].insert(0, found)
+            _round['rows'].insert(0, dict(found))
     elif not touched[2]:
         _round['rows'] = None
     return found
