@@ -110,8 +110,7 @@ main:
           image: $TOOLCHAIN_IMAGE
           timeout: 45m
           script: |
-            changed=$(git diff --name-only "$CNB_PULL_REQUEST_TARGET_SHA" HEAD || true)
-            printf '%s\n' "$changed" | grep -Eq '^(lib/|android/|test/|pubspec\.yaml|analysis_options\.yaml|\.cnb/Dockerfile|\.cnb\.yml)' || { echo 'No Flutter or Android changes'; exit 0; }
+            python3 .automation/ci_paths.py trigger flutter "$CNB_PULL_REQUEST_TARGET_SHA" || [ $? -ne 3 ] || exit 0
             git submodule update --init --recursive
             flutter pub get
             flutter analyze --no-fatal-infos
@@ -125,8 +124,7 @@ main:
           image: $TOOLCHAIN_IMAGE
           timeout: 30m
           script: |
-            changed=$(git diff --name-only "$CNB_PULL_REQUEST_TARGET_SHA" HEAD || true)
-            printf '%s\n' "$changed" | grep -Eq '^(android/|core/|pubspec\.(yaml|lock)|\.cnb/Dockerfile|\.cnb\.yml)' || { echo 'Skipped: no android/, core/, pubspec or CI toolchain changes'; exit 0; }
+            python3 .automation/ci_paths.py trigger android "$CNB_PULL_REQUEST_TARGET_SHA" || [ $? -ne 3 ] || exit 0
             git submodule update --init --recursive
             flutter pub get
             flutter_root=${FLUTTER_ROOT:-$(dirname "$(dirname "$(readlink -f "$(command -v flutter)")")")}
@@ -159,8 +157,7 @@ main:
           image: $TOOLCHAIN_IMAGE
           timeout: 15m
           script: |
-            changed=$(git diff --name-only "$CNB_PULL_REQUEST_TARGET_SHA" HEAD || true)
-            printf '%s\n' "$changed" | grep -Eq '^(core/|build_config\.yaml|\.cnb/Dockerfile|\.cnb\.yml)' || { echo 'Skipped: no core/, build_config.yaml or CI toolchain changes'; exit 0; }
+            python3 .automation/ci_paths.py trigger govet "$CNB_PULL_REQUEST_TARGET_SHA" || [ $? -ne 3 ] || exit 0
             git submodule update --init --recursive
             cd core
             tags=$(sed -n 's/^tags:[[:space:]]*//p' ../build_config.yaml | head -n 1 | tr -d "\"' \r")
