@@ -59,6 +59,8 @@ main:
       stages:
         - name: Verify core with resolved dependencies
           script: |
+            command -v python3 >/dev/null || { apt-get update -qq && apt-get install -y --no-install-recommends python3; } || true
+            python3 .automation/ci_paths.py reuse || [ $? -ne 3 ] || exit 0
             git submodule update --init --recursive
             cd core
             CGO_ENABLED=0 go test . ./internal/logstore
@@ -110,6 +112,7 @@ main:
           image: $TOOLCHAIN_IMAGE
           timeout: 45m
           script: |
+            python3 .automation/ci_paths.py reuse || [ $? -ne 3 ] || exit 0
             python3 .automation/ci_paths.py trigger flutter "$CNB_PULL_REQUEST_TARGET_SHA" || [ $? -ne 3 ] || exit 0
             git submodule update --init --recursive
             flutter pub get
@@ -124,6 +127,7 @@ main:
           image: $TOOLCHAIN_IMAGE
           timeout: 30m
           script: |
+            python3 .automation/ci_paths.py reuse || [ $? -ne 3 ] || exit 0
             python3 .automation/ci_paths.py trigger android "$CNB_PULL_REQUEST_TARGET_SHA" || [ $? -ne 3 ] || exit 0
             git submodule update --init --recursive
             flutter pub get
@@ -157,6 +161,7 @@ main:
           image: $TOOLCHAIN_IMAGE
           timeout: 15m
           script: |
+            python3 .automation/ci_paths.py reuse || [ $? -ne 3 ] || exit 0
             python3 .automation/ci_paths.py trigger govet "$CNB_PULL_REQUEST_TARGET_SHA" || [ $? -ne 3 ] || exit 0
             git submodule update --init --recursive
             cd core
@@ -180,7 +185,8 @@ main:
         - name: Verify desktop helper and Rust API
           script: |
             apt-get update -qq
-            apt-get install -y --no-install-recommends libx11-dev libxkbcommon-dev
+            apt-get install -y --no-install-recommends python3 libx11-dev libxkbcommon-dev
+            python3 .automation/ci_paths.py reuse || [ $? -ne 3 ] || exit 0
             cargo test --locked --manifest-path services/helper/Cargo.toml
             cargo test --locked --manifest-path plugins/rust_api/rust/Cargo.toml
           timeout: 20m

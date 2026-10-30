@@ -286,6 +286,37 @@ class RequirementTests(unittest.TestCase):
                        '-m', 'Merge main into automation/req-9', '-m', 'FlClash-Actor: controller'), calls)
         push.assert_called_once_with('automation/req-9', 'new-commit')
         self.assertIn('合入', note.call_args.args[1])
+        (record,) = req.markers([{'body': note.call_args.args[1]}])
+        self.assertEqual(('sync', 'new-commit', 's' * 40), (record['phase'], record['head'], record['from']))
+
+    def test_a_sync_shaped_head_whose_pipelines_may_reuse_ci_needs_the_signed_sync_record(self):
+        import ci_paths
+        with tempfile.TemporaryDirectory() as directory:
+            git = lambda *args: ci_paths.run_git('-C', directory, '-c', 'user.name=t', '-c', 'user.email=t@t', *args)
+            git('init', '-q')
+            for path, text in (('.cnb.yml', 'python3 .automation/ci_paths.py reuse'), ('README.md', 'a'),
+                               ('lib/a.dart', 'b')):
+                (pathlib.Path(directory) / path).parent.mkdir(exist_ok=True)
+                (pathlib.Path(directory) / path).write_text(text)
+            git('add', '-A')
+            tree = git('write-tree')
+            base = git('commit-tree', tree, '-m', 'base')
+            own = git('commit-tree', tree, '-p', base, '-m', 'own')
+            head = git('commit-tree', tree, '-p', own, '-p', base, '-m', 'Merge main into automation/req-9',
+                       '-m', 'FlClash-Actor: controller')
+            signed = {'body': req.envelope({'issue': '9', 'phase': 'sync', 'head': head, 'from': own})}
+            forged = {'body': req.envelope({'issue': '9', 'phase': 'sync', 'head': own, 'from': base})}
+            with patch.object(control, 'ROOT', pathlib.Path(directory)):
+                self.assertTrue(req.reuse_unvouched('9', head, [forged]))
+                self.assertFalse(req.reuse_unvouched('9', head, [signed]))
+                self.assertFalse(req.reuse_unvouched('9', own, []))
+                self.assertFalse(req.reuse_unvouched('8', head, []))
+
+    def test_an_unvouched_reuse_never_forwards(self):
+        with patch.object(req, 'reuse_unvouched', return_value=True):
+            forward, sync, merge, act = self.runtime_inputs(('success',) * 5)
+        self.assertNotEqual('forward', act.call_args.args[1]['kind'])
+        sync.assert_not_called()
 
     def test_open_github_pull_only_fast_forwards_to_the_new_commit(self):
         pull = {'number': 4, 'head': {'sha': 'o' * 40}, 'html_url': 'https://github.com/x/pull/4'}
