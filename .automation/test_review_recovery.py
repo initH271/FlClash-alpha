@@ -357,3 +357,29 @@ class RateLimitTests(ReviewRecoveryCase):
         self.assertTrue(recovery.rate_limited(self.limited(stamp(1))))
         for error in ('Agent aborted: reached maxTurns limit (60)', '', None, 'HTTP 429 while cloning'):
             self.assertFalse(recovery.rate_limited({'error': error}))
+
+
+class PassIsolationTests(ReviewRecoveryCase):
+    def test_one_issue_failing_leaves_the_rest_handled_and_the_step_red(self):
+        issues = [dict(self.issue, number='1'), dict(self.issue, number='2')]
+        posted = []
+        printed = io.StringIO()
+
+        def api(url, method='GET', data=None, missing=False, timeout=60):
+            if url.endswith('/issues/1'):
+                raise recovery_error
+            if '/build/status/' in url:
+                return build()
+            if '/build/logs/stage/' in url:
+                return None
+            return issues[1]
+        from control import HttpStatusError
+        recovery_error = HttpStatusError('GET returned HTTP 500: ', 500)
+        with (patch.object(recovery, 'api', side_effect=api),
+              patch.object(recovery, 'pages', side_effect=lambda url: [self.answer(GLM)] if url.endswith('/comments') else issues),
+              patch.object(recovery, 'comment', side_effect=lambda n, body, *a: posted.append(n)),
+              contextlib.redirect_stdout(printed), self.assertRaises(RuntimeError) as raised):
+            recovery.recover(at(5))
+        self.assertEqual(['2'], posted)
+        self.assertIn('#1', printed.getvalue())
+        self.assertIn('1', str(raised.exception))

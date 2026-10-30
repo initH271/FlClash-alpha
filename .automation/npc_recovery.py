@@ -292,17 +292,23 @@ def recover_task(issue, now, room):
 def recover(now=None):
     import datetime
     now = now or datetime.datetime.now(datetime.timezone.utc)
-    sent = 0
+    sent, failed = 0, []
     for summary in pages(f'{CNB}/issues?state=open'):
-        issue = api(f'{CNB}/issues/{summary["number"]}')
-        if issue.get('state') != 'open':
-            continue
-        request = None if str(issue.get('title', '')).startswith('[需求]') else request_from(issue)
-        if request:
-            comments = list(pages(f'{CNB}/issues/{issue["number"]}/comments'))
-            sent += recover_review(issue, request, comments, now, MAX_PER_PASS - sent)
-        else:
-            sent += recover_task(issue, now, MAX_PER_PASS - sent)
+        try:
+            issue = api(f'{CNB}/issues/{summary["number"]}')
+            if issue.get('state') != 'open':
+                continue
+            request = None if str(issue.get('title', '')).startswith('[需求]') else request_from(issue)
+            if request:
+                comments = list(pages(f'{CNB}/issues/{issue["number"]}/comments'))
+                sent += recover_review(issue, request, comments, now, MAX_PER_PASS - sent)
+            else:
+                sent += recover_task(issue, now, MAX_PER_PASS - sent)
+        except Exception as error:
+            failed.append(str(summary['number']))
+            print(f'Recovery of #{summary["number"]} failed, continuing: {type(error).__name__}: {error}', flush=True)
+    if failed:
+        raise RuntimeError('Recovery failed on issues ' + ', '.join(failed))
 
 
 if __name__ == '__main__':
