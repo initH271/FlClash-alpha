@@ -103,10 +103,11 @@ class CnbPipelineTests(unittest.TestCase):
     def test_the_quarter_hour_schedule_watches_stalls_and_wakes_the_controller(self):
         entries = self.schedules()
         if entries is None:
-            self.assertIn('"crontab: */15 * * * *":', self.source)
-            self.assertRegex(self.source, r'(?s)"crontab: \*/15 \* \* \* \*":.*python3 \.automation/wake\.py watchdog')
-            self.assertRegex(self.source, r'(?s)"crontab: \*/15 \* \* \* \*":.*github-dispatch\.yml')
-            self.assertRegex(self.source, r'(?s)"crontab: \*/15 \* \* \* \*":.*python3 \.automation/wake\.py\n')
+            # Without yaml, compare against the raw block: every line after the key up to the next key.
+            block = self.source.split('"crontab: */15 * * * *":', 1)[-1].split('"crontab: 7 * * * *":', 1)[0]
+            self.assertIn("python3 .automation/wake.py watchdog", block)
+            self.assertIn("github-dispatch.yml", block)
+            self.assertIn("script: python3 .automation/wake.py\n", block)
             return
         jobs = entries['crontab: */15 * * * *']
         self.assertIn('python3 .automation/wake.py watchdog', jobs[0]['stages'][0]['script'])

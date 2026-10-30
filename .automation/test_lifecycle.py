@@ -265,9 +265,9 @@ class LifecycleTests(unittest.TestCase):
         review = {'number': '8', 'title': '[PR审核] CNB #1', 'body': '<!-- flclash-pr-review {} -->',
                   'author': {'username': 'Aharon', 'is_npc': False}}
 
-        def run(issues, pulls):
+        def run(issues, pulls, detail=None):
             def api(url, method='GET', data=None, missing=False):
-                return review
+                return detail or review
             with (patch.dict(os.environ, {'CNB_EVENT': 'crontab: */15 * * * *'}),
                   patch.object(wake, 'pages', side_effect=lambda url: pulls if '/pulls?' in url else issues),
                   patch.object(wake, 'api', side_effect=api), patch.object(wake, 'dispatch') as dispatch,
@@ -276,10 +276,14 @@ class LifecycleTests(unittest.TestCase):
             return dispatch.call_count, printed.getvalue()
 
         self.assertEqual((0, 'idle\n'), run([], []))
+        # An issue listed without its body is read once before the schedule gives up.
+        quiet = {'number': '9', 'title': '排期讨论', 'body': '', 'author': {'username': 'Aharon', 'is_npc': False}}
+        self.assertEqual(0, run([quiet], [], detail={'body': '进度'})[0])
         self.assertEqual(1, run([owner], [])[0])
         self.assertEqual(1, run([], [{'number': '1', 'head': {'ref': 'refs/heads/automation/req-3'}}])[0])
         self.assertEqual(0, run([], [{'number': '1', 'head': {'ref': 'refs/heads/sync/x'}}])[0])
         self.assertEqual(1, run([review], [])[0])
+        self.assertEqual(1, run([quiet], [], detail={'body': '<!-- flclash-upstream {"tag":"v0.9.2"} -->'})[0])
 
     def test_close_only_signed_reviews_of_finished_prs(self):
         with patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'}):

@@ -232,9 +232,22 @@ class ReconcileTests(unittest.TestCase):
                                                   minutes=81))
         ensure.assert_called_once()
         brief = ensure.call_args.args[2]
-        self.assertIn('Automation unit tests', brief)
+        # Names exactly the pipelines that had not finished; the assertion never quotes one itself.
+        self.assertRegex(brief, r'^CI 未结束就开审的流水线：\S[^。]*。')
+        (unsettled,) = FIVE[1:2]
+        self.assertIn(unsettled, brief)
+        for name in FIVE[2:] + ('Paired review gate',):
+            self.assertNotIn(name, brief)
         self.assertIn('未验证', brief)
         self.assertIn('CI unsettled after 80m, review opened', printed)
+
+    def test_the_caveat_names_only_the_pipelines_that_had_not_finished(self):
+        ensure, _ = self.reconcile(statuses(('success', 'success', 'success', 'success', 'pending', 'success'),
+                                           minutes=81))
+        brief = ensure.call_args.args[2]
+        self.assertIn(FIVE[-1], brief)
+        for name in FIVE[:-1]:
+            self.assertNotIn(name, brief)
 
     def test_security_pulls_wait_but_other_branches_keep_their_timing(self):
         ensure, _ = self.reconcile(statuses(('pending',) * 6), ref='refs/heads/security/group-rust-api')
