@@ -593,6 +593,25 @@ the next dispatch and in the mirrored GitHub pull request so the next agent read
 agent may push on the owner's behalf only when the owner asked for it explicitly in that session; it never decides to
 push there on its own.
 
+### Owner pull requests: CNB CI first
+
+An owner pull request goes straight to GitHub, where only the dependency scan and the paired-review gate run; the five
+`main.pull_request` pipelines only start for a CNB pull request into `main`. Do not open a CNB pull request just to get
+them: `reviews.reconcile()` creates review issues and summons reviewers for every open CNB pull request, so it reviews
+the change twice. Use the `owner/**` push pipelines in `.cnb.yml` instead, which alias the same definitions
+minus the dependency gate. Dependency scanning is judged by the Dependency vulnerability scan on the GitHub pull
+request (`security.yaml`); the CNB owner branch only builds and tests, since a push has no diff base for the gate.
+
+1. Push the exact head to CNB as `owner/<name>`.
+2. Wait until all four pipelines (Automation unit tests, Go, Flutter and Android, Rust) pass for that commit.
+   `GET /{repo}/-/build/logs?sha=<head>&event=push` lists its builds;
+   `GET /{repo}/-/build/status/{sn}` gives each build's pipelines.
+3. Only then push the same head to GitHub, open the pull request and request review.
+4. Every later head goes through step 1 and 2 again before it reaches GitHub.
+
+On a push the path checks measure from the branch's merge-base with `main` (`ci_paths.py base`), and run everything when
+that cannot be found. The end-stage `wake.py ci-done` sees no requirement branch on a push and does nothing.
+
 ## Commit Messages
 
 Subjects follow Conventional Commits and are enforced by the `commit-msg` hook in `.pre-commit-config.yaml`, which runs

@@ -1,3 +1,4 @@
+import os
 import pathlib
 import re
 import sys
@@ -17,6 +18,9 @@ FILTER = "grep -Eq '^(\\.automation/|\\.cnb/|\\.cnb\\.yml|\\.github/|tool/)'"
 DISCOVER = "python3 -m unittest discover -s .automation -p 'test_*.py'"
 QUARTER = 'crontab: */15 * * * *'
 HOURLY = 'crontab: 7 * * * *'
+OWNER = 'owner/**'
+DEPENDENCY_GATE = 'Dependency vulnerability gate'
+PUSH_BASE = 'export CNB_PULL_REQUEST_TARGET_SHA="$(python3 .automation/ci_paths.py base)"'
 
 
 # A mapping entry: a plain or quoted key followed by a colon that ends the line or precedes a space.
@@ -50,25 +54,34 @@ def _key(text):
     return key.strip(), rest.strip()
 
 
-def _parse(lines, start, indent):
-    """Parse the block-style subset .cnb.yml uses, from lines[start] at this indent; return (value, next)."""
+def _alias(text, anchors):
+    """Return the node an alias names; YAML defines every anchor before its aliases."""
+    return anchors[text[1:].strip()]
+
+
+def _parse(lines, start, indent, anchors):
+    """Parse the block-style subset .cnb.yml uses, from lines[start] at this indent; return (value, next).
+
+    Anchors land in anchors as they are defined; aliases and `<<` merges resolve against it on the spot.
+    """
     if lines[start][indent:].startswith('- '):
         items, i = [], start
         while i < len(lines) and _indent(lines[i]) == indent and lines[i][indent:].startswith('- '):
             item = lines[i][indent + 2:].strip()
-            if not MAPPING.match(item) or item.startswith('*') or item.startswith('&'):
-                if item.startswith('&'):
-                    value, i = _parse(lines, i + 1, indent + 2)
-                    items.append(value)
-                    continue
-                items.append({'*': item[1:]} if item.startswith('*') else _scalar(item))
+            if item.startswith('&'):
+                value, i = _parse(lines, i + 1, indent + 2, anchors)
+                anchors[item[1:]] = value
+                items.append(value)
+                continue
+            if item.startswith('*') or not MAPPING.match(item):
+                items.append(_alias(item, anchors) if item.startswith('*') else _scalar(item))
                 i += 1
                 continue
             lines[i] = ' ' * (indent + 2) + item
-            value, i = _parse(lines, i, indent + 2)
+            value, i = _parse(lines, i, indent + 2, anchors)
             items.append(value)
         return items, i
-    result, i = {}, start
+    result, merged, i = {}, {}, start
     while i < len(lines):
         line = lines[i]
         if not line.strip() or line.lstrip().startswith('#'):
@@ -77,6 +90,10 @@ def _parse(lines, start, indent):
         if _indent(line) < indent:
             break
         key, rest = _key(line.strip())
+        anchor = None
+        if rest.startswith('&'):
+            anchor, _, rest = rest[1:].partition(' ')
+            rest = rest.strip()
         i += 1
         if rest == '|':
             block = []
@@ -86,24 +103,20 @@ def _parse(lines, start, indent):
             while block and not block[-1].strip():
                 block.pop()
             depth = min(_indent(row) for row in block if row.strip())
-            result[key] = '\n'.join(row[depth:] for row in block) + '\n'
-        elif rest and not rest.startswith('&'):
-            result[key] = _scalar(rest)
+            value = '\n'.join(row[depth:] for row in block) + '\n'
+        elif rest:
+            value = _alias(rest, anchors) if rest.startswith('*') else _scalar(rest)
         else:
             while i < len(lines) and not lines[i].strip():
                 i += 1
-            result[key], i = _parse(lines, i, _indent(lines[i]))
-    return result, i
-
-
-def _resolve(value, anchors):
-    if isinstance(value, dict):
-        if set(value) == {'*'}:
-            return anchors[value['*']]
-        return {key: _resolve(item, anchors) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_resolve(item, anchors) for item in value]
-    return value
+            value, i = _parse(lines, i, _indent(lines[i]), anchors)
+        if anchor:
+            anchors[anchor] = value
+        if key == '<<':
+            merged.update(value)
+        else:
+            result[key] = value
+    return {**merged, **result}, i
 
 
 def _top(source, key):
@@ -115,14 +128,24 @@ def _top(source, key):
     return lines[start], lines[start + 1:end]
 
 
-def text_main(source):
-    """Read .cnb.yml's main block without yaml, resolving the top-level anchors it aliases."""
+def text_blocks(source):
+    """Read .cnb.yml's main and owner blocks without yaml, resolving every anchor they alias."""
     anchors = {}
     for header in re.findall(r'^(\.[\w-]+): &([\w-]+)$', source, re.M):
         _, body = _top(source, header[0])
-        anchors[header[1]] = _parse(body, 0, 2)[0]
-    _, body = _top(source, 'main')
-    return _resolve(_parse(body, 0, 2)[0], anchors)
+        anchors[header[1]] = _parse(body, 0, 2, anchors)[0]
+    blocks = {}
+    for key, quoted in (('main', 'main'), (OWNER, f'"{OWNER}"')):
+        if not re.search('^' + re.escape(quoted) + ':', source, re.M):
+            continue
+        _, body = _top(source, quoted)
+        blocks[key] = _parse(body, 0, 2, anchors)[0]
+    return blocks
+
+
+def text_main(source):
+    """Read .cnb.yml's main block without yaml."""
+    return text_blocks(source)['main']
 
 
 def main_block():
@@ -135,6 +158,14 @@ def main_block():
 
 def pipelines():
     return main_block()['pull_request']
+
+
+def owner_pipelines():
+    """The owner/** push pipelines, through yaml when this module has it, else through the text reader."""
+    source = CNB.read_text(encoding='utf-8')
+    if yaml is None:
+        return text_blocks(source)[OWNER]['push']
+    return yaml.safe_load(source)[OWNER]['push']
 
 
 def without_yaml():
@@ -238,6 +269,64 @@ class CnbPipelineTests(unittest.TestCase):
                 self.assertEqual('2m', stage['timeout'])
                 self.assertEqual(job.format(entry['name']), stage['script'])
         self.both(check)
+
+    def test_owner_branches_push_the_pull_request_pipelines_except_the_dependency_gate(self):
+        def check():
+            main, owner = pipelines(), owner_pipelines()
+            self.assertEqual({entry['name'] for entry in main} - {DEPENDENCY_GATE}, {entry['name'] for entry in owner},
+                             'owner/** runs every main.pull_request pipeline but the dependency gate: a push has no '
+                             'diff base for it, and GitHub security.yaml scans dependencies on the owner PR')
+            self.assertEqual(len(owner), len({entry['name'] for entry in owner}))
+            for ours, theirs in zip(owner, [entry for entry in main if entry['name'] != DEPENDENCY_GATE]):
+                if ours['name'] != PIPELINE:
+                    self.assertEqual(theirs, ours, ours['name'])
+            ours = next(entry for entry in owner if entry['name'] == PIPELINE)
+            theirs = next(entry for entry in main if entry['name'] == PIPELINE)
+            (stage,), (expected,) = ours['stages'], theirs['stages']
+            self.assertEqual({**theirs, 'stages': [{**expected, 'script': stage['script']}]}, ours)
+            self.assertEqual(PUSH_BASE, stage['script'][0])
+            self.assertEqual([PUSH_BASE, expected['script']], stage['script'])
+        self.both(check)
+
+    def test_owner_pipelines_are_aliases_not_copies(self):
+        _, body = _top(self.source, f'"{OWNER}"')
+        owner = '\n'.join(body)
+        self.assertNotIn('dependency-gate', self.source)
+        for anchor in ('go-tests', 'flutter-tests', 'rust-tests'):
+            self.assertEqual(1, self.source.count(f'- &{anchor}\n'), anchor)
+            self.assertIn(f'    - *{anchor}\n', owner + '\n')
+        self.assertIn('<<: *automation-unit-tests', owner)
+        self.assertIn('<<: *automation-stage', owner)
+        self.assertIn('- *automation-script', owner)
+        self.assertEqual(1, self.source.count(DISCOVER))
+        self.assertNotIn('name:', owner)
+
+    def test_owner_skip_checks_measure_from_main_not_the_missing_pull_request_target(self):
+        def check():
+            for entry in owner_pipelines():
+                for stage in entry['stages']:
+                    script = stage.get('script', '')
+                    if isinstance(script, list):
+                        # A list script runs joined by &&, so the export precedes every line of the alias.
+                        self.assertEqual(PUSH_BASE, script[0], stage['name'])
+                        continue
+                    for line in script.splitlines():
+                        if 'CNB_PULL_REQUEST_TARGET_SHA' not in line or 'ci_paths.py trigger' in line:
+                            continue
+                        # Only the security/group-* case reads it, and a push has no PR branch to match.
+                        self.assertIn('case "$CNB_PULL_REQUEST_BRANCH" in\n  security/group-*', script, stage['name'])
+        self.both(check)
+
+    def test_the_end_stage_wake_is_a_no_op_on_an_owner_push(self):
+        import wake
+        push = {key: value for key, value in os.environ.items() if not key.startswith('CNB_PULL_REQUEST')}
+        with (patch.dict(os.environ, push, clear=True), patch.object(wake, 'api') as api,
+              patch.object(wake, 'pages') as pages, patch.object(wake, 'post_comment') as comment):
+            for entry in owner_pipelines():
+                wake.ci_done(entry['name'])
+        api.assert_not_called()
+        pages.assert_not_called()
+        comment.assert_not_called()
 
     def test_the_sleeping_waker_and_the_five_minute_schedule_are_gone(self):
         self.assertNotIn('Wake controller after checks', self.source)
