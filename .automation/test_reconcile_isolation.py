@@ -153,6 +153,7 @@ class ReconsiderHoldTests(unittest.TestCase):
         with (patch.object(reviews, 'api', side_effect=server.api), patch.object(reviews, 'pages', side_effect=pages),
               patch('security_finish.mirror_attestation', return_value=None),
               patch('security_finish.mirror_record', return_value=None),
+              patch.object(reviews, 'orphaned', return_value=False),
               patch.object(reviews, 'carry_over', return_value=issue), patch.object(reviews, 'withhold'),
               patch.object(reviews, 'result', return_value='failure'), patch.object(reviews, 'remember'),
               patch.object(reviews, 'shard_parts', return_value=None), patch.object(reviews, 'reconsider') as recheck,
