@@ -173,10 +173,8 @@ class ReuseTests(unittest.TestCase):
         self.assertIn('reused review', printed)
 
     def test_github_reuse_needs_every_other_check_to_succeed(self):
-        gate = {'context': reviews.CONTEXT, 'state': 'success'}
-        cases = {'pending run': ([run('in_progress')], []), 'failed run': ([run('completed', 'failure')], []),
-                 'failed status': ([run('completed', 'success')], [{'context': 'ci', 'state': 'failure'}]),
-                 'only the gate': ([run('completed', 'skipped'), run('completed', 'neutral')], [gate])}
+        cases = {'failed run': ([run('completed', 'failure')], []),
+                 'failed status': ([run('completed', 'success')], [{'context': 'ci', 'state': 'failure'}])}
         for label, (runs, extra) in cases.items():
             pull = {'number': '12', 'title': '改动', 'state': 'open', 'base': {'sha': self.repo.b1},
                     'head': {'sha': self.repo.h1, 'ref': 'x'}}
