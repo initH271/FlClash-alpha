@@ -212,11 +212,13 @@ class LifecycleTests(unittest.TestCase):
     def ci(self, *states, own='Automation unit tests'):
         names = {'Dependency vulnerability gate': 'success', 'Automation unit tests': 'pending',
                  'Go dependency regression tests': 'success', 'Flutter and Android requirement tests': 'success',
-                 'Rust dependency regression tests': 'success', 'Paired review gate': 'success'}
+                 'Rust dependency regression tests': 'success'}
         for name, state in zip([name for name in names if name != own], states):
             names[name] = state
+        # The gate waits for the review that waits for CI, so it is still pending whenever CI ends.
         return {'statuses': [{'context': f'cnb/pipeline-{i}({name})', 'state': state}
-                             for i, (name, state) in enumerate(names.items())]}
+                             for i, (name, state) in enumerate(names.items())]
+                + [{'context': 'cnb/pipeline-9(Paired review gate)', 'state': 'pending'}]}
 
     def run_ci(self, statuses, branch='automation/req-7', head='h' * 40, comments=(), state='open'):
         pull = {'state': state, 'number': '5', 'base': {'sha': 'b' * 40},
@@ -233,17 +235,17 @@ class LifecycleTests(unittest.TestCase):
         return comment
 
     def test_ci_done_wakes_once_every_other_pipeline_is_settled(self):
-        comment = self.run_ci(self.ci('success', 'error', 'cancel', 'success', 'success'))
+        comment = self.run_ci(self.ci('success', 'error', 'cancel', 'success'))
         comment.assert_called_once()
         self.assertEqual('7', comment.call_args.args[0])
         self.assertIn('ci-' + 'h' * 40, comment.call_args.args[1])
-        self.run_ci(self.ci('success', 'success', 'success', 'success', 'pending')).assert_not_called()
-        self.run_ci(self.ci('success', 'success', 'success', 'success', 'success'), comments=[
+        self.run_ci(self.ci('success', 'success', 'success', 'pending')).assert_not_called()
+        self.run_ci(self.ci('success', 'success', 'success', 'success'), comments=[
             {'body': f'<!-- flclash-requirement-wake ci-{"h" * 40} -->'}]).assert_not_called()
 
     def test_ci_done_ignores_moved_prs_and_other_branches(self):
-        self.run_ci(self.ci('success', 'success', 'success', 'success', 'success'), head='other').assert_not_called()
-        self.run_ci(self.ci('success', 'success', 'success', 'success', 'success'), state='closed').assert_not_called()
+        self.run_ci(self.ci('success', 'success', 'success', 'success'), head='other').assert_not_called()
+        self.run_ci(self.ci('success', 'success', 'success', 'success'), state='closed').assert_not_called()
         for branch in ('security/group-x', 'sync/x', 'automation/req-x', 'refs/heads/main'):
             with (patch.dict(os.environ, {'CNB_PULL_REQUEST_BRANCH': branch}),
                   patch.object(wake, 'api') as api, patch.object(wake, 'post_comment') as comment):
@@ -269,7 +271,8 @@ class LifecycleTests(unittest.TestCase):
             def api(url, method='GET', data=None, missing=False):
                 return detail or review
             with (patch.dict(os.environ, {'CNB_EVENT': 'crontab: */15 * * * *'}),
-                  patch.object(wake, 'pages', side_effect=lambda url: pulls if '/pulls?' in url else issues),
+                  patch.object(wake, 'pages', side_effect=lambda url: pulls if '/pulls?' in url
+                               else [] if url.endswith('/comments') else issues),
                   patch.object(wake, 'api', side_effect=api), patch.object(wake, 'dispatch') as dispatch,
                   _capture() as printed):
                 wake.wake()
@@ -284,6 +287,45 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(0, run([], [{'number': '1', 'head': {'ref': 'refs/heads/sync/x'}}])[0])
         self.assertEqual(1, run([review], [])[0])
         self.assertEqual(1, run([quiet], [], detail={'body': '<!-- flclash-upstream {"tag":"v0.9.2"} -->'})[0])
+
+    def test_a_held_requirement_does_not_keep_the_schedule_busy(self):
+        owner = {'username': 'Aharon', 'is_npc': False}
+        requirement = {'number': '7', 'title': '[需求] 导出', 'body': '', 'author': owner}
+        req_pull = {'number': '12', 'head': {'ref': 'refs/heads/automation/req-7'}}
+        with patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'}):
+            request = {'platform': 'cnb', 'number': '12', 'base': 'a' * 40, 'head': 'b' * 40}
+            review = {'number': '8', 'title': '[PR审核] CNB #12', 'author': owner,
+                      'body': '<!-- flclash-pr-review ' + json.dumps(reviews.sign(request)) + ' -->'}
+        hold = [{'created_at': '2026-10-30T01:00:00Z', 'body': 'HOLD', 'author': owner}]
+        release = hold + [{'created_at': '2026-10-30T02:00:00Z', 'body': 'RELEASE', 'author': owner}]
+
+        def run(issues, pulls, comments):
+            def pages(url, page_key='page', size_key='page_size'):
+                if '/pulls?' in url:
+                    return iter(pulls)
+                if url.endswith('/issues/7/comments'):
+                    return iter(comments)
+                if '/issues?' in url:
+                    return iter(issues)
+                raise AssertionError(url)
+
+            def api(url, method='GET', data=None, missing=False, timeout=60):
+                raise AssertionError(url)
+            with (patch.dict(os.environ, {'CNB_EVENT': 'crontab: */15 * * * *'}),
+                  patch.object(wake, 'pages', side_effect=pages), patch.object(wake, 'api', side_effect=api),
+                  patch.object(wake, 'dispatch') as dispatch, _capture() as printed):
+                wake.wake()
+            return dispatch.call_count, printed.getvalue()
+
+        world = ([requirement, review], [req_pull])
+        self.assertEqual((0, 'idle\n'), run(*world, hold))
+        self.assertEqual(1, run(*world, release)[0])
+        self.assertEqual(1, run(*world, [])[0])
+        # Work that is not the held requirement still wakes the controller.
+        security = {'number': '13', 'head': {'ref': 'refs/heads/security/group-rust'}}
+        self.assertEqual(1, run([requirement], [req_pull, security], hold)[0])
+        other = dict(review, body=review['body'].replace('"12"', '"14"'))
+        self.assertEqual(1, run([requirement, other], [req_pull], hold)[0])
 
     def test_close_only_signed_reviews_of_finished_prs(self):
         with patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'}):

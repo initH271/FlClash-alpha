@@ -241,27 +241,37 @@ stopped, so the one-time recovery can retry it. The second job imports the dispa
 credential and runs `wake.py`, which dispatches only while there is work: an open
 owner `[需求]` issue, an open issue carrying a `flclash-pr-review`,
 `flclash-upstream` or `flclash-security-group` marker, or an open PR whose head is
-`automation/req-*` or `security/group-*`; otherwise it prints `idle`. The hourly
+`automation/req-*` or `security/group-*`; otherwise it prints `idle`. A requirement
+the owner holds with `HOLD` is not work: its `[需求]` issue, its `automation/req-<n>`
+PR and the review issue of that PR stay idle until `RELEASE`. The hourly
 `crontab: 7 * * * *` schedule keeps mirroring artifacts, and the hourly GitHub
 schedule remains a further backstop. An unsuccessful dispatch fails visibly in CNB.
 
 Reviews no longer open the moment a requirement or security PR appears. For a CNB PR
 whose head is `automation/req-*` or `security/group-*` and which has no review issue
 yet, the controller reads `/pulls/{n}/commit-statuses` and looks only at the five
-pull_request pipelines plus the review gate (`CI_PIPELINES`). A missing pipeline or
+`main.pull_request` pipelines (`CI_PIPELINES`). The `Paired review gate` runs under
+`pull_request.target` and waits for the review itself, so it is never part of this
+wait; listing it would make the review and the gate wait on each other. A missing pipeline or
 one that has not settled leaves that head `pending`: while the earliest status is
 younger than 80 minutes the controller prints `cnb PR #n: waiting for CI` and opens
 nothing; a settled non-success prints `cnb PR #n: CI failed, review deferred` and
 also opens nothing. Past 80 minutes it opens the review anyway, prints
 `cnb PR #n: CI unsettled after 80m, review opened`, and the brief names the pipelines
 that had not finished as unverified. Reviews that already exist, other branches and
-GitHub PRs keep their previous timing. A review opened this way never counts as
-green on its own: the controller posts a `FlClash/review-before-ci` commit status
-while any of those pipelines is pending or failed, clears it once every one has
-succeeded, and `check_state` treats a non-success value there as not green and as a
-CI failure. So two passing reviewers cannot forward or merge a requirement whose CI
-has not settled; the wake that follows the last pipeline re-runs the controller and
-the forwarding then sees green.
+GitHub PRs keep their previous timing. The controller finds an existing review from
+the notice it left on the PR (`/pulls/{n}/comments`): the
+`<!-- flclash-review-notice <review issue> -->` marker, or for notices written before
+the marker, the review issue link; the issue must still carry the signed request for
+that base/head. A review opened before CI settled shows a red
+`FlClash/review-before-ci` commit status on the requirement PR while any pipeline is
+pending or failed, and turns it green once every one has succeeded; the status is
+posted only when its value changes and never gates anything itself. `check_state`
+counts a requirement PR as green only when all five pipelines succeeded and the
+paired review for that base/head is `success`; the gate's own row is ignored. So two
+passing reviewers cannot forward or merge a requirement whose CI has not settled; the
+wake that follows the last pipeline re-runs the controller and the forwarding then
+sees green.
 
 Deployment prerequisite: in the existing private `github-dispatch.yml` KeyStore,
 retain the exact repository and `main` branch restrictions and token value, and
@@ -288,8 +298,9 @@ Requirement PRs (`automation/req-<n>`) give reviewers the issue's acceptance
 criteria; a criterion that the diff cannot confirm, or that the developer's latest
 report calls unmet, is a block even when CI is green. A reviewer whose bounded
 recheck still omits the machine verdict gets one request to restate its own
-conclusion. The `Paired review gate` check only polls for 32 minutes, so once the
-review for that base/head has passed, a timed-out gate no longer holds the PR back.
+conclusion. The `Paired review gate` check only polls for 32 minutes, so the
+controller reads the review verdict directly: a pending, timed-out or missing gate
+never holds back a requirement whose review for that base/head has passed.
 Before forwarding, the controller merges the latest GitHub `main` into a green
 requirement branch that has fallen behind (branch protection requires it) and lets
 checks and review rerun; a merge conflict goes back to the developer. An open

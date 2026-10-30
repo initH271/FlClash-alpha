@@ -8,7 +8,7 @@ import urllib.request
 
 import pause
 from control import CNB, GH, POLICY, api, approved, check_name, comment as post_comment, gating_statuses, pages
-from reviews import CI_PIPELINES, ROLES, scope
+from reviews import CI_PIPELINES, ROLES, request_from, scope
 
 SETTLED = {'success', 'error', 'failure', 'cancel', 'cancelled'}
 WAKE_MARKER = '<!-- flclash-requirement-wake'
@@ -99,26 +99,49 @@ def wake():
 
 
 def busy():
-    """Return True when an open issue or requirement PR still needs the controller."""
+    """Return True when an open issue or requirement PR still needs the controller; a HOLD idles its requirement."""
     approved_branch = re.compile(r'(automation/req-|security/group-).+')
+    holds = {}
+
+    def held(number):
+        if number not in holds:
+            holds[number] = bool(pause.held(list(pages(f'{CNB}/issues/{number}/comments'))))
+        return holds[number]
+
+    def waiting(pull):
+        requirement = re.fullmatch(r'automation/req-(\d+)', pull['head']['ref'].removeprefix('refs/heads/'))
+        return bool(requirement) and held(requirement[1])
+
+    pulls = None
     for summary in pages(f'{CNB}/issues?state=open'):
         author = summary.get('author') or {}
         if (str(summary.get('title', '')).startswith('[需求]')
                 and author.get('username') == POLICY['approver'] and author.get('is_npc') is False):
-            return True
+            if not held(str(summary['number'])):
+                return True
+            continue
         body = str(summary.get('body', ''))
         if not any(marker in body for marker in ACTIVE):
             # A list without bodies costs one detail read per issue.
             detail = api(f'{CNB}/issues/{summary["number"]}', missing=True) or {}
             body = str(detail.get('body', ''))
-        if any(marker in body for marker in ACTIVE):
+        if not any(marker in body for marker in ACTIVE):
+            continue
+        # A review of a held requirement's open PR waits with it; any other review still needs the controller.
+        request = request_from({**summary, 'body': body}, signed=False) or {}
+        if pulls is None:
+            pulls = list(pages(f'{CNB}/pulls?state=open'))
+        reviewed = next((pull for pull in pulls if request.get('platform') == 'cnb'
+                         and str(pull['number']) == str(request.get('number'))), None)
+        if reviewed is None or not waiting(reviewed):
             return True
-    return any(approved_branch.fullmatch(pull['head']['ref'].removeprefix('refs/heads/'))
-               for pull in pages(f'{CNB}/pulls?state=open'))
+    pulls = list(pages(f'{CNB}/pulls?state=open')) if pulls is None else pulls
+    return any(approved_branch.fullmatch(pull['head']['ref'].removeprefix('refs/heads/')) and not waiting(pull)
+               for pull in pulls)
 
 
 def ci_done(own=''):
-    """Wake the requirement issue once every other pull_request pipeline has finished; never raises."""
+    """Wake the requirement issue once every other main.pull_request pipeline has finished; never raises."""
     try:
         match = re.fullmatch(r'(automation/req-|refs/heads/automation/req-)(\d+)',
                              os.environ.get('CNB_PULL_REQUEST_BRANCH', ''))

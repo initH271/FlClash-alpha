@@ -334,16 +334,17 @@ def pull_statuses(number):
 def check_state(number, pull=None):
     if not number:
         return False, False
-    statuses = pull_statuses(number)
-    if pull and any(control.check_name(item) == REVIEW_GATE and item['state'] != 'success' for item in statuses):
-        # The gate only polls for 32 minutes; a review that finishes later must still count.
-        if state(scope('cnb', pull)) == 'success':
-            statuses = [item for item in statuses if control.check_name(item) != REVIEW_GATE]
-    # A review opened before CI settled never counts as green: merge waits for every evidence pipeline.
-    ci = ci_state(control.api(f'{CNB}/pulls/{number}/commit-statuses'))
+    checks = control.api(f'{CNB}/pulls/{number}/commit-statuses')
+    # The gate only polls for 32 minutes and starts before the review exists, so its row never decides:
+    # the review verdict itself does, and merge waits for every main.pull_request pipeline.
+    statuses = [item for item in control.gating_statuses(checks) if control.check_name(item) != REVIEW_GATE]
+    ci = ci_state(checks)
     failed = any(item['state'] in {'error', 'failure'} for item in statuses) or ci == 'failure'
-    green = bool(statuses) and ci == 'success' and all(item['state'] == 'success' for item in statuses)
-    return green, failed
+    if failed or ci != 'success' or not all(item['state'] == 'success' for item in statuses):
+        return False, failed
+    # Reading the verdict lists every issue, so it waits until CI alone would allow the merge.
+    review = state(scope('cnb', pull)) if pull else 'pending'
+    return review == 'success', review == 'failure'
 
 
 def ci_passed(number):

@@ -5,14 +5,16 @@ import re
 import sys
 import time
 
-from control import CI_GRACE, CNB, GH, POLICY, all_issues, api, check_name, comment, pages, sign, verify
+from control import CI_GRACE, CNB, GH, POLICY, all_issues, api, check_name, pages, sign, verify
 from review_evidence import describe
 
 CONTEXT = 'FlClash/paired-review'
 ROLES = ('审查助手', 'GLM复核助手')
-# The main.pull_request pipelines in .cnb.yml, and the only checks that gate a review.
+# The main.pull_request pipelines in .cnb.yml, and the only checks that gate a review. The paired review
+# gate runs under pull_request.target and waits for the review itself, so it must never be listed here.
 CI_PIPELINES = ('Dependency vulnerability gate', 'Automation unit tests', 'Go dependency regression tests',
-                'Flutter and Android requirement tests', 'Rust dependency regression tests', 'Paired review gate')
+                'Flutter and Android requirement tests', 'Rust dependency regression tests')
+NOTICE = re.compile(r'<!-- flclash-review-notice (\d+) -->')
 CI_GRACE_SECONDS = 80 * 60
 
 
@@ -141,16 +143,14 @@ def ensure_request(request, title, brief=''):
             '只有完成审查且没有阻断问题才能使用 pass / blockers=0；'
             '否则使用 verdict=block，blockers 为正整数。request 原样保留。\n\n'
             + '\n\n'.join(f'@{POLICY["cnb"]}({r}) 请独立审核上述 PR。' for r in ROLES))
-    notice = (f'\n<!-- flclash-review-notice {number} -->' if platform == 'cnb' else '')
     issue = api(f'{CNB}/issues', 'POST', {'title': display_title,
                 'body': body, 'work_mode': False, 'assignees': [POLICY['approver']]})
     body = (f'结对审核： https://cnb.cool/{POLICY["cnb"]}/-/issues/{issue["number"]}\n'
             f'base `{request["base"]}` / head `{request["head"]}`。两位审核者完成且无阻断问题后检查才通过。'
-            + notice)
-    if platform == 'github':
-        api(f'{GH}/issues/{number}/comments', 'POST', {'body': body})
-    else:
-        comment(number, body)
+            + (f'\n<!-- flclash-review-notice {issue["number"]} -->' if platform == 'cnb' else ''))
+    # existing_review reads the notice back from this same pull comment endpoint.
+    api(f'{GH}/issues/{number}/comments' if platform == 'github' else f'{CNB}/pulls/{number}/comments',
+        'POST', {'body': body})
     return issue
 
 
@@ -212,20 +212,27 @@ def _since(stamp):
     return time.time() - datetime.datetime.fromisoformat(stamp.replace('Z', '+00:00')).timestamp()
 
 
+def noticed_reviews(body):
+    """Return the review issue numbers a pull comment points at, marker first, then the issue link."""
+    link = re.escape(f'https://cnb.cool/{POLICY["cnb"]}/-/issues/') + r'(\d+)'
+    # Notices written before the marker existed carry only the link.
+    found = NOTICE.findall(body) + re.findall(r'结对审核：\s*' + link, body)
+    return list(dict.fromkeys(found))
+
+
 def existing_review(pull):
     """Return the review issue already opened for this base/head without listing every issue."""
     request = scope('cnb', pull)
     for summary in pages(f'{CNB}/pulls/{pull["number"]}/comments', size_key='page_size'):
-        if '<!-- flclash-review-notice ' not in str(summary.get('body', '')):
-            continue
-        detail = api(f'{CNB}/issues/{summary["number"]}', missing=True)
-        if detail and request_from(detail) == request:
-            return detail
+        for number in noticed_reviews(str(summary.get('body', ''))):
+            detail = api(f'{CNB}/issues/{number}', missing=True)
+            if detail and request_from(detail) == request:
+                return detail
     return None
 
 
 def ci_state(checks):
-    """Return pending, failure or success over the six pull_request pipelines only."""
+    """Return pending, failure or success over the five main.pull_request pipelines only."""
     from wake import SETTLED
     named = {}
     for item in (checks or {}).get('statuses') or []:
@@ -277,11 +284,15 @@ def withhold(pull):
     if not re.fullmatch(r'automation/req-.+', pull['head']['ref'].removeprefix('refs/heads/')):
         return
     statuses = (api(f'{CNB}/pulls/{pull["number"]}/commit-statuses') or {}).get('statuses') or []
-    if ci_state({'statuses': statuses}) not in ('pending', 'failure'):
-        api(f'{CNB}/statuses/{pull["head"]["sha"]}', 'POST', {
-            'state': 'failure', 'context': CI_GRACE,
-            'description': 'Review opened before CI settled; merge waits for every pipeline'})
-    elif any(item.get('context') == CI_GRACE for item in statuses):
+    marks = sorted((item for item in statuses if check_name(item) == CI_GRACE),
+                   key=lambda item: item.get('created_at') or '')
+    current = marks[-1].get('state') if marks else ''
+    if ci_state({'statuses': statuses}) in ('pending', 'failure'):
+        if current != 'failure':
+            api(f'{CNB}/statuses/{pull["head"]["sha"]}', 'POST', {
+                'state': 'failure', 'context': CI_GRACE,
+                'description': 'Review opened before CI settled; merge waits for every pipeline'})
+    elif current and current != 'success':
         api(f'{CNB}/statuses/{pull["head"]["sha"]}', 'POST', {
             'state': 'success', 'context': CI_GRACE, 'description': 'Every pull_request pipeline has settled'})
 
