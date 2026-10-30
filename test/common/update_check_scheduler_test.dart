@@ -218,4 +218,35 @@ void main() {
     expect(notifications, 0);
     expect(await scheduler.check(), isFalse);
   });
+
+  testWidgets('traces why a check ran, found nothing or was skipped', (
+    tester,
+  ) async {
+    final traces = <String>[];
+    Map<String, dynamic>? release;
+    final scheduler = UpdateCheckScheduler(
+      load: () async => release,
+      notify: (_) async {},
+      now: tester.binding.clock.now,
+      onError: (_) => fail('unexpected error'),
+      trace: traces.add,
+    );
+    try {
+      await scheduler.check();
+      expect(traces, ['skipped: enabled=false foreground=true']);
+      traces.clear();
+      scheduler.setEnabled(true);
+      await tester.pump();
+      expect(traces, ['started', 'no newer build']);
+      traces.clear();
+      await scheduler.check();
+      expect(traces.single, startsWith('skipped: last check at'));
+      traces.clear();
+      release = {'build': 21, 'tag_name': 'v21'};
+      await tester.pump(const Duration(hours: 6));
+      expect(traces, ['started', 'found v21']);
+    } finally {
+      scheduler.dispose();
+    }
+  });
 }
