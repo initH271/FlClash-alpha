@@ -117,6 +117,20 @@ void main() {
   });
 
   group('AppSettingProps JSON round-trip', () {
+    test('a stale opt-out under the old key no longer silences updates', () {
+      final props = AppSettingProps.fromJson({'autoCheckUpdate': false});
+      expect(props.autoCheckUpdate, isTrue);
+      expect(props.toJson().containsKey('autoCheckUpdate'), isFalse);
+    });
+
+    test('an opt-out saved under the new key survives a restart', () {
+      final restored = roundTrip(
+        () => const AppSettingProps(autoCheckUpdate: false).toJson(),
+        AppSettingProps.fromJson,
+      );
+      expect(restored.autoCheckUpdate, isFalse);
+    });
+
     test('default values survive round-trip', () {
       const props = AppSettingProps();
       final restored = roundTrip(
