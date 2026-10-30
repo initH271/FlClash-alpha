@@ -169,6 +169,9 @@ class SecurityHoldTests(unittest.TestCase):
             root = pathlib.Path(directory)
             (root / '.automation').mkdir()
             (root / '.automation/candidate.json').write_text(json.dumps(envelope))
+            # active_candidate reads the released version; this one names another upstream, so the candidate stays.
+            (root / '.github').mkdir()
+            (root / '.github/release.json').write_text(json.dumps({'upstreamVersion': '0.0.0'}))
             with patch.object(control, 'ROOT', root), patch.object(control, 'api', api), \
                     patch.object(control, 'pages', pages), patch.object(control, 'git', git), \
                     patch.object(reviews, 'reconcile') as reconcile, \
