@@ -12,6 +12,7 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.StandardMethodCodec
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -120,8 +121,8 @@ class ServicePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
 
     private fun stop(call: MethodCall, result: MethodChannel.Result) {
         commandRevision = call.arguments as? Int ?: commandRevision
-        ServiceState.requestStop()
-        result.success(true)
+        val stopped = ServiceState.requestStop()
+        scope.launch(Dispatchers.Main) { replyWhenSettled(stopped, result) }
     }
 
     // Read on the platform thread, where start and stop arrive: revision and intent are one instant.
@@ -144,4 +145,13 @@ class ServicePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         val SERVICE_CHANNEL = "${Components.PACKAGE_NAME}/service"
         val CORE_CHANNEL = "${Components.PACKAGE_NAME}/core"
     }
+}
+
+/**
+ * Answers once [transition] is settled. A restart starts the Core's listener right after the stop
+ * returns, and a teardown still in flight then stops it again, so the new tun is refused.
+ */
+internal suspend fun replyWhenSettled(transition: Deferred<Boolean>, result: MethodChannel.Result) {
+    transition.await()
+    result.success(true)
 }

@@ -1800,6 +1800,18 @@ class MessageLookup extends MessageLookupByLibrary {
     "serviceAllAvailable": MessageLookupByLibrary.simpleMessage("Все доступны"),
     "serviceAvailable": MessageLookupByLibrary.simpleMessage("Доступен"),
     "serviceBlocked": MessageLookupByLibrary.simpleMessage("Заблокировано"),
+    "serviceCategoryAi": MessageLookupByLibrary.simpleMessage("ИИ"),
+    "serviceCategoryDeveloper": MessageLookupByLibrary.simpleMessage(
+      "Разработка и инструменты",
+    ),
+    "serviceCategoryFinance": MessageLookupByLibrary.simpleMessage(
+      "Биржи и финансы",
+    ),
+    "serviceCategoryGaming": MessageLookupByLibrary.simpleMessage("Игры"),
+    "serviceCategorySocial": MessageLookupByLibrary.simpleMessage("Соцсети"),
+    "serviceCategoryStreaming": MessageLookupByLibrary.simpleMessage(
+      "Стриминг",
+    ),
     "serviceCheckAll": MessageLookupByLibrary.simpleMessage("Проверить все"),
     "serviceComingSoon": MessageLookupByLibrary.simpleMessage("Скоро появится"),
     "serviceDisallowedIsp": MessageLookupByLibrary.simpleMessage(

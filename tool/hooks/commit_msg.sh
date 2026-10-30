@@ -75,8 +75,8 @@ while IFS= read -r line; do
     key="${BASH_REMATCH[1]}"
     if [[ "$key" != 'Type' ]]; then
       echo "Unknown changelog trailer: Changelog-$key" >&2
-      echo "The changelog is English only; Changelog-Type is the only" >&2
-      echo "suffixed trailer. Do not add translations to commit messages." >&2
+      echo "Changelog-Type is the only suffixed trailer." >&2
+      echo "Do not add translations to commit messages." >&2
       exit 1
     fi
     value="${line#*: }"
@@ -88,7 +88,7 @@ while IFS= read -r line; do
   fi
   if [[ "$line" =~ ^Breaking-([A-Za-z0-9-]+): ]]; then
     echo "Unknown breaking trailer: Breaking-${BASH_REMATCH[1]}" >&2
-    echo "The changelog is English only; use BREAKING CHANGE: alone." >&2
+    echo "Do not add translations to commit messages; use BREAKING CHANGE: alone." >&2
     exit 1
   fi
 done <<<"$body"
@@ -121,7 +121,8 @@ type="${subject%%[(:!]*}"
 
 if [[ "$type" =~ ^(feat|fix|perf)$ ]] && ! grep -qE '^Changelog:' <<<"$body"; then
   cat >&2 <<EOF
-Note: no "Changelog:" trailer, so the changelog will reuse this subject.
+Note: no "Changelog:" trailer. Unless the scope is internal, the changelog will
+reuse this subject and flag it. Copy rules: CHANGELOG_STYLE.md
 
   Changelog: $description
 EOF

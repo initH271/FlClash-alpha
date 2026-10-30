@@ -257,7 +257,7 @@ that decide the wording.
 
 The app ships no changelog of its own. `render release` appends the released version as JSON inside an HTML comment
 (`<!-- flclash:changelog:json … -->`), so the release body GitHub already returns to `checkForUpdate` carries the
-notes shown in the update dialog. `parseReleaseChangelog` reads that block and falls back to the English
+notes shown in the update dialog. `parseReleaseChangelog` reads that block and falls back to the plain
 bullets when a release predates it.
 
 ```bash

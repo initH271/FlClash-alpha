@@ -161,6 +161,15 @@ closed. CNB closure detection uses the scheduled fallback. Reopening a PR with t
 same commits requires reopening its review Issue; manual closures are not undone.
 
 Reconciliation also closes review Issues superseded by a changed PR base/head.
+
+A diff over 6 files or 350 lines gets one GLM-only review Issue per file group, and
+its main review Issue summons only DeepSeek. GLM passes only when every open shard
+passes; it never passes on a report in the main Issue. A deleted shard, or one whose
+signed record no longer verifies, is replaced on the next reconciliation. So is a
+closed shard, and a pass on it does not count. The exception is a closed shard whose
+latest GLM report is a block or malformed: closing it cannot shed that result, so GLM
+stays blocked until the base/head changes.
+
 The controller checks failed NPC executions every 15 minutes (or with the manual
 `recovery` operation). Only trusted/signed tasks are eligible. A task/role gets one
 bounded retry if execution failed without a report; cancelled/running jobs and
@@ -187,10 +196,10 @@ controller. The 15-minute controller also discovers CNB PRs, bot-created GitHub
 PRs and base changes, and refreshes results without rerunning existing requests.
 New base/head means a new review; old passes cannot authorize candidate promotion.
 GitHub main requires the FlClash/paired-review status and an up-to-date branch.
-CNB pull_request.target runs the target branch's gate, waiting up to 30 minutes
-for both reports. Its existing required-status-check protection blocks merging.
-After a timeout or a corrected blocking report, rerun the CNB PR gate. One bounded recovery is available for failed trusted tasks without a report. The one-CPU waiting runner can consume up
-to 0.5 core-hours per CNB PR event; GitHub result polling uses the existing schedule.
+CNB runs no paired-review gate pipeline: the controller reads both reports directly
+and forwards or merges nothing until the review for that base/head passes, so a
+corrected blocking report takes effect on its next run. One bounded recovery is available for failed trusted tasks without a report.
+GitHub result polling uses the existing schedule.
 
 Candidate construction no longer dispatches a release build immediately. The
 controller resumes it only after both reports pass, and promotion checks the
@@ -250,15 +259,19 @@ schedule remains a further backstop. An unsuccessful dispatch fails visibly in C
 Reviews no longer open the moment a requirement or security PR appears. For a CNB PR
 whose head is `automation/req-*` or `security/group-*` and which has no review issue
 yet, the controller reads `/pulls/{n}/commit-statuses` and looks only at the five
-`main.pull_request` pipelines (`CI_PIPELINES`). The `Paired review gate` runs under
-`pull_request.target` and waits for the review itself, so it is never part of this
-wait; listing it would make the review and the gate wait on each other. A missing pipeline or
+`main.pull_request` pipelines (`CI_PIPELINES`). CNB has no paired-review gate pipeline;
+a `Paired review gate` row left on a head pushed before its removal is ignored. A missing pipeline or
 one that has not settled leaves that head `pending`: while the earliest status is
 younger than 80 minutes the controller prints `cnb PR #n: waiting for CI` and opens
 nothing; a settled non-success prints `cnb PR #n: CI failed, review deferred` and
-also opens nothing. Past 80 minutes it opens the review anyway, prints
-`cnb PR #n: CI unsettled after 80m, review opened`, and the brief names the pipelines
-that had not finished as unverified. Reviews that already exist, other branches and
+also opens nothing. A head with no status at all counts from the `created_at` of its
+entry in the open PR list, because `/pulls/{n}` returns no time field; one without
+even that timestamp prints `cnb PR #n: waiting for CI (no PR created_at)` and opens
+nothing rather than waiting forever. Past 80 minutes it opens the review anyway,
+prints `cnb PR #n: CI unsettled after 80m, review opened`, and the brief names the
+pipelines that had not finished as unverified; when the head carried no status at
+all, the brief instead states there is no CI evidence and treats every entry as
+unverified. Reviews that already exist, other branches and
 GitHub PRs keep their previous timing. The controller finds an existing review from
 the notice it left on the PR (`/pulls/{n}/comments`): the
 `<!-- flclash-review-notice <review issue> -->` marker, or for notices written before
@@ -298,9 +311,9 @@ Requirement PRs (`automation/req-<n>`) give reviewers the issue's acceptance
 criteria; a criterion that the diff cannot confirm, or that the developer's latest
 report calls unmet, is a block even when CI is green. A reviewer whose bounded
 recheck still omits the machine verdict gets one request to restate its own
-conclusion. The `Paired review gate` check only polls for 32 minutes, so the
-controller reads the review verdict directly: a pending, timed-out or missing gate
-never holds back a requirement whose review for that base/head has passed.
+conclusion. The controller reads the review verdict directly; CNB runs no separate
+gate pipeline, and a leftover `Paired review gate` row on an older head never holds
+back a requirement whose review for that base/head has passed.
 Before forwarding, the controller merges the latest GitHub `main` into a green
 requirement branch that has fallen behind (branch protection requires it) and lets
 checks and review rerun; a merge conflict goes back to the developer. An open
@@ -324,9 +337,8 @@ allow_events:
 
 Never authorize ordinary `pull_request` or source-branch execution to import this
 credential. The GitHub controller independently validates signed work records.
-CNB's synchronous review gate remains in this first rollout: the trusted PR event
-now starts reviewers, but replacing long polling with asynchronous status updates
-is a separate migration requiring branch-protection validation.
+CNB no longer runs a synchronous review gate: the trusted PR event only wakes the
+controller, which starts reviewers and reads their verdict directly.
 
 Security queue reconciliation runs even if review reconciliation fails, provided
 credentials passed validation. It uses signed dispatch receipts, checks both
