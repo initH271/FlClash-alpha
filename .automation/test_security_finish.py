@@ -85,6 +85,17 @@ class SecurityFinishTests(unittest.TestCase):
             with (patch.object(finish, 'api', return_value=checks), patch.object(finish, 'git')):
                 self.assertFalse(finish.passed_checks('1', {'base': 'a' * 40, 'head': 'b' * 40}))
 
+    def test_an_unsettled_non_native_check_blocks_even_when_every_native_check_passed(self):
+        # CHECKS <= names already holds here, so only the every-row-succeeded clause can refuse.
+        for state in ('pending', 'error'):
+            checks = {'sha': 'c' * 40, 'statuses': [
+                {'state': 'success', 'context': 'cnb/pipeline(' + name + ')'} for name in finish.NATIVE_CHECKS]
+                + [{'state': state, 'context': 'cnb/pipeline-4(Automation unit tests)'}]}
+            with self.subTest(state=state), patch.object(finish, 'api', return_value=checks), \
+                    patch.object(finish, 'git', side_effect=AssertionError('no tree check after a red row')):
+                self.assertFalse(finish.passed_checks('1'))
+                self.assertFalse(finish.passed_checks('1', {'base': 'a' * 40, 'head': 'b' * 40}))
+
     def test_passed_checks_reads_the_review_verdict_nowhere(self):
         checks = {'sha': 'c' * 40, 'statuses': [
             {'state': 'success', 'context': 'cnb/pipeline(' + name + ')'} for name in finish.NATIVE_CHECKS]}

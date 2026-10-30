@@ -165,8 +165,8 @@ FIVE = ('Dependency vulnerability gate', 'Automation unit tests', 'Go dependency
         'Flutter and Android requirement tests', 'Rust dependency regression tests')
 
 
-def statuses(states, minutes=10, names=FIVE, gate='pending'):
-    """CI rows as CNB lists them; the gate waits for the review, so before one opens it is pending."""
+def statuses(states, minutes=10, names=FIVE, gate=None):
+    """CI rows as CNB lists them; `gate` adds the row a head pushed before 2-1c may still carry."""
     rows = [{'context': f'cnb/pipeline-{i}({name})', 'state': state,
              'created_at': stamp(minutes)} for i, (name, state) in enumerate(zip(names, states))]
     if gate:
@@ -221,6 +221,7 @@ class ReconcileTests(unittest.TestCase):
         ensure, printed = self.reconcile(statuses(('success', 'pending', 'success', 'success', 'success')))
         ensure.assert_not_called()
         self.assertIn('waiting for CI', printed)
+        # A leftover gate row alone is not CI evidence.
         ensure, printed = self.reconcile({'statuses': [{'context': 'cnb/pipeline-0(Paired review gate)',
                                                        'state': 'pending', 'created_at': stamp(10)}]})
         ensure.assert_not_called()
@@ -277,7 +278,7 @@ class ReconcileTests(unittest.TestCase):
         self.assertRegex(brief, r'^CI 未结束就开审的流水线：\S[^。]*。')
         (unsettled,) = FIVE[1:2]
         self.assertIn(unsettled, brief)
-        for name in FIVE[2:] + ('Paired review gate',):
+        for name in FIVE[2:]:
             self.assertNotIn(name, brief)
         self.assertIn('未验证', brief)
         self.assertIn('CI unsettled after 80m, review opened', printed)
@@ -306,6 +307,36 @@ class ReconcileTests(unittest.TestCase):
         ensure, printed = self.reconcile(statuses(('pending',) * 5))
         ensure.assert_not_called()
         self.assertIn('waiting for CI', printed)
+
+    def test_github_heads_still_get_the_required_paired_review_status(self):
+        # 2-1c removed only the CNB polling job; GitHub branch protection still requires this context.
+        pull = {'state': 'open', 'number': '3', 'title': 'x', 'base': {'sha': 'a' * 40},
+                'head': {'sha': 'c' * 40, 'ref': 'feature'}}
+        posts = []
+
+        def api(url, method='GET', data=None, missing=False, timeout=60):
+            if method == 'POST':
+                posts.append((url, data))
+                return data
+            if url.endswith('/pulls/3'):
+                return pull
+            if url.endswith('/status'):
+                return {'statuses': []}
+            raise AssertionError(f'unexpected request {method} {url}')
+
+        def pages(url, page_key='page', size_key='page_size'):
+            return iter([pull] if url.startswith(reviews.GH) and '/pulls?' in url else [])
+        with (patch.object(reviews, 'api', side_effect=api), patch.object(reviews, 'pages', side_effect=pages),
+              patch('security_finish.mirror_attestation', return_value=None),
+              patch('security_finish.mirror_record', return_value=None),
+              patch.object(reviews, 'ensure_request', return_value={'number': '8', 'state': 'closed'}),
+              patch.object(reviews, 'withhold'), patch.object(reviews, 'result', return_value='success'),
+              patch.object(reviews, 'close_finished_reviews'),
+              patch.object(reviews, 'requirement_brief', return_value=''), _capture()):
+            reviews.reconcile()
+        ((url, data),) = posts
+        self.assertEqual(f'{reviews.GH}/statuses/' + 'c' * 40, url)
+        self.assertEqual(('FlClash/paired-review', 'success'), (data['context'], data['state']))
 
     def test_ci_state_only_looks_at_the_pull_request_pipelines(self):
         self.assertEqual('pending', reviews.ci_state({'statuses': [

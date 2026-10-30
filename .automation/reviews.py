@@ -1,6 +1,5 @@
 import hashlib
 import json
-import os
 import re
 import sys
 import time
@@ -378,21 +377,5 @@ def require_candidate(head, base):
         raise ValueError('Paired PR review missing, stale, blocked or incomplete')
 
 
-def cnb_gate():
-    number = os.environ['CNB_PULL_REQUEST_IID']
-    pull = api(f'{CNB}/pulls/{number}')
-    request = scope('cnb', pull)
-    if request['head'] != os.environ['CNB_PULL_REQUEST_SHA']:
-        raise ValueError('PR head changed')
-    for _ in range(60):
-        if scope('cnb', api(f'{CNB}/pulls/{number}')) != request:
-            raise ValueError('PR base/head changed')
-        status = state(request, signed=False)
-        if status == 'success':
-            return
-        time.sleep(30)
-    raise ValueError('Paired review timed out; rerun after both reports pass')
-
-
 if __name__ == '__main__':
-    {'reconcile': reconcile, 'cnb-gate': cnb_gate}[sys.argv[1]]()
+    {'reconcile': reconcile}[sys.argv[1]]()
