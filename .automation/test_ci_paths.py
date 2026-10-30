@@ -118,6 +118,9 @@ class ReuseTests(unittest.TestCase):
         self.addCleanup(subprocess.run, ['rm', '-rf', self.directory])
         self.git = git_in(self.directory)
         self.git('init', '-q', '-b', 'main')
+        # CI runners have no global identity, and commit-tree in sync() needs one.
+        self.git('config', 'user.name', 't')
+        self.git('config', 'user.email', 't@t')
         self.write({'lib/a.dart': 'a', 'core/x.go': 'x', 'pubspec.yaml': 'p', 'README.md': 'r',
                     '.cnb.yml': ci_paths.CNB_YML + ' ' + REUSE})
         self.base = self.commit('base')
