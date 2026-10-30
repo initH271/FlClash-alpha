@@ -113,7 +113,7 @@ BREAKING CHANGE: Archives from 0.8.95 and earlier need re-import
 
       expect(items.first.type, ChangelogType.breaking);
       expect(items.first.entry.text, 'Drop the legacy socket');
-      expect(parser.warnings.single, contains('BREAKING CHANGE'));
+      expect(parser.warnings, anyElement(contains('BREAKING CHANGE')));
     });
 
     test('treats a BREAKING CHANGE footer alone as breaking', () {
@@ -188,8 +188,8 @@ Note: the old handle still works
 
       expect(items.single.entry.text, 'X');
       expect(
-        parser.warnings.single,
-        contains('unsupported changelog trailer: Changelog-zh-CN'),
+        parser.warnings,
+        anyElement(contains('unsupported changelog trailer: Changelog-zh-CN')),
       );
     });
 
@@ -198,8 +198,8 @@ Note: the old handle still works
       parser.parse(commit('feat: x', 'Breaking-zh-CN: 变更'));
 
       expect(
-        parser.warnings.single,
-        contains('unsupported changelog trailer: Breaking-zh-CN'),
+        parser.warnings,
+        anyElement(contains('unsupported changelog trailer: Breaking-zh-CN')),
       );
     });
 
@@ -216,6 +216,52 @@ Note: the old handle still works
 
       expect(parser.parse(commit('Optimize core service')), isEmpty);
       expect(parser.warnings.single, contains('not a conventional commit'));
+    });
+
+    test('drops internal scopes without a trailer, silently', () {
+      final parser = ChangelogParser();
+
+      expect(parser.parse(commit('fix(automation): settle the lock')), isEmpty);
+      expect(parser.parse(commit('feat(ci): add a job')), isEmpty);
+      expect(parser.parse(commit('fix(l10n): fill missing keys')), isEmpty);
+      expect(parser.parse(commit('fix(ci,release): pin a tool')), isEmpty);
+      expect(parser.parse(commit('feat(security)!: bump deps')), isEmpty);
+      expect(parser.warnings, isEmpty);
+    });
+
+    test('keeps an internal scope that carries its own copy', () {
+      final parser = ChangelogParser();
+      final items = parser.parse(
+        commit('feat(l10n): add French', 'Changelog: 新增法语界面'),
+      );
+
+      expect(items.single.type, ChangelogType.feat);
+      expect(items.single.entry.text, '新增法语界面');
+      expect(parser.warnings, isEmpty);
+    });
+
+    test('keeps a combined scope when one part is user facing', () {
+      final items = ChangelogParser().parse(
+        commit('fix(core,automation): keep sockets protected'),
+      );
+
+      expect(items.single.entry.text, 'Keep sockets protected');
+    });
+
+    test('flags a user facing commit that has no trailer', () {
+      final parser = ChangelogParser();
+      final items = parser.parse(commit('fix(app): cover empty scans'));
+
+      expect(items.single.entry.text, 'Cover empty scans');
+      expect(parser.warnings.single, contains('no "Changelog:" trailer'));
+      expect(parser.warnings.single, contains('abcdef1'));
+    });
+
+    test('an empty Changelog: line still asks for copy', () {
+      final parser = ChangelogParser();
+      parser.parse(commit('fix(core): keep the socket alive', 'Changelog:'));
+
+      expect(parser.warnings.single, contains('no "Changelog:" trailer'));
     });
 
     test('handles a missing scope', () {

@@ -120,7 +120,7 @@ class LifecycleTests(unittest.TestCase):
         self.assertTrue(wake.stalled(issue, [signed('dev', 50), forwarded], pull, green, now).startswith('merge-'))
         retried = [{'body': f'{wake.WAKE_MARKER} merge-{n} -->'} for n in range(wake.MERGE_RETRIES)]
         self.assertEqual('', wake.stalled(issue, [signed('dev', 50), forwarded, *retried], pull, green, now))
-        red = [{'context': 'x(Paired review gate)', 'state': 'error'}]
+        red = [{'context': 'x(Go dependency regression tests)', 'state': 'error'}]
         quiet = [signed('dev', 90, 'success'), dict(report, created_at=stamp(45))]
         self.assertEqual('idle-abc-1', wake.stalled(issue, quiet, pull, red, now))
         waited = quiet + [{'created_at': stamp(45), 'body': f'{wake.WAKE_MARKER} idle-abc -->'}]
@@ -196,7 +196,7 @@ class LifecycleTests(unittest.TestCase):
         owner = {'username': 'Aharon', 'is_npc': False}
         report = {'created_at': stamp(60), 'body': '阶段汇报', 'author': {'username': '507space/FlClash-alpha(开发助手)'}}
         pull = {'head': {'sha': 'abc'}}
-        red = [{'context': 'x(Paired review gate)', 'state': 'error'}]
+        red = [{'context': 'x(Go dependency regression tests)', 'state': 'error'}]
         green = [{'context': 'x(Flutter and Android requirement tests)', 'state': 'success'}]
         hold = {'created_at': stamp(50), 'body': 'HOLD', 'author': owner}
         release = {'created_at': stamp(40), 'body': 'RELEASE', 'author': owner}
@@ -215,10 +215,8 @@ class LifecycleTests(unittest.TestCase):
                  'Rust dependency regression tests': 'success'}
         for name, state in zip([name for name in names if name != own], states):
             names[name] = state
-        # The gate waits for the review that waits for CI, so it is still pending whenever CI ends.
         return {'statuses': [{'context': f'cnb/pipeline-{i}({name})', 'state': state}
-                             for i, (name, state) in enumerate(names.items())]
-                + [{'context': 'cnb/pipeline-9(Paired review gate)', 'state': 'pending'}]}
+                             for i, (name, state) in enumerate(names.items())]}
 
     def run_ci(self, statuses, branch='automation/req-7', head='h' * 40, comments=(), state='open'):
         pull = {'state': state, 'number': '5', 'base': {'sha': 'b' * 40},

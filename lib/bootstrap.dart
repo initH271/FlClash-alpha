@@ -245,7 +245,8 @@ class Bootstrap {
     final acceptedVersion = _container.read(
       appSettingProvider.select((state) => state.acceptedDisclaimerVersion),
     );
-    if (acceptedVersion >= disclaimerVersion) {
+    // Fork choice: any accepted version counts, the disclaimer asks once.
+    if (!disclaimerNeeded(acceptedVersion)) {
       return true;
     }
     final isDisclaimerAccepted =

@@ -1471,6 +1471,12 @@ class MessageLookup extends MessageLookupByLibrary {
     "serviceAllAvailable": MessageLookupByLibrary.simpleMessage("すべて利用可能"),
     "serviceAvailable": MessageLookupByLibrary.simpleMessage("利用可能"),
     "serviceBlocked": MessageLookupByLibrary.simpleMessage("ブロック済み"),
+    "serviceCategoryAi": MessageLookupByLibrary.simpleMessage("AI"),
+    "serviceCategoryDeveloper": MessageLookupByLibrary.simpleMessage("開発者・ツール"),
+    "serviceCategoryFinance": MessageLookupByLibrary.simpleMessage("取引所・金融"),
+    "serviceCategoryGaming": MessageLookupByLibrary.simpleMessage("ゲーム"),
+    "serviceCategorySocial": MessageLookupByLibrary.simpleMessage("ソーシャル"),
+    "serviceCategoryStreaming": MessageLookupByLibrary.simpleMessage("ストリーミング"),
     "serviceCheckAll": MessageLookupByLibrary.simpleMessage("すべて検査"),
     "serviceComingSoon": MessageLookupByLibrary.simpleMessage("近日提供予定"),
     "serviceDisallowedIsp": MessageLookupByLibrary.simpleMessage(
