@@ -160,3 +160,52 @@ class CollectTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+# A comment as CNB returns it for a running NPC build (trimmed from a real #393 comment; the build is
+# still going, so only its state differs from the real "success" one). Every value is a JSON string.
+REAL_RUNNING_COMMENT = """{"id": "2116203539910107136", "created_at": "2026-10-30T16:20:15Z",
+ "updated_at": "2026-10-30T16:20:15Z", "author": {"username": "507space/FlClash-alpha(审查助手)", "is_npc": true},
+ "reactions": [], "body": "@Aharon 复核中",
+ "statuses": {"npc": [{"key": {"name": "审查助手", "slug": "507space/FlClash-alpha"},
+  "context": {"npc.name": "审查助手", "npc.slug": "507space/FlClash-alpha", "npc.work_mode": "false",
+              "pipeline_id": "cnb-h8t-1k66poe3u-001", "sha": "412c4b197d92a59695776c177f70af1bed71a879",
+              "sn": "cnb-h8t-1k66poe3u"},
+  "statuses": [{"state": "pending", "context": "cnb/issue.comment@npc/pipeline-1(Project NPC review)",
+                "description": "pending", "target_url": "https://cnb.cool/507space/FlClash-alpha/-/build/logs/cnb-h8t-1k66poe3u"}],
+  "annotations": {"milli_credit": "0", "total_tokens": "0"}}]}}"""
+
+
+class RealShapeTests(unittest.TestCase):
+    def test_a_running_npc_build_in_the_real_comment_shape_reaches_the_rendered_status(self):
+        comment = json.loads(REAL_RUNNING_COMMENT)
+        now = 1_793_377_215.0 + 40 * 60  # 2026-10-30T16:20:15Z plus forty minutes
+        issues = [{'number': 393, 'title': '[需求] 真实形状', 'author': {'username': 'Aharon', 'is_npc': False}}]
+
+        def api(url, method='GET', data=None, missing=False, timeout=60):
+            if url.endswith('/issues/393'):
+                return {'number': 393, 'state': 'open', 'statuses': None}
+            raise AssertionError(f'unexpected {method} {url}')
+
+        def pages(url, page_key='page', size_key='page_size'):
+            return iter([comment] if url.endswith('/issues/393/comments') else [])
+        with (patch.object(status, 'api', side_effect=api), patch.object(status, 'pages', side_effect=pages),
+              patch.object(status, 'release_lead', return_value={'tag': 'v0.9.2-alpha.19', 'ahead': 0})):
+            found = status.collect(issues, now)
+        self.assertEqual([{'issue': '393', 'role': '审查助手', 'sn': 'cnb-h8t-1k66poe3u', 'elapsed': 40 * 60}],
+                         found['builds'])
+        self.assertIn('审查助手 构建 `cnb-h8t-1k66poe3u`：已运行 ', status.render(found))
+
+
+class WatchdogStatusTests(unittest.TestCase):
+    def test_a_status_failure_is_logged_with_its_message_and_does_not_stop_the_watchdog(self):
+        import wake
+        out = io.StringIO()
+        with (patch.object(wake, 'watchdog') as watchdog,
+              patch.object(status, 'refresh', side_effect=control.HttpStatusError(
+                  'POST api.cnb.cool returned HTTP 500: boom', 500)),
+              contextlib.redirect_stdout(out)):
+            wake.watchdog_with_status()
+        watchdog.assert_called_once()
+        self.assertIn('Status issue skipped: HttpStatusError: POST api.cnb.cool returned HTTP 500: boom',
+                      out.getvalue())

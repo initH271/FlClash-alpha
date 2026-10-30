@@ -259,7 +259,8 @@ def watchdog_with_status():
         import status
         status.refresh()
     except Exception as error:  # The status view must never stop the wake bridge.
-        print(f'Status issue skipped: {type(error).__name__}')
+        # API errors are already redacted by control.api; the cap keeps any other message short.
+        print(f'Status issue skipped: {type(error).__name__}: {str(error)[:200]}')
 
 
 if __name__ == '__main__':
