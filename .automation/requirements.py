@@ -8,7 +8,7 @@ import env_failure
 import pause
 import control
 from control import CNB, GH, POLICY
-from reviews import ci_state, find_request, reconcile as review_reconcile, scope, state
+from reviews import ci_state, find_request, reconcile as review_reconcile, scope, shard_parts, state
 from security_finish import ensure_branch_scan, merge_ready, push_github
 
 HEADINGS = ('要改什么', '验收标准', '不做什么', '影响范围', '允许改自动化配置', '相关文件或界面')
@@ -525,6 +525,7 @@ def review_block(pull, number='', comments=()):
     if not issue:
         return True, '结对审核未通过。按阻断项修改后推同一分支。'
     comments = list(control.pages(f'{CNB}/issues/{issue["number"]}/comments'))
+    comments += [row for _, _, rows in shard_parts(request, issue) or () for row in rows]
     text = ''
     for item in comments:
         if 'FLCLASH_REVIEW' in item.get('body', '') and '"verdict":"block"' in item.get('body', '').replace(' ', ''):

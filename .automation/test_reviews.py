@@ -1,7 +1,9 @@
 import contextlib
+import hashlib
 import io
 import json
 import os
+import re
 import subprocess
 import time
 import unittest
@@ -558,6 +560,140 @@ class WithholdTests(unittest.TestCase):
         self.assertEqual(['success'], self.run_withhold(five, grace=('failure',)))
         self.assertEqual([], self.run_withhold(five, grace=('failure', 'success')))
         self.assertEqual([], self.run_withhold(five[:4] + ('pending',), ref='refs/heads/security/group-x'))
+
+
+def added(sizes):
+    """A -U0 diff where each path gains the given number of lines."""
+    return ''.join(f'diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -0,0 +1,{n} @@\n' + '+x\n' * n
+                   for path, n in sizes.items())
+
+
+BIG = dict({f'lib/a/f{i}.dart': 10 for i in range(1, 8)}, **{'lib/b/x.dart': 5, 'core/big.go': 400})
+# sha256 of the review body e1313d9e writes for the PromptTests diff; an unsharded PR must keep it.
+SMALL_BODY = 'e0d607cb03f4c1dcd824fbc8676ac14c99e61b865cf3efc2b7ea3535d9313489'
+
+
+class ShardTests(unittest.TestCase):
+    """GLM shards for an oversized diff, through the real review code over the HTTP and git layers only."""
+
+    pages = NoticeTests.pages
+
+    def setUp(self):
+        env = patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'})
+        env.start()
+        self.addCleanup(env.stop)
+        self.pull = {'number': '12', 'state': 'open', 'base': {'sha': 'a' * 40},
+                     'head': {'sha': 'b' * 40, 'ref': 'automation/req-9'}}
+        self.request = reviews.scope('cnb', self.pull)
+        self.issues, self.comments, self.closed, self.diff = {}, {}, [], added(BIG)
+
+    def api(self, url, method='GET', data=None, missing=False, timeout=60):
+        if url.endswith('/pulls/12'):
+            return self.pull
+        if method == 'PATCH':
+            self.closed.append(url.rsplit('/', 1)[-1])
+            return {}
+        return NoticeTests.api(self, url, method, data, missing, timeout)
+
+    def git(self, *args, check=True, env=None):
+        """Answer like control.git: stripped stdout with check=True, the finished process with check=False."""
+        stdout = {'merge-base': 'c' * 40, 'merge-tree': 'd' * 40, 'rev-parse': 'e' * 40}.get(args[0], '')
+        if args[0] == 'diff':
+            names = re.findall(r'^diff --git a/\S+ b/(\S+)', self.diff, re.M)
+            stdout = self.diff if '-U0' in args else '\0'.join(names)
+        if check:
+            return stdout.strip()
+        return subprocess.CompletedProcess(['git', *args], 0, stdout=stdout, stderr='')
+
+    def network(self):
+        stack = contextlib.ExitStack()
+        for target, fake in (('reviews.api', self.api), ('reviews.pages', self.pages), ('control.pages', self.pages),
+                             ('review_evidence.git', self.git), ('reviews.git', self.git)):
+            stack.enter_context(patch(target, side_effect=fake))
+        return stack
+
+    def opened(self):
+        with self.network():
+            main = reviews.ensure_request(self.request, '需求实现')
+        parts = [(reviews.request_from(issue), issue) for issue in self.issues.values() if issue is not main]
+        return main, sorted(parts, key=lambda part: part[0]['shard']['index'])
+
+    def say(self, issue, role, part, verdict='pass', text=''):
+        rows = self.comments.setdefault(f'issues/{issue["number"]}/comments', [])
+        rows.append({'id': str(len(rows)), 'created_at': '9999-01-01T00:00:00Z',
+                     'author': {'username': f'{reviews.POLICY["cnb"]}({role})', 'is_npc': True},
+                     'body': text + '\nFLCLASH_REVIEW ' + json.dumps({
+                         'request': reviews.identity(part), 'verdict': verdict, 'blockers': int(verdict != 'pass')})})
+
+    def test_an_oversized_diff_is_grouped_by_directory_within_both_limits(self):
+        with self.network():
+            groups = reviews.shards(self.request)
+        self.assertEqual([['core/big.go'], [f'lib/a/f{i}.dart' for i in range(1, 7)],
+                          ['lib/a/f7.dart', 'lib/b/x.dart']], [group['paths'] for group in groups])
+        self.assertEqual([(1, 3), (2, 3), (3, 3)], [(group['index'], group['total']) for group in groups])
+
+    def test_a_small_diff_keeps_the_single_review_byte_for_byte(self):
+        self.diff = DIFF
+        with self.network():
+            issue = reviews.ensure_request(self.request, '需求实现')
+        self.assertEqual(1, len(self.issues))
+        self.assertIn('<!-- flclash-pr-review ' + json.dumps(reviews.sign(self.request)) + ' -->', issue['body'])
+        self.assertEqual(SMALL_BODY, hashlib.sha256(issue['body'].encode()).hexdigest())
+
+    def test_each_shard_summons_only_glm_over_its_own_files_under_a_signed_shard(self):
+        main, parts = self.opened()
+        self.assertEqual(3, len(parts))
+        summon = lambda role: f'@{reviews.POLICY["cnb"]}({role})'
+        self.assertIn(summon('审查助手'), main['body'])
+        self.assertNotIn(summon('GLM复核助手'), main['body'])
+        self.assertIn('<!-- flclash-review-shards ' + ','.join(issue['number'] for _, issue in parts) + ' -->',
+                      main['body'])
+        for part, issue in parts:
+            self.assertEqual(self.request, reviews.unsharded(part))
+            self.assertIn(summon('GLM复核助手'), issue['body'])
+            self.assertNotIn(summon('审查助手'), issue['body'])
+            self.assertIn(reviews.identity(part), issue['body'])
+            listed = re.findall(r'^- `([^`]+)`', issue['body'], re.M)
+            self.assertEqual(part['shard']['paths'], listed)
+            forged = issue['body'].replace(json.dumps(part['shard']['paths'])[1:-1], '"lib/b/x.dart"')
+            self.assertNotEqual(forged, issue['body'])
+            self.assertIsNone(reviews.request_from(dict(issue, body=forged)))
+        with self.network():
+            self.assertEqual(main, reviews.ensure_request(self.request, '需求实现'))
+        self.assertEqual(4, len(self.issues))
+
+    def test_glm_passes_only_when_every_shard_passes(self):
+        main, parts = self.opened()
+        self.say(main, '审查助手', self.request)
+        for part, issue in parts[:2]:
+            self.say(issue, 'GLM复核助手', part)
+        with self.network():
+            self.assertEqual('pending', reviews.state(self.request))
+            self.say(parts[2][1], 'GLM复核助手', parts[2][0])
+            self.assertEqual('success', reviews.state(self.request))
+            self.say(parts[1][1], 'GLM复核助手', parts[1][0], 'block')
+            self.assertEqual('failure', reviews.state(self.request))
+
+    def test_review_block_quotes_the_blocking_shard(self):
+        import requirements
+        main, parts = self.opened()
+        self.say(main, '审查助手', self.request)
+        self.say(parts[0][1], 'GLM复核助手', parts[0][0], 'block', 'core/big.go:3-5 漏了错误处理')
+        with self.network():
+            blocked, text = requirements.review_block(self.pull)
+        self.assertTrue(blocked)
+        self.assertIn('core/big.go:3-5 漏了错误处理', text)
+
+    def test_shards_close_with_their_head_but_not_before(self):
+        shard = dict(self.request, shard={'index': 1, 'total': 2, 'paths': ['core/big.go']})
+        self.issues['90'] = {'number': '90', 'state': 'open', 'author': {'username': 'Aharon', 'is_npc': False},
+                             'body': '<!-- flclash-pr-review ' + json.dumps(reviews.sign(shard)) + ' -->'}
+        with self.network():
+            reviews.close_finished_reviews()
+            self.assertEqual([], self.closed)
+            self.pull['head'] = {'sha': 'f' * 40, 'ref': 'automation/req-9'}
+            reviews.close_finished_reviews()
+        self.assertEqual(sorted(self.issues), sorted(self.closed))
 
 
 if __name__ == '__main__':

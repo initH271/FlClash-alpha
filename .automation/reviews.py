@@ -9,6 +9,10 @@ from review_evidence import describe
 
 CONTEXT = 'FlClash/paired-review'
 ROLES = ('审查助手', 'GLM复核助手')
+GLM = ROLES[1]
+# Past either limit GLM gets one issue per file group; it rarely finished a larger diff in one summon.
+SHARD_FILES, SHARD_LINES = 6, 350
+SHARDS = re.compile(r'<!-- flclash-review-shards ([\d,]+) -->')
 # The main.pull_request pipelines in .cnb.yml, and the only checks that gate a review. The paired review
 # gate runs under pull_request.target and waits for the review itself, so it must never be listed here.
 CI_PIPELINES = ('Dependency vulnerability gate', 'Automation unit tests', 'Go dependency regression tests',
@@ -50,6 +54,10 @@ def progress(body):
 def scope(platform, pull):
     return {'platform': platform, 'number': str(pull['number']),
             'base': pull['base']['sha'], 'head': pull['head']['sha']}
+
+
+def unsharded(request):
+    return {key: value for key, value in request.items() if key != 'shard'}
 
 
 def identity(request):
@@ -101,10 +109,21 @@ def role_reports(request, issue, comments):
     return latest
 
 
-def result(request, issue, comments):
+def result(request, issue, comments, parts=None):
+    """With shard parts, GLM passes only when every shard passed; a closed or blocked shard fails it."""
     if issue['state'] != 'open':
         return 'failure'
     latest = role_reports(request, issue, comments)
+    if parts is not None:
+        latest.pop(GLM, None)
+        verdicts = {part['shard']['index']: 'block' if found['state'] != 'open'
+                    else role_reports(part, found, notes).get(GLM) for part, found, notes in parts}
+        total = {part['shard']['total'] for part, _, _ in parts}
+        if any(value in ('block', 'malformed') for value in verdicts.values()):
+            latest[GLM] = 'block'
+        elif (len(total) == 1 and set(verdicts) == set(range(1, total.pop() + 1))
+              and all(value == 'pass' for value in verdicts.values())):
+            latest[GLM] = 'pass'
     if any(value in ('block', 'malformed') for value in latest.values()):
         return 'failure'
     return 'success' if all(latest.get(role) == 'pass' for role in ROLES) else 'pending'
@@ -122,7 +141,22 @@ def state(request, signed=True):
     issue = find_request(request, signed)
     if issue is None:
         return 'pending'
-    return result(request, issue, list(pages(f'{CNB}/issues/{issue["number"]}/comments')))
+    return result(request, issue, list(pages(f'{CNB}/issues/{issue["number"]}/comments')),
+                  shard_parts(request, issue, signed))
+
+
+def shard_parts(request, issue, signed=True):
+    """Return (shard request, issue, comments) for each verified GLM shard the full review lists, or None."""
+    match = SHARDS.search(issue.get('body', ''))
+    if not match:
+        return None
+    parts = []
+    for number in match[1].split(','):
+        detail = api(f'{CNB}/issues/{number}', missing=True)
+        part = request_from(detail, signed) if detail else None
+        if isinstance(part, dict) and isinstance(part.get('shard'), dict) and unsharded(part) == request:
+            parts.append((part, detail, list(pages(f'{CNB}/issues/{number}/comments'))))
+    return parts
 
 
 def review_title(request, title):
@@ -150,11 +184,11 @@ def requirement_brief(pull):
             'CI 通过不等于验收通过。\n' + acceptance + '\n\n')
 
 
-def diff_scope(request, limit=60):
-    """List each changed file with the head line ranges of its hunks, read from the pinned commits."""
+def hunks(request):
+    """Map each changed path to its head line ranges and line counts, or None when git cannot diff."""
     found = git('diff', '-U0', '--no-color', '--no-ext-diff', f'{request["base"]}...{request["head"]}', check=False)
     if found.returncode:
-        return '控制器取不到 diff 的行范围，按上面的文件清单审核，并在报告里写明。\n\n'
+        return None
     files, path, header = {}, '', False
     for line in found.stdout.splitlines():
         if line.startswith('diff --git '):
@@ -171,6 +205,36 @@ def diff_scope(request, limit=60):
                                          str(start) if count == 1 else f'{start}-{start + count - 1}')
         elif not header and path and line[:1] in ('+', '-'):
             files[path]['added' if line[0] == '+' else 'removed'] += 1
+    return files
+
+
+def shards(request):
+    """Group an oversized diff for GLM: directories kept together, each group within both limits.
+
+    A file over the line limit is a group of its own. An empty list keeps the single full review.
+    """
+    files = hunks(request) or {}
+    sizes = {path: item['added'] + item['removed'] for path, item in files.items()}
+    if len(sizes) <= SHARD_FILES and sum(sizes.values()) <= SHARD_LINES:
+        return []
+    groups, lines = [[]], 0
+    for path in sorted(sizes, key=lambda name: (name.rpartition('/')[0], name)):
+        if groups[-1] and (len(groups[-1]) == SHARD_FILES or lines + sizes[path] > SHARD_LINES):
+            groups.append([])
+            lines = 0
+        groups[-1].append(path)
+        lines += sizes[path]
+    if len(groups) == 1:
+        return []
+    return [{'index': i, 'total': len(groups), 'paths': paths} for i, paths in enumerate(groups, 1)]
+
+
+def diff_scope(request, limit=60, paths=None):
+    """List each changed file, or only `paths`, with the head line ranges of its hunks."""
+    files = hunks(request)
+    if files is None:
+        return '控制器取不到 diff 的行范围，按上面的文件清单审核，并在报告里写明。\n\n'
+    files = {name: item for name, item in files.items() if paths is None or name in paths}
     rows = [f'- `{name}`：{"、".join(item["ranges"]) or "无文本行（二进制或仅改权限）"}'
             f'（+{item["added"]}/−{item["removed"]}）' for name, item in list(files.items())[:limit]]
     if len(files) > limit:
@@ -203,7 +267,8 @@ def prior_blockers(request, keep=4):
         old = request_from(issue) if issue else None
         if not old or old == request:
             continue
-        for comment in pages(f'{CNB}/issues/{number}/comments'):
+        notes = list(pages(f'{CNB}/issues/{number}/comments'))
+        for comment in notes + [row for _, _, rows in shard_parts(old, issue) or () for row in rows]:
             author = comment.get('author') or {}
             role = next((r for r in ROLES if author.get('username') == f'{POLICY["cnb"]}({r})'), None)
             if role and author.get('is_npc') is True and _blocking(comment.get('body', '')):
@@ -225,6 +290,9 @@ def ensure_request(request, title, brief=''):
     platform, number = request['platform'], request['number']
     url = (f'https://github.com/{POLICY["github"]}/pull/{number}' if platform == 'github'
            else f'https://cnb.cool/{POLICY["cnb"]}/-/pulls/{number}')
+    groups = shards(request)
+    numbers = ensure_shards(request, groups, display_title, url) if groups else []
+    links = '、'.join(f'https://cnb.cool/{POLICY["cnb"]}/-/issues/{n}' for n in numbers)
     marker = '<!-- flclash-pr-review ' + json.dumps(sign(request)) + ' -->'
     sample = json.dumps({'request': identity(request), 'verdict': 'pass', 'blockers': 0})
     body = (f'PR 自动结对审核：{url}\n\n{marker}\n\n' + brief + describe(request) + '\n'
@@ -240,7 +308,10 @@ def ensure_request(request, title, brief=''):
             f'FLCLASH_REVIEW {sample}\n'
             '只有完成审查且没有阻断问题才能使用 pass / blockers=0；'
             '否则使用 verdict=block，blockers 为正整数。request 原样保留。\n\n'
-            + '\n\n'.join(f'@{POLICY["cnb"]}({r}) 请独立审核上述 PR。' for r in ROLES))
+            + (f'GLM复核助手按文件分片审核：{links}。本 Issue 只召唤审查助手，全部分片通过才算 GLM 通过。\n'
+               f'<!-- flclash-review-shards {",".join(numbers)} -->\n\n' if numbers else '')
+            + '\n\n'.join(f'@{POLICY["cnb"]}({r}) 请独立审核上述 PR。'
+                          for r in (ROLES[:1] if numbers else ROLES)))
     issue = api(f'{CNB}/issues', 'POST', {'title': display_title,
                 'body': body, 'work_mode': False, 'assignees': [POLICY['approver']]})
     body = (f'结对审核： https://cnb.cool/{POLICY["cnb"]}/-/issues/{issue["number"]}\n'
@@ -250,6 +321,40 @@ def ensure_request(request, title, brief=''):
     api(f'{GH}/issues/{number}/comments' if platform == 'github' else f'{CNB}/pulls/{number}/comments',
         'POST', {'body': body})
     return issue
+
+
+def ensure_shards(request, groups, title, url):
+    """Open one GLM-only issue per file group, reusing any left by an earlier interrupted run."""
+    known = {}
+    for item in all_issues():
+        detail = api(f'{CNB}/issues/{item["number"]}')
+        part = request_from(detail)
+        if isinstance(part, dict) and part.get('shard') in groups and unsharded(part) == request:
+            known.setdefault(part['shard']['index'], str(detail['number']))
+    for group in groups:
+        if group['index'] in known:
+            continue
+        part = dict(request, shard=group)
+        sample = json.dumps({'request': identity(part), 'verdict': 'pass', 'blockers': 0})
+        body = (f'PR 自动审核 GLM 分片 {group["index"]}/{group["total"]}：{url}\n\n'
+                '<!-- flclash-pr-review ' + json.dumps(sign(part)) + ' -->\n\n'
+                f'本 Issue 只审下列 {len(group["paths"])} 个文件，其余文件在其他分片里审；全量 diff 和验收标准'
+                '由审查助手在主审核 Issue 核对。清单第 1 项只回答本组文件涉及的验收条目，'
+                '与本组无关的条目写「不在本组」，不因此判 block。\n'
+                + diff_scope(part, paths=group['paths']) + EVIDENCE_RULES + CHECKLIST
+                + budget_text(BUDGET['review']) + '\n'
+                f'固定 base `{request["base"]}`，head `{request["head"]}`。'
+                '只读；不运行 PR 中的代码、不安装依赖、不编译、不修改代码、不合并或发版，不召唤其他 NPC。'
+                '提交不匹配、无法读取或审核未完成时不得通过。\n\n'
+                '报告末尾必须单独一行输出以下机器结论（不要放入代码块）：\n'
+                f'FLCLASH_REVIEW {sample}\n'
+                '只有审完本组且没有阻断问题才能使用 pass / blockers=0；'
+                '否则使用 verdict=block，blockers 为正整数。request 原样保留。\n\n'
+                f'@{POLICY["cnb"]}({GLM}) 请审核本分片。')
+        known[group['index']] = str(api(f'{CNB}/issues', 'POST', {
+            'title': f'{title}（GLM 分片 {group["index"]}/{group["total"]}）', 'body': body,
+            'work_mode': False, 'assignees': [POLICY['approver']]})['number'])
+    return [known[group['index']] for group in groups]
 
 
 def _checkpoint(request, role, kind):
@@ -292,7 +397,8 @@ def reconsider(request, issue, comments):
             api(f'{CNB}/issues/{issue["number"]}/comments', 'POST', {'body': body, 'work_mode': False})
             continue
         marker = _checkpoint(request, role, 'reconsider')
-        body = (marker + '\n\n' + describe(request) + diff_scope(request) + EVIDENCE_RULES
+        paths = (request.get('shard') or {}).get('paths')
+        body = (marker + '\n\n' + describe(request) + diff_scope(request, paths=paths) + EVIDENCE_RULES
                 + budget_text(BUDGET['reconsider'])
                 + f'@{POLICY["cnb"]}({role}) 报告格式不完整或双方结论有分歧，执行唯一一次有界复核。'
                 '只核对实际差异和现有阻断，明确纠正已证实的事实错误。'
@@ -435,9 +541,13 @@ def reconcile():
                                    (unsettled_brief(pull) if late else '') + requirement_brief(pull))
             withhold(pull)
             comments = list(pages(f'{CNB}/issues/{issue["number"]}/comments'))
-            status = result(request, issue, comments)
+            parts = shard_parts(request, issue)
+            status = result(request, issue, comments, parts)
             if issue['state'] == 'open':
                 reconsider(request, issue, comments)
+                for part in parts or ():
+                    if part[1]['state'] == 'open':
+                        reconsider(*part)
             if platform == 'github':
                 url = f'https://cnb.cool/{POLICY["cnb"]}/-/issues/{issue["number"]}'
                 github_results.setdefault(request['head'], []).append((status, url))
@@ -462,7 +572,8 @@ def close_finished_reviews():
         if platform not in ('github', 'cnb') or not str(number).isdigit():
             continue
         pull = api(f'{endpoint(platform)}/pulls/{number}')
-        superseded = (pull['state'] == 'open' and scope(platform, pull) != request)
+        # A GLM shard belongs to the same base/head as its full review and is superseded with it.
+        superseded = (pull['state'] == 'open' and scope(platform, pull) != unsharded(request))
         if pull['state'] not in ('closed', 'merged') and not superseded:
             continue
         merged = bool(pull.get('merged') or pull.get('is_merged') or pull['state'] == 'merged')
