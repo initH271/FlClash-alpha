@@ -161,6 +161,15 @@ closed. CNB closure detection uses the scheduled fallback. Reopening a PR with t
 same commits requires reopening its review Issue; manual closures are not undone.
 
 Reconciliation also closes review Issues superseded by a changed PR base/head.
+
+A diff over 6 files or 350 lines gets one GLM-only review Issue per file group, and
+its main review Issue summons only DeepSeek. GLM passes only when every open shard
+passes; it never passes on a report in the main Issue. A deleted shard, or one whose
+signed record no longer verifies, is replaced on the next reconciliation. So is a
+closed shard, and a pass on it does not count. The exception is a closed shard whose
+latest GLM report is a block or malformed: closing it cannot shed that result, so GLM
+stays blocked until the base/head changes.
+
 The controller checks failed NPC executions every 15 minutes (or with the manual
 `recovery` operation). Only trusted/signed tasks are eligible. A task/role gets one
 bounded retry if execution failed without a report; cancelled/running jobs and
