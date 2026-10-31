@@ -1,7 +1,9 @@
 # Weekly, grouped and few at a time. Every PR goes through ci-ok and Dependency vulnerability scan, and the owner merges it.
 #
-# core/Clash.Meta: its own go.mod is not in this repository, so Dependabot cannot read it. `gitsubmodule` only moves the
-# pinned commit, and `/core` updates the versions the build really uses. security_scan.py covers the whole resolved graph.
+# core/Clash.Meta: its own go.mod is not in this repository, so Dependabot cannot read it. `/core` updates the versions the
+# build really uses, and security_scan.py covers the whole resolved graph. There is deliberately no `gitsubmodule` block:
+# it would move mihomo to the tip of its branch, ahead of the upstream release and around the owner's OK. The pinned commit
+# only moves with an upstream upgrade.
 #
 # pub: plugins/wifi_ssid has no external dependency. Indirect Go modules are left to security updates, because mihomo
 # decides those versions and a weekly bump of all of them would mostly be noise.
@@ -96,11 +98,3 @@ updates:
       security-updates:
         applies-to: security-updates
         patterns: ['*']
-  - package-ecosystem: gitsubmodule
-    directory: /
-    schedule:
-      interval: weekly
-      day: monday
-      time: '09:00'
-      timezone: Asia/Shanghai
-    open-pull-requests-limit: 1

@@ -270,8 +270,7 @@ class DependabotTests(unittest.TestCase):
     """Read as plain text so it works without yaml: a block is the lines under one package-ecosystem."""
 
     MANIFESTS = {'pub': ('pubspec.yaml',), 'gomod': ('go.mod',), 'cargo': ('Cargo.toml',),
-                 'gradle': ('settings.gradle.kts', 'build.gradle', 'build.gradle.kts'), 'github-actions': ('action.yml', '.github/workflows'),
-                 'gitsubmodule': ('.gitmodules',)}
+                 'gradle': ('settings.gradle.kts', 'build.gradle', 'build.gradle.kts'), 'github-actions': ('action.yml', '.github/workflows')}
 
     def setUp(self):
         self.source = (ROOT / '.github/dependabot.yml').read_text(encoding='utf-8')
@@ -301,13 +300,16 @@ class DependabotTests(unittest.TestCase):
     def test_the_submodules_own_go_mod_is_not_listed_because_it_is_not_in_this_repository(self):
         self.assertNotIn('Clash.Meta\n', self.source.split('updates:')[1])
 
+    def test_the_submodule_pointer_only_moves_with_an_upstream_upgrade(self):
+        self.assertNotIn('gitsubmodule', self.blocks)
+        self.assertNotRegex(self.source, r'(?m)^\s*-?\s*package-ecosystem:\s*["\']?gitsubmodule')
+
     def test_it_cannot_flood(self):
         for ecosystem, block in self.blocks.items():
             with self.subTest(ecosystem=ecosystem):
                 self.assertIn('interval: weekly', block)
                 self.assertLessEqual(int(re.search(r'open-pull-requests-limit: (\d+)', block).group(1)), 2)
-                if ecosystem != 'gitsubmodule':
-                    self.assertEqual(2, block.count("patterns: ['*']"))
+                self.assertEqual(2, block.count("patterns: ['*']"))
 
     def test_yaml_aliases_are_not_relied_on(self):
         self.assertNotRegex(self.source, r'[&*]\w+\s*$')

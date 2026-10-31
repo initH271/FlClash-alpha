@@ -18,12 +18,13 @@ reachability or exploitability, and nothing tracks a match on main: read the rep
 
 ## Dependabot
 
-`.github/dependabot.yml` opens weekly grouped PRs for pub, Go, Cargo, Gradle, GitHub Actions and the mihomo submodule.
+`.github/dependabot.yml` opens weekly grouped PRs for pub, Go, Cargo, Gradle and GitHub Actions.
 They go through CI like any other PR. Alerts and security updates are repository settings the owner turns on.
 
 `core/Clash.Meta` has its own `go.mod`, which Dependabot cannot read because it is not in this repository:
 
-- `gitsubmodule` moves the pinned commit to the tip of the `FlClash` branch. It compares nothing and knows no advisory.
+- The pinned commit is not Dependabot's: it would go to the tip of the `FlClash` branch, ahead of the upstream release
+  and around the owner's OK. It only moves with an upstream upgrade.
 - `/core` updates `core/go.mod`, where the build picks its versions, so a bump there also lifts what mihomo requires.
   Version updates stick to direct dependencies. Mihomo's dependencies are indirect there and rely on security updates.
-- Mihomo's own code has no advisory coverage from either. Only following upstream moves it.
+- Mihomo's own code has no advisory coverage, from this or from the scan. Only following upstream moves it.
