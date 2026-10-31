@@ -304,6 +304,9 @@ class DependabotTests(unittest.TestCase):
         self.assertNotIn('gitsubmodule', self.blocks)
         self.assertNotRegex(self.source, r'(?m)^\s*-?\s*package-ecosystem:\s*["\']?gitsubmodule')
 
+    def test_screen_retriever_stays_on_the_version_the_desktop_code_is_written_against(self):
+        self.assertIn('dependency-name: screen_retriever', self.blocks['pub'])
+
     def test_it_cannot_flood(self):
         for ecosystem, block in self.blocks.items():
             with self.subTest(ecosystem=ecosystem):
