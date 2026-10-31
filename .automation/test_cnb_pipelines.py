@@ -280,6 +280,28 @@ class CnbPipelineTests(unittest.TestCase):
                   patch.object(reviews, 'pages', side_effect=lambda url, page_key='page', size_key='page_size': iter([]))):
                 self.assertEqual((False, False), reviews.ci_hold(pull))
 
+    def test_the_npc_review_is_sandboxed_bounded_and_outside_every_gate(self):
+        event = 'api_trigger_npc_review'
+        _, body = _top(self.source, '$')
+        start = body.index(f'  {event}:')
+        end = next(i for i in range(start + 1, len(body)) if body[i].strip() and _indent(body[i]) <= 2)
+        block = '\n'.join(body[start:end])
+        self.assertIn('sandbox: true', block)
+        self.assertRegex(block, r'maxTurns: \d+')
+        self.assertIn('model: deepseek-v4.1-flash', block)
+        self.assertEqual(['Fetch PR from GitHub', 'NPC review', 'Review output'],
+                         re.findall(r'^\s+- name: (.+)$', block, re.M)[1:])
+        self.assertNotIn('imports:', block)
+        self.assertNotIn('workMode', block)
+        self.assertEqual(1, block.count('https://github.com/initH271/FlClash-alpha.git'))
+        self.assertIn('阻断', block)
+        self.assertIn('具体输入', block)
+        self.assertIn('预期输出', block)
+        self.assertNotIn('PR_TITLE', block)
+        self.both(lambda: self.assertNotIn('NPC PR review', [entry['name'] for entry in pipelines()]))
+        if yaml is not None:
+            self.assertEqual(['NPC PR review'], [job['name'] for job in yaml.safe_load(self.source)['$'][event]])
+
     def test_the_paired_review_gate_pipeline_is_gone(self):
         # 2-1c: the 32-minute polling job only produced timeouts; the review verdict decides on its own.
         self.assertNotIn(GATE, self.source)
