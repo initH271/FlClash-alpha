@@ -6,9 +6,31 @@ import tempfile
 import unittest
 
 import ci_paths
-import test_cnb_pipelines as cnb
 
-SOURCE = cnb.CNB.read_text(encoding='utf-8')
+# .cnb.yml no longer has these pipelines; ci_paths still carries their path rules until the controller goes.
+SOURCE = """\
+main:
+  pull_request:
+    - &automation-unit-tests
+      name: Automation unit tests
+      stages:
+        - script: echo 'Skipped: no automation changes'
+          timeout: 10m
+    - &flutter-tests
+      name: Flutter and Android requirement tests
+      runner: { cpus: 4 }
+      docker:
+        image: ubuntu:24.04
+      stages:
+        - name: Test Flutter and Android changes
+          timeout: 45m
+    - &rust-tests
+      name: Rust dependency regression tests
+"owner/**":
+  push:
+    - *flutter-tests
+    - *rust-tests
+"""
 STAGES = ('flutter', 'android', 'govet')
 REUSE = 'python3 .automation/ci_paths.py reuse || [ $? -ne 3 ] || exit 0'
 
@@ -92,30 +114,6 @@ class FlutterTriggerTests(unittest.TestCase):
             self.assertEqual(ci_paths.EMPTY_TREE, run('base').stdout.strip())
             self.assertEqual([0] * 3, [run('trigger', stage, '').returncode for stage in STAGES])
             self.assertEqual(ci_paths.EMPTY_TREE, git('hash-object', '-t', 'tree', '/dev/null'))
-
-    def test_flutter_stages_use_the_path_rules_and_long_pipelines_try_reuse_first(self):
-        def check():
-            jobs = {job['name']: job for job in cnb.pipelines()}
-            stages = jobs[ci_paths.FLUTTER]['stages'][1:]
-            for stage, name in zip(stages, STAGES):
-                lines = stage['script'].splitlines()
-                self.assertEqual(REUSE, lines[0])
-                self.assertEqual(f'python3 .automation/ci_paths.py trigger {name} "$CNB_PULL_REQUEST_TARGET_SHA"'
-                                 ' || [ $? -ne 3 ] || exit 0', lines[1])
-                self.assertNotIn('grep -Eq', stage['script'])
-            for name in ('Go dependency regression tests', 'Rust dependency regression tests'):
-                self.assertIn(REUSE, jobs[name]['stages'][0]['script'], name)
-        cnb.CnbPipelineTests.both(self, check)
-
-    def test_no_scan_stage_can_reuse_an_earlier_verdict(self):
-        def check():
-            stages = [stage for job in cnb.pipelines() for stage in job.get('stages', [])]
-            scans = [stage for stage in stages if 'scan' in stage.get('name', '').lower()]
-            self.assertIn('Rescan actual versions and verify repaired dependency', [s['name'] for s in scans])
-            for stage in scans:
-                self.assertNotIn('ci_paths.py reuse', stage.get('script', ''), stage['name'])
-        cnb.CnbPipelineTests.both(self, check)
-
 
     def test_the_stage_script_skips_only_when_no_trigger_changed(self):
         with tempfile.TemporaryDirectory() as directory:

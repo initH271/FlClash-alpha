@@ -14,7 +14,7 @@ BUILD = ROOT / '.github/workflows/build.yaml'
 SUMMARY = 'ci-ok'
 TOOLCHAIN = (r"go-version: '([^']+)'", r"java-version: '([^']+)'", r"flutter-version: '([^']+)'",
              r'ndk-version: (\S+)', r'rustup toolchain install (\S+)')
-# What CNB runs today (.cnb.yml:26-202), in the commands of the GitHub jobs that replace it.
+# What CNB used to run before its CI was switched off, in the commands of the GitHub jobs that replaced it.
 CNB_COMMANDS = {
     'automation': ("python3 -m unittest discover -s .automation -p 'test_*.py'",),
     'go': ('go test . ./internal/logstore', 'go vet . ./internal/logstore',

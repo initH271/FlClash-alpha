@@ -218,15 +218,6 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(502, raised.exception.code)
         self.assertEqual('GET api.github.com returned HTTP 502: bad gateway', str(raised.exception))
 
-    def test_rescan_stage_shares_one_deadline_and_keeps_failures_visible(self):
-        stage = (ROOT / '.cnb.yml').read_text(encoding='utf-8').split(
-            'Rescan actual versions and verify repaired dependency', 1)[1].split('- name:', 1)[0]
-        self.assertIn('export FLCLASH_NETWORK_DEADLINE=$(( $(date +%s) + 780 ))', stage)
-        scans = [row for row in stage.splitlines() if 'security_scan.py' in row]
-        self.assertEqual(3, len(scans))
-        self.assertTrue(all('|| exit $?' in row for row in scans))
-        self.assertIn('timeout: 20m', stage)
-
     def finding(self, identifier='GO-1', aliases=None, version='v1.0.0'):
         return {'file': 'core/go.mod', 'ecosystem': 'Go', 'name': 'example.org/module',
                 'version': version, 'id': identifier, 'aliases': aliases or ['CVE-2026-1234', identifier],
