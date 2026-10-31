@@ -1,0 +1,42 @@
+name: Setup Android toolchain
+description: Same tools and versions as the Android release job in build.yaml.
+runs:
+  using: composite
+  steps:
+    - name: Free runner disk space
+      shell: bash
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/ndk /opt/ghc /usr/local/.ghcup /usr/local/swift /opt/hostedtoolcache/CodeQL
+        df -h /
+    - uses: actions/setup-go@v5
+      with:
+        go-version: '1.27.1'
+        cache-dependency-path: core/go.sum
+    - uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+    - uses: gradle/actions/setup-gradle@v6
+    - uses: subosito/flutter-action@v2
+      with:
+        channel: stable
+        flutter-version: '3.47.6'
+        cache: true
+    - uses: nttld/setup-ndk@v1
+      id: ndk
+      with:
+        ndk-version: r28c
+        add-to-path: true
+        link-to-sdk: true
+    - name: Export NDK path
+      shell: bash
+      env:
+        NDK_PATH: ${{ steps.ndk.outputs.ndk-path }}
+      run: echo "ANDROID_NDK_HOME=$NDK_PATH" >> "$GITHUB_ENV"
+    - name: Setup Rust
+      shell: bash
+      run: rustup toolchain install 1.99.0 --profile minimal --target aarch64-linux-android
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: plugins/rust_api/rust
+        cache-directories: .dart_tool/hooks_runner

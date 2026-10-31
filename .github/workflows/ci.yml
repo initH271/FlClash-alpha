@@ -1,0 +1,196 @@
+name: CI
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+env:
+  RUSTUP_TOOLCHAIN: '1.99.0'
+jobs:
+  changes:
+    name: Select jobs from changed paths
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      automation: ${{ steps.paths.outputs.automation }}
+      go: ${{ steps.paths.outputs.go }}
+      rust: ${{ steps.paths.outputs.rust }}
+      flutter: ${{ steps.paths.outputs.flutter }}
+      android_unit: ${{ steps.paths.outputs.android_unit }}
+      android_build: ${{ steps.paths.outputs.android_build }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Compare with the target branch
+        id: paths
+        run: python3 .github/scripts/ci_changes.py
+  automation:
+    name: Automation unit tests
+    needs: [changes]
+    if: needs.changes.outputs.automation == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test automation, the release mirror and the release identity
+        run: |
+          python3 .cnb/test_mirror_release.py
+          python3 -m unittest tool.test_release_identity
+          python3 -m unittest discover -s .automation -p 'test_*.py'
+  go:
+    name: Go tests and Android vet
+    needs: [changes]
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache-dependency-path: core/go.sum
+      - name: Test core
+        working-directory: core
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          go test . ./internal/logstore
+          go vet . ./internal/logstore
+      - uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r28c
+      - name: Vet core for Android
+        working-directory: core
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: |
+          tags=$(sed -n 's/^tags:[[:space:]]*//p' ../build_config.yaml | head -n 1 | tr -d "\"' \r")
+          [ -n "$tags" ] || { echo 'No tags line in build_config.yaml'; exit 1; }
+          CC="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang"
+          [ -x "$CC" ] || { echo "Missing NDK compiler: $CC"; exit 1; }
+          pkgs=". ./tun ./platform"
+          [ -d mobile ] && pkgs="$pkgs ./mobile"
+          CGO_ENABLED=1 GOOS=android GOARCH=arm64 CC="$CC" go vet -tags="$tags" $pkgs
+  rust:
+    name: Rust tests
+    needs: [changes]
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Setup Rust and system libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libx11-dev libxkbcommon-dev
+          rustup toolchain install 1.99.0 --profile minimal
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            services/helper
+            plugins/rust_api/rust
+      - name: Test desktop helper and Rust API
+        run: |
+          cargo test --locked --manifest-path services/helper/Cargo.toml
+          cargo test --locked --manifest-path plugins/rust_api/rust/Cargo.toml
+  flutter:
+    name: Flutter analyze and tests
+    needs: [changes]
+    if: needs.changes.outputs.flutter == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: ./.github/actions/setup-android-toolchain
+      - name: Install Flutter dependencies
+        run: flutter pub get
+      - name: Analyze and test
+        run: |
+          flutter analyze --no-fatal-infos
+          cp pubspec.yaml /tmp/flclash-pubspec.yaml
+          trap 'cp /tmp/flclash-pubspec.yaml pubspec.yaml' EXIT
+          sed -i 's/build_assets: true/build_assets: false/g' pubspec.yaml
+          (cd plugins/rust_api/rust && cargo build --locked)
+          export FRB_DART_LOAD_EXTERNAL_LIBRARY_NATIVE_LIB_DIR="$PWD/plugins/rust_api/rust/target/debug"
+          flutter test --reporter expanded
+  android-unit-tests:
+    name: Android unit tests
+    needs: [changes]
+    if: needs.changes.outputs.android_unit == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: ./.github/actions/setup-android-toolchain
+      - name: Install Flutter dependencies
+        run: flutter pub get
+      - name: Prepare Gradle wrapper
+        run: |
+          flutter_root=${FLUTTER_ROOT:-$(dirname "$(dirname "$(readlink -f "$(command -v flutter)")")")}
+          printf 'flutter.sdk=%s\nsdk.dir=%s\n' "$flutter_root" "$ANDROID_HOME" > android/local.properties
+          wrapper_dir="$flutter_root/bin/cache/artifacts/gradle_wrapper"
+          [ -f "$wrapper_dir/gradlew" ] || flutter precache --android
+          cp "$wrapper_dir/gradlew" android/gradlew
+          chmod +x android/gradlew
+          [ -f android/gradle/wrapper/gradle-wrapper.jar ] || cp "$wrapper_dir/gradle/wrapper/gradle-wrapper.jar" android/gradle/wrapper/gradle-wrapper.jar
+      - name: Run unit tests
+        working-directory: android
+        run: ./gradlew :common:testDebugUnitTest :service:testDebugUnitTest :app:testDebugUnitTest -Ptarget-platform=android-arm64 -x :app:compileFlutterBuildDebug -x :app:copyFlutterAssetsDebug
+  # Same compile as build.yaml, so R8 and AOT failures show up before merge. That job signs only after
+  # compiling, with a key restored in a later step; this one has no key, publishes nothing and uploads no APK.
+  android-build:
+    name: Android release compile
+    needs: [changes]
+    if: needs.changes.outputs.android_build == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: ./.github/actions/setup-android-toolchain
+      - name: Install Flutter dependencies
+        run: flutter pub get
+      - name: Build ARM64 APK
+        run: |
+          build=$(python3 -c "import json; print(json.load(open('.github/release.json'))['build'])")
+          display_version=$(python3 tool/release_identity.py --field displayVersion)
+          flutter build apk --release --target-platform android-arm64 --dart-define=APP_ENV=stable --build-name "$display_version" --build-number "$build"
+          test -f build/app/outputs/flutter-apk/app-release.apk
+  ci-ok:
+    name: ci-ok
+    needs: [changes, automation, go, rust, flutter, android-unit-tests, android-build]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every job to pass or be skipped
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          printf '%s' "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          printf '%s' "$RESULTS" | jq -e 'all(.[]; .result == "success" or .result == "skipped")' > /dev/null
