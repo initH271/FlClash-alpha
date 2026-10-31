@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 15
     steps:
       # The base commit, not the PR: nothing the PR changes runs here with these credentials.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         continue-on-error: true
         with:
           ref: ${{ github.event.pull_request.base.sha }}

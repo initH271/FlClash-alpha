@@ -18,12 +18,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: main
           path: tools
           persist-credentials: false
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: source
           fetch-depth: 0
@@ -37,12 +37,12 @@ jobs:
           if [ -z "$BASE_SHA" ] || git -C source diff --name-only "$BASE_SHA" HEAD -- ':(glob)**/go.mod' ':(glob)**/go.sum' ':(glob)**/Cargo.lock' ':(glob)**/Cargo.toml' .gitmodules core/Clash.Meta | grep -q .; then
             echo 'changed=true' >> "$GITHUB_OUTPUT"
           fi
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         if: steps.scope.outputs.changed == 'true'
         with:
           go-version: '1.27.1'
           cache-dependency-path: source/core/go.sum
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: steps.scope.outputs.changed == 'true' && github.event_name == 'pull_request'
         with:
           ref: ${{ github.event.pull_request.base.sha }}
@@ -62,7 +62,7 @@ jobs:
           else
             python3 tools/.automation/security_scan.py source security-report.json
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always() && steps.scope.outputs.changed == 'true'
         with:
           name: dependency-security-report

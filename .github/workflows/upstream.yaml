@@ -25,7 +25,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       CNB_AUTOMATION_TOKEN: ${{ secrets.CNB_AUTOMATION_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Test trusted automation before mutations
