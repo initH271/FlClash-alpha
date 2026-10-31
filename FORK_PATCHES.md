@@ -24,7 +24,7 @@
 - **锁文件不能直接取上游**：取上游的 `core/go.sum` 和 `Cargo.lock` 会丢掉安全版本，见 G4。
 - **全量回归**：有 `.automation/candidate.json` 时，`build.yaml` 跑全量 `flutter test`；日常发版只跑其中的子集。
 - **mihomo**：`core/Clash.Meta` 没有 fork 补丁。改动规则见 `.agents/rules.md` 里关于 `core/Clash.Meta` 的预算条目，默认在 FlClash 这一侧解决。
-- **受保护路径**：`.automation/`、`.cnb/`、`.cnb.yml`、`.github/` 的改动走 CNB 需求流程，见 `.agents/rules.md` 的 Automation Changes。
+- **受保护路径**：`.automation/`、`.cnb/`、`.cnb.yml`、`.github/` 的改动走 owner 通道（GitHub PR），见 `.agents/rules.md` 的 Automation Changes。
 
 ## A. 滚动日志与导出
 

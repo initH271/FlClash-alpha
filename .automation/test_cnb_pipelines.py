@@ -1,4 +1,3 @@
-import os
 import pathlib
 import re
 import sys
@@ -12,15 +11,13 @@ except ImportError:
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CNB = ROOT / '.cnb.yml'
-PIPELINE = 'Automation unit tests'
 GATE = 'Paired review gate'
-FILTER = "grep -Eq '^(\\.automation/|\\.cnb/|\\.cnb\\.yml|\\.github/|tool/)'"
-DISCOVER = "python3 -m unittest discover -s .automation -p 'test_*.py'"
 QUARTER = 'crontab: */15 * * * *'
 HOURLY = 'crontab: 7 * * * *'
-OWNER = 'owner/**'
-DEPENDENCY_GATE = 'Dependency vulnerability gate'
-PUSH_BASE = 'export CNB_PULL_REQUEST_TARGET_SHA="$(python3 .automation/ci_paths.py base)"'
+MIRROR = 'Mirror signed GitHub release to CNB'
+# CI runs on GitHub. These stay until the controller is removed, except the mirror and the NPC review, which stay for good.
+EVENTS = ['issue.open', 'issue.comment', 'pull_request.target', 'api_trigger', 'web_trigger', 'api_trigger_fallback',
+          'api_trigger_permissions', 'api_trigger_npc_review', 'issue.comment@npc', 'pull_request.comment@npc', 'vscode']
 
 
 # A mapping entry: a plain or quoted key followed by a colon that ends the line or precedes a space.
@@ -128,24 +125,14 @@ def _top(source, key):
     return lines[start], lines[start + 1:end]
 
 
-def text_blocks(source):
-    """Read .cnb.yml's main and owner blocks without yaml, resolving every anchor they alias."""
+def text_main(source):
+    """Read .cnb.yml's main block without yaml, resolving every anchor it aliases."""
     anchors = {}
     for header in re.findall(r'^(\.[\w-]+): &([\w-]+)$', source, re.M):
         _, body = _top(source, header[0])
         anchors[header[1]] = _parse(body, 0, 2, anchors)[0]
-    blocks = {}
-    for key, quoted in (('main', 'main'), (OWNER, f'"{OWNER}"')):
-        if not re.search('^' + re.escape(quoted) + ':', source, re.M):
-            continue
-        _, body = _top(source, quoted)
-        blocks[key] = _parse(body, 0, 2, anchors)[0]
-    return blocks
-
-
-def text_main(source):
-    """Read .cnb.yml's main block without yaml."""
-    return text_blocks(source)['main']
+    _, body = _top(source, 'main')
+    return _parse(body, 0, 2, anchors)[0]
 
 
 def main_block():
@@ -154,18 +141,6 @@ def main_block():
     if yaml is None:
         return text_main(source)
     return yaml.safe_load(source)['main']
-
-
-def pipelines():
-    return main_block()['pull_request']
-
-
-def owner_pipelines():
-    """The owner/** push pipelines, through yaml when this module has it, else through the text reader."""
-    source = CNB.read_text(encoding='utf-8')
-    if yaml is None:
-        return text_blocks(source)[OWNER]['push']
-    return yaml.safe_load(source)[OWNER]['push']
 
 
 def without_yaml():
@@ -212,8 +187,7 @@ class CnbPipelineTests(unittest.TestCase):
 
     def test_the_text_reader_matches_yaml(self):
         expected = text_main(self.source)
-        self.assertEqual(['Dependency vulnerability gate', PIPELINE],
-                         [entry['name'] for entry in expected['pull_request']][:2])
+        self.assertEqual(['push', QUARTER, HOURLY], list(expected))
         if yaml is not None:
             self.assertEqual(yaml.safe_load(self.source)['main'], expected)
 
@@ -223,45 +197,62 @@ class CnbPipelineTests(unittest.TestCase):
         if yaml is not None:
             self.assertEqual(yaml.safe_load(moved)['main'], text_main(moved))
 
-    def test_pull_request_declares_automation_unit_tests(self):
-        self.both(lambda: self.assertIn(PIPELINE, [entry.get('name') for entry in pipelines()]))
-
-    def test_pull_request_pipelines_settle_in_a_final_stage(self):
-        def check():
-            entries = pipelines()
-            self.assertEqual(5, len(entries))
-            for entry in entries:
-                self.assertEqual(1, len(entry.get('endStages', [])), entry['name'])
-        self.both(check)
-
-    def test_pipeline_skips_unrelated_pull_requests(self):
-        self.assertIn(FILTER, self.source)
-        self.assertIn("echo 'Skipped: no automation changes'", self.source)
-
-    def test_pipeline_runs_every_automation_test(self):
-        self.assertIn(DISCOVER, self.source)
-
-    def test_pipeline_precedes_go_regression_tests(self):
-        def check():
-            names = [entry['name'] for entry in pipelines()]
-            self.assertLess(names.index(PIPELINE), names.index('Go dependency regression tests'))
-        self.both(check)
-
-    def test_pipeline_definition_is_bounded(self):
-        def check():
-            entry = next(item for item in pipelines() if item.get('name') == PIPELINE)
-            self.assertEqual({'cpus': 1}, entry['runner'])
-            self.assertEqual('python:3.12', entry['docker']['image'])
-            self.assertEqual(1, len(entry['stages']))
-            stage = entry['stages'][0]
-            self.assertEqual('10m', stage['timeout'])
-            self.assertIn(FILTER, stage['script'])
-            self.assertIn(DISCOVER, stage['script'])
-        self.both(check)
-
-    def test_ci_pipelines_are_exactly_the_pull_request_jobs(self):
+    def test_cnb_runs_no_ci(self):
+        self.both(lambda: self.assertNotIn('pull_request', main_block()))
+        self.assertNotRegex(self.source, r'(?m)^"?owner/')
         import reviews
-        self.both(lambda: self.assertEqual([entry['name'] for entry in pipelines()], list(reviews.CI_PIPELINES)))
+        for text in (*reviews.CI_PIPELINES, 'ci_paths.py', 'wake.py ci-done', 'endStages', 'cnbcool/sca-vulnerability',
+                     'unittest discover', 'flutter test', 'cargo test', 'go test'):
+            self.assertNotIn(text, self.source)
+        if yaml is not None:
+            self.assertEqual({'.mirror', '.controller-wake', 'main', '$', '开发助手'}, set(yaml.safe_load(self.source)))
+
+    def test_every_alias_names_an_anchor_defined_before_it(self):
+        anchors, aliases = [], []
+        for line in self.source.splitlines():
+            anchors += re.findall(r'(?:^|\s)&([\w-]+)$', line)
+            for name in re.findall(r'^\s*-\s+\*([\w-]+)$', line):
+                self.assertIn(name, anchors)
+                aliases.append(name)
+        self.assertEqual({'mirror', 'controller-wake', 'reviewer-npc'}, set(aliases))
+
+    def test_the_events_the_controller_and_the_mirror_use_stay(self):
+        _, body = _top(self.source, '$')
+        self.assertEqual(EVENTS, re.findall(r'^  (\S+):$', '\n'.join(body), re.M))
+        self.both(lambda: self.assertEqual([MIRROR], [job['name'] for job in main_block()['push']]))
+        for event in ('api_trigger', 'web_trigger'):
+            self.both(lambda: self.assertEqual([MIRROR], event_jobs(event)))
+
+    def test_controller_paths_that_still_run_on_cnb_find_their_pipeline(self):
+        # Each of these names an event in a /build/start or a script path; removing one fails the run that reaches it.
+        root = CNB.parent
+        fallback = (root / '.automation/fallback.py').read_text(encoding='utf-8')
+        credentials = (root / '.automation/credentials.py').read_text(encoding='utf-8')
+        control = (root / '.automation/control.py').read_text(encoding='utf-8')
+        review = (root / '.github/scripts/npc_review.py').read_text(encoding='utf-8')
+        for source, event in ((fallback, 'api_trigger_fallback'), (credentials, 'api_trigger_permissions'),
+                              (control, 'api_trigger'), (review, 'api_trigger_npc_review')):
+            self.assertIn(f"'{event}'", source)
+            self.assertIn(event, EVENTS)
+        self.assertIn('python3 .automation/fallback.py produce', self.source)
+        self.assertIn('python3 .automation/release_permission_probe.py', self.source)
+
+    def test_a_cnb_pull_without_ci_waits_and_is_never_called_failed(self):
+        # What a CNB requirement or security pull sees until the controller is removed: no CI row ever arrives.
+        import requirements
+        import reviews
+        import security_finish
+        wake = [{'context': 'cnb/pipeline-1(Wake task controller)', 'state': 'success'}]
+        for rows in ([], wake):
+            checks = {'statuses': rows}
+            self.assertEqual('pending', reviews.ci_state(checks))
+            with patch.object(requirements.control, 'api', return_value=checks):
+                self.assertEqual((False, False), requirements.check_state('12'))
+            with patch.object(security_finish, 'api', return_value=checks):
+                self.assertFalse(security_finish.passed_checks('12'))
+
+    def test_the_ci_list_still_reads_old_rows_and_ignores_the_gate(self):
+        import reviews
         self.assertNotIn(GATE, reviews.CI_PIPELINES)
         pull = {'number': '12', 'base': {'sha': 'a' * 40},
                 'head': {'sha': 'b' * 40, 'ref': 'refs/heads/automation/req-9'}}
@@ -298,7 +289,6 @@ class CnbPipelineTests(unittest.TestCase):
         self.assertIn('具体输入', block)
         self.assertIn('预期输出', block)
         self.assertNotIn('PR_TITLE', block)
-        self.both(lambda: self.assertNotIn('NPC PR review', [entry['name'] for entry in pipelines()]))
         if yaml is not None:
             self.assertEqual(['NPC PR review'], [job['name'] for job in yaml.safe_load(self.source)['$'][event]])
 
@@ -311,75 +301,6 @@ class CnbPipelineTests(unittest.TestCase):
             self.assertEqual([job['name'] for job in yaml.safe_load(self.source)['$'][target]],
                              text_event(self.source, target))
         self.both(lambda: self.assertEqual(['Wake task controller'], event_jobs(target)))
-
-    def test_every_pipeline_wakes_the_controller_when_it_ends(self):
-        job = "python3 .automation/wake.py ci-done '{}'"
-
-        def check():
-            for entry in pipelines():
-                (stage,) = entry['endStages']
-                self.assertEqual('python:3.12-slim', stage['image'])
-                self.assertEqual('2m', stage['timeout'])
-                self.assertEqual(job.format(entry['name']), stage['script'])
-        self.both(check)
-
-    def test_owner_branches_push_the_pull_request_pipelines_except_the_dependency_gate(self):
-        def check():
-            main, owner = pipelines(), owner_pipelines()
-            self.assertEqual({entry['name'] for entry in main} - {DEPENDENCY_GATE}, {entry['name'] for entry in owner},
-                             'owner/** runs every main.pull_request pipeline but the dependency gate: a push has no '
-                             'diff base for it, and GitHub security.yaml scans dependencies on the owner PR')
-            self.assertEqual(len(owner), len({entry['name'] for entry in owner}))
-            for ours, theirs in zip(owner, [entry for entry in main if entry['name'] != DEPENDENCY_GATE]):
-                if ours['name'] != PIPELINE:
-                    self.assertEqual(theirs, ours, ours['name'])
-            ours = next(entry for entry in owner if entry['name'] == PIPELINE)
-            theirs = next(entry for entry in main if entry['name'] == PIPELINE)
-            (stage,), (expected,) = ours['stages'], theirs['stages']
-            self.assertEqual({**theirs, 'stages': [{**expected, 'script': stage['script']}]}, ours)
-            self.assertEqual(PUSH_BASE, stage['script'][0])
-            self.assertEqual([PUSH_BASE, expected['script']], stage['script'])
-        self.both(check)
-
-    def test_owner_pipelines_are_aliases_not_copies(self):
-        _, body = _top(self.source, f'"{OWNER}"')
-        owner = '\n'.join(body)
-        self.assertNotIn('dependency-gate', self.source)
-        for anchor in ('go-tests', 'flutter-tests', 'rust-tests'):
-            self.assertEqual(1, self.source.count(f'- &{anchor}\n'), anchor)
-            self.assertIn(f'    - *{anchor}\n', owner + '\n')
-        self.assertIn('<<: *automation-unit-tests', owner)
-        self.assertIn('<<: *automation-stage', owner)
-        self.assertIn('- *automation-script', owner)
-        self.assertEqual(1, self.source.count(DISCOVER))
-        self.assertNotIn('name:', owner)
-
-    def test_owner_skip_checks_measure_from_main_not_the_missing_pull_request_target(self):
-        def check():
-            for entry in owner_pipelines():
-                for stage in entry['stages']:
-                    script = stage.get('script', '')
-                    if isinstance(script, list):
-                        # A list script runs joined by &&, so the export precedes every line of the alias.
-                        self.assertEqual(PUSH_BASE, script[0], stage['name'])
-                        continue
-                    for line in script.splitlines():
-                        if 'CNB_PULL_REQUEST_TARGET_SHA' not in line or 'ci_paths.py trigger' in line:
-                            continue
-                        # Only the security/group-* case reads it, and a push has no PR branch to match.
-                        self.assertIn('case "$CNB_PULL_REQUEST_BRANCH" in\n  security/group-*', script, stage['name'])
-        self.both(check)
-
-    def test_the_end_stage_wake_is_a_no_op_on_an_owner_push(self):
-        import wake
-        push = {key: value for key, value in os.environ.items() if not key.startswith('CNB_PULL_REQUEST')}
-        with (patch.dict(os.environ, push, clear=True), patch.object(wake, 'api') as api,
-              patch.object(wake, 'pages') as pages, patch.object(wake, 'post_comment') as comment):
-            for entry in owner_pipelines():
-                wake.ci_done(entry['name'])
-        api.assert_not_called()
-        pages.assert_not_called()
-        comment.assert_not_called()
 
     def test_the_sleeping_waker_and_the_five_minute_schedule_are_gone(self):
         self.assertNotIn('Wake controller after checks', self.source)
@@ -399,8 +320,8 @@ class CnbPipelineTests(unittest.TestCase):
     def test_the_mirror_runs_hourly(self):
         def check():
             schedules = main_block()
-            self.assertNotIn('Mirror signed GitHub release to CNB', [job['name'] for job in schedules[QUARTER]])
-            self.assertEqual(['Mirror signed GitHub release to CNB'], [job['name'] for job in schedules[HOURLY]])
+            self.assertNotIn(MIRROR, [job['name'] for job in schedules[QUARTER]])
+            self.assertEqual([MIRROR], [job['name'] for job in schedules[HOURLY]])
         self.both(check)
 
 

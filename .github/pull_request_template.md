@@ -5,15 +5,7 @@
 CNB 需求 / issue：
 
 ## CI 证据
-- 本 head 在 CNB `owner/<分支>` 上的流水线链接：
-- 四条流水线结论（Automation、Go、Flutter and Android、Rust，逐条写通过 / 失败 / 未跑）：
-  1.
-  2.
-  3.
-  4.
-- 依赖扫描：以本 PR 上 GitHub 的 Dependency vulnerability scan 为准。
-
-合并前必须对「合进当前 main 之后的结果」跑过对应的流水线。
+- CI 在本 PR 上自动跑：必需检查是 `ci-ok` 和 Dependency vulnerability scan，不用再推 CNB。
 
 ## 用户可见的界面变化
 - [ ] 本 PR 有用户看得见的界面变化（含上游升级带来的变化）

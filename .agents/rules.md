@@ -565,9 +565,12 @@ failure, disposal, and any timer boundary that changes visible state.
 
 ## Automation Changes
 
-`.automation/`, `.cnb/`, `.cnb.yml` and `.github/` describe how this repository is automated, so they follow the
-requirement flow instead of an ordinary fix. An agent that needs to change them opens a CNB `[需求]` issue from the
-requirement form, selects 自动化配置 under 影响范围, and checks 允许改自动化配置. The checkbox is the owner's
+`.automation/`, `.cnb/`, `.cnb.yml` and `.github/` describe how this repository is automated, so a change to them goes
+through the owner channel: the owner pushes the branch to GitHub, opens the pull request and merges it there. Do not open
+a CNB `[需求]` issue for one. CNB runs no CI, so a requirement's pull request never turns green and never reaches `main`.
+
+What follows describes the requirement flow the controller still runs. Its form selects 自动化配置 under 影响范围 and
+checks 允许改自动化配置. The checkbox is the owner's
 authorization: without it the requirement cannot modify those paths at all, and `.automation/requirements.py` rejects
 the form when the area is selected unchecked. The development NPC implements the change on the `automation/req-<n>`
 branch the controller names; the controller merges the PR. The development NPC takes work through no other door:
@@ -583,11 +586,6 @@ A requirement whose diff touches `.github/workflows/` gets one signed `stuck` st
 forwarded. For the other protected paths the controller checks the diff against `protected_paths` in
 `.automation/policy.json` before forwarding and refuses it when 允许改自动化配置 is unchecked.
 
-Do not push a `fix/` branch for one of these changes and merge it by hand. Only
-`automation/req-*`, `automation/security-sync-*` and `automation/cnb-main-*` are auto-merged by the controller
-(`merge_ready` in `.automation/security_finish.py`), so a hand-pushed branch stays outside that gate entirely. Plain
-edits are not the escape hatch either: the paths are protected by the rule, not by a hook that would catch them.
-
 ### Taking a requirement branch by hand
 
 The owner may add commits to `automation/req-<n>` directly, but only through the HOLD/RELEASE handshake. First post a
@@ -602,24 +600,10 @@ the next dispatch and in the mirrored GitHub pull request so the next agent read
 agent may push on the owner's behalf only when the owner asked for it explicitly in that session; it never decides to
 push there on its own.
 
-### Owner pull requests: CNB CI first
+### Owner pull requests
 
-An owner pull request goes straight to GitHub, where only the dependency scan and the paired-review gate run; the five
-`main.pull_request` pipelines only start for a CNB pull request into `main`. Do not open a CNB pull request just to get
-them: `reviews.reconcile()` creates review issues and summons reviewers for every open CNB pull request, so it reviews
-the change twice. Use the `owner/**` push pipelines in `.cnb.yml` instead, which alias the same definitions
-minus the dependency gate. Dependency scanning is judged by the Dependency vulnerability scan on the GitHub pull
-request (`security.yaml`); the CNB owner branch only builds and tests, since a push has no diff base for the gate.
-
-1. Push the exact head to CNB as `owner/<name>`.
-2. Wait until all four pipelines (Automation unit tests, Go, Flutter and Android, Rust) pass for that commit.
-   `GET /{repo}/-/build/logs?sha=<head>&event=push` lists its builds;
-   `GET /{repo}/-/build/status/{sn}` gives each build's pipelines.
-3. Only then push the same head to GitHub, open the pull request and request review.
-4. Every later head goes through step 1 and 2 again before it reaches GitHub.
-
-On a push the path checks measure from the branch's merge-base with `main` (`ci_paths.py base`), and run everything when
-that cannot be found. The end-stage `wake.py ci-done` sees no requirement branch on a push and does nothing.
+An owner pull request goes straight to GitHub, where `ci-ok` and the Dependency vulnerability scan are the required
+checks. CNB runs no CI: there is no `owner/**` pipeline, so do not push a branch to CNB to test it.
 
 ### Reviewer non-delivery
 
