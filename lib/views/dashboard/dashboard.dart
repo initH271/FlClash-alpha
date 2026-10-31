@@ -11,6 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'edit.dart';
+import 'fork/wide_tiles.dart';
 import 'layout.dart';
 import 'style.dart';
 import 'widget_registry.dart';
@@ -174,7 +175,10 @@ class _DesktopDashboard extends StatelessWidget {
           (half, const ProxyGroupsSummaryCard()),
         ]);
         if (columns == 2) {
-          return SingleChildScrollView(
+          return ForkTilesScrollView(
+            platform: platform,
+            gap: gap,
+            tilesPadding: EdgeInsetsDirectional.only(top: gap),
             physics: const AlwaysScrollableScrollPhysics(),
             padding: padding,
             child: Column(
@@ -245,7 +249,10 @@ class _DesktopDashboard extends StatelessWidget {
             gap * 3;
         final tablesFit = constraints.maxHeight >= rowsHeight + tablesHeight;
         final fills = constraints.maxHeight >= rowsHeight + summaryHeight;
-        return SingleChildScrollView(
+        return ForkTilesScrollView(
+          platform: platform,
+          gap: gap,
+          tilesPadding: padding.copyWith(top: 0),
           physics: const AlwaysScrollableScrollPhysics(),
           child: SizedBox(
             height: fills ? constraints.maxHeight : null,
