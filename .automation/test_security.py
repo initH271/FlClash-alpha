@@ -18,6 +18,11 @@ from security_groups import payload_for
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
+def marker_of(text):
+    row = next(line for line in text.splitlines() if line.startswith(env_failure.MARKER + ' '))
+    return json.loads(row[len(env_failure.MARKER) + 1:])
+
+
 class Clock:
     """Monotonic time the network retries can advance without waiting."""
 
@@ -164,7 +169,7 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(75, code)
         self.assertNotEqual(0, code)
         self.assertEqual(1, stdout.getvalue().count(env_failure.MARKER))
-        [marker] = env_failure.parse(stdout.getvalue())
+        marker = marker_of(stdout.getvalue())
         self.assertEqual('osv-unreachable', marker['kind'])
         self.assertEqual('a' * 40, marker['sha'])
         self.assertFalse(report.exists())
@@ -185,26 +190,21 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(75, code)
         self.assertEqual(5, api.call_count)
         self.assertEqual(1, stdout.getvalue().count(env_failure.MARKER))
-        self.assertEqual('osv-unreachable', env_failure.parse(stdout.getvalue())[0]['kind'])
+        self.assertEqual('osv-unreachable', marker_of(stdout.getvalue())['kind'])
         self.assertFalse(report.exists())
 
     def test_new_findings_still_fail_without_an_environment_marker(self):
         reports = pathlib.Path(tempfile.mkdtemp())
         baseline, output = reports / 'baseline.json', reports / 'head.json'
-        baseline.write_text(json.dumps({'findings': [], 'packages': [], 'unscanned': [], 'toolchain': {}}))
-        report = {'findings': [self.finding()], 'packages': [self.finding()], 'unscanned': [], 'toolchain': {}}
+        baseline.write_text(json.dumps({'findings': [], 'packages': [], 'unscanned': []}))
+        report = {'findings': [self.finding()], 'packages': [self.finding()], 'unscanned': []}
         with patch.object(scan, 'scan', return_value=report), contextlib.redirect_stdout(io.StringIO()) as stdout:
             code = scan.main([str(ROOT), str(output), '--baseline', str(baseline)])
         self.assertNotIn(code, (0, 75))
         self.assertNotIn(env_failure.MARKER, stdout.getvalue())
         self.assertTrue(output.exists())
 
-    def test_environment_marker_parsing_ignores_anything_but_its_own_line(self):
-        text = json.dumps({'kind': 'osv-unreachable'})
-        self.assertEqual([], env_failure.parse(f'log {env_failure.MARKER} {text}'))
-        self.assertEqual([], env_failure.parse(f'{env_failure.MARKER} {{not json'))
-        self.assertEqual([], env_failure.parse(f'{env_failure.MARKER} {{"attempts": 5}}'))
-        self.assertEqual([{'kind': 'osv-unreachable'}], env_failure.parse(f'{env_failure.MARKER} {text}'))
+    def test_environment_marker_is_one_line_with_its_own_exit_code(self):
         self.assertEqual(75, env_failure.EXIT_CODE)
         self.assertNotIn('\n', env_failure.line('osv-unreachable', url='u', attempts=5))
 
@@ -269,15 +269,6 @@ class SecurityTests(unittest.TestCase):
             self.assertIn('Human assessment notes', body)
             self.assertEqual(body, watch.snapshot_body(issue, payload, {'sha': 'a' * 40}))
 
-    def test_repair_group_requires_clean_indexed_dependency(self):
-        item = self.finding()
-        prefix = scan.key(item)[:12]
-        with self.assertRaises(ValueError):
-            scan.require_clean_group({'findings': [item], 'unscanned': []}, prefix)
-        with self.assertRaises(ValueError):
-            scan.require_clean_group({'findings': [], 'unscanned': [item]}, prefix)
-        scan.require_clean_group({'findings': [], 'unscanned': []}, prefix)
-
     def test_related_packages_share_task_but_not_vulnerability_identity(self):
         a = self.finding()
         b = dict(a, name='another/module')
@@ -287,121 +278,6 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual({'go-core', 'rust-helper', 'rust-api'}, set(grouped))
         self.assertEqual(2, len(grouped['go-core']))
 
-    def report(self, findings, packages=None, version='go1.26.8', pins=None):
-        return {'findings': list(findings), 'packages': packages if packages is not None else [self.finding()],
-                'unscanned': [],
-                'toolchain': {'core/go.mod': {'version': version, 'language': '1.26',
-                                              'pins': pins if pins is not None else {'pins': [version]}}}}
-
-    def test_partial_group_repair_must_improve_without_new_risks(self):
-        a = self.finding()
-        b = self.finding('GO-2', ['CVE-2026-2222'])
-        base = self.report([a, b])
-        scan.require_group_progress(base, self.report([b]), 'go-core')
-        for head in (base, self.report([self.finding('GO-3', ['CVE-2026-3333'])]),
-                     {'findings': [], 'unscanned': [a], 'packages': [a], 'toolchain': base['toolchain']}):
-            with self.assertRaises(ValueError):
-                scan.require_group_progress(base, head, 'go-core')
-
-    def test_toolchain_upgrade_counts_as_group_progress_without_removing_a_match(self):
-        a = self.finding()
-        base = self.report([a], version='go1.26.4')
-        moved = dict(self.report([a], version='go1.26.8'), findings=[dict(a, version='v1.0.1')])
-        scan.require_group_progress(base, moved, 'go-core')
-
-    def test_a_lowered_toolchain_pin_is_not_group_progress(self):
-        # The headline version is the highest pin, so lowering one pin while
-        # raising another must not read as an upgrade.
-        pins = {'.cnb.yml': ['1.26.4'], '.cnb/Dockerfile': ['1.26.8']}
-        base = self.report([self.finding()], version='1.26.8', pins=pins)
-        lowered = self.report([self.finding()], version='1.26.8',
-                              pins={'.cnb.yml': ['1.24.0'], '.cnb/Dockerfile': ['1.26.8']})
-        self.assertFalse(scan.toolchain_moved(base, lowered))
-        with self.assertRaises(ValueError):
-            scan.require_group_progress(base, lowered, 'go-core')
-
-    def test_a_removed_toolchain_pin_is_not_group_progress(self):
-        base = self.report([self.finding()], version='1.26.4', pins={'.cnb.yml': ['1.26.4']})
-        dropped = self.report([self.finding()], version='1.26.8', pins={})
-        self.assertFalse(scan.toolchain_moved(base, dropped))
-        with self.assertRaises(ValueError):
-            scan.require_group_progress(base, dropped, 'go-core')
-
-    def test_every_pin_may_not_move_backwards(self):
-        moved = self.report([self.finding()], version='1.26.8',
-                            pins={'.cnb.yml': ['1.26.8'], '.cnb/Dockerfile': ['1.26.8']})
-        mixed = self.report([self.finding()], version='1.26.8',
-                            pins={'.cnb.yml': ['1.26.8'], '.cnb/Dockerfile': ['1.24.0']})
-        base = self.report([self.finding()], version='1.26.4',
-                           pins={'.cnb.yml': ['1.26.4'], '.cnb/Dockerfile': ['1.26.4']})
-        self.assertFalse(scan.toolchain_moved(base, mixed))
-        self.assertTrue(scan.toolchain_moved(base, moved))
-
-    def test_an_unreadable_toolchain_version_is_not_group_progress(self):
-        base = self.report([self.finding()], version='go1.26.4')
-        for version in ('', 'devel go1.27-abc'):
-            changed = self.report([self.finding()], version=version, pins={'pins': [version]})
-            self.assertFalse(scan.toolchain_moved(base, changed))
-            with self.assertRaises(ValueError):
-                scan.require_group_progress(base, changed, 'go-core')
-
-    def test_pinned_toolchain_is_read_from_the_tree_not_the_ambient_go(self):
-        # A baseline and a PR scan share one image, so GOVERSION cannot tell them
-        # apart; only the versions pinned in the tree can prove a toolchain move.
-        with patch.object(scan.pathlib.Path, 'is_file', return_value=True), \
-                patch.object(scan.pathlib.Path, 'read_text', side_effect=lambda *a, **k: 'image: golang:1.26.8'):
-            toolchain = scan.core_toolchain(scan.pathlib.Path('.'))
-        self.assertEqual({'version': '1.26.8', 'pins': {'.cnb.yml': ['1.26.8']}}, toolchain)
-
-    def test_developer_image_pins_the_same_go_as_the_ci_image(self):
-        pins = scan.core_toolchain(scan.pathlib.Path(__file__).resolve().parents[1])['pins']
-        self.assertEqual(pins['.cnb/Dockerfile'], pins['.cnb/npc.Dockerfile'])
-
-    def test_placeholder_go_version_pins_are_not_read_as_a_version(self):
-        with patch.object(scan.pathlib.Path, 'is_file', return_value=True), \
-                patch.object(scan.pathlib.Path, 'read_text',
-                             side_effect=lambda *a, **k: "go-version: ${{ env.GO_VERSION }}"):
-            toolchain = scan.core_toolchain(scan.pathlib.Path('.'))
-        self.assertEqual('', toolchain['version'])
-        self.assertEqual({}, toolchain['pins'])
-
-    def test_a_new_pin_below_the_advanced_version_is_not_progress(self):
-        base = self.report([self.finding()], version='1.26.4', pins={'.cnb.yml': ['1.26.4']})
-        low = self.report([self.finding()], version='1.26.8',
-                          pins={'.cnb.yml': ['1.26.8'], '.cnb/Dockerfile': ['1.20.0']})
-        matched = self.report([self.finding()], version='1.26.8',
-                              pins={'.cnb.yml': ['1.26.8'], '.cnb/Dockerfile': ['1.26.8']})
-        self.assertFalse(scan.toolchain_moved(base, low))
-        self.assertTrue(scan.toolchain_moved(base, matched))
-
-    def test_unchanged_group_scan_is_still_rejected(self):
-        base = self.report([self.finding()])
-        with self.assertRaises(ValueError):
-            scan.require_group_progress(base, self.report([self.finding()]), 'go-core')
-
-    def test_missing_go_inventory_cannot_pass_as_progress(self):
-        a = self.finding()
-        base = self.report([a], version='go1.26.4')
-        for head in (self.report([a], packages=[], version='go1.26.8'),):
-            with self.assertRaises(ValueError):
-                scan.toolchain_moved(base, head)
-            with self.assertRaises(ValueError):
-                scan.require_group_progress(base, head, 'go-core')
-
-    def test_a_toolchain_move_still_needs_readable_pins(self):
-        base = self.report([self.finding()], version='go1.26.4', pins={})
-        moved = self.report([self.finding()], version='go1.26.8', pins={})
-        self.assertFalse(scan.toolchain_moved(base, moved))
-
-    def test_other_groups_keep_the_advisory_removal_requirement(self):
-        item = {'file': 'services/helper/Cargo.lock', 'ecosystem': 'crates.io', 'name': 'tokio',
-                'version': '1.0.0', 'id': 'RUSTSEC-1', 'aliases': ['RUSTSEC-1'], 'fixed': ['1.0.1']}
-        base = {'findings': [item], 'packages': [item], 'unscanned': [],
-                'toolchain': {'core/go.mod': {'version': 'go1.26.4', 'language': '1.26'}}}
-        moved = {**base, 'toolchain': {'core/go.mod': {'version': 'go1.26.8', 'language': '1.26'}}}
-        with self.assertRaises(ValueError):
-            scan.require_group_progress(base, moved, 'rust-helper')
-
     def test_migration_closes_records_as_consolidated_not_fixed(self):
         item = self.finding()
         with patch.object(watch, 'comment') as comment, patch.object(watch, 'api') as api:
@@ -409,9 +285,30 @@ class SecurityTests(unittest.TestCase):
             self.assertIn('不表示漏洞已修复', comment.call_args.args[1])
             self.assertEqual('not_planned', api.call_args.args[2]['state_reason'])
 
-    def test_running_group_worker_prevents_another_dispatch(self):
-        state = {'npc': [{'context': {'npc.slug': '507space/FlClash-alpha', 'npc.name': '开发助手'},
-                          'statuses': [{'state': 'pending'}]}]}
-        self.assertTrue(watch.active_developer({'statuses': state}, []))
-        state['npc'][0]['statuses'][0]['state'] = 'success'
-        self.assertFalse(watch.active_developer({'statuses': state}, []))
+    def test_a_new_finding_is_recorded_once_and_summons_no_npc(self):
+        report = {'schema': 1, 'complete': True, 'sha': 'a' * 40, 'findings': [self.finding()], 'unscanned': []}
+        writes = []
+
+        def api(url, method='GET', data=None, missing=False, timeout=60):
+            if url.endswith('/git/ref/heads/main'):
+                return {'object': {'sha': 'a' * 40}}
+            if '/code/issues?' in url:
+                return {'list': []}
+            if method != 'GET':
+                writes.append((method, url, data))
+                return {'number': '30', 'body': data.get('body', ''), 'state': 'open'}
+            self.fail('Unexpected API call: ' + url)
+
+        with patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'}), patch.object(watch, 'api', api), \
+                patch.object(watch, 'all_issues', return_value=[]), patch.object(watch, 'comment') as comment, \
+                contextlib.redirect_stdout(io.StringIO()):
+            watch.monitor(report)
+        comment.assert_not_called()
+        self.assertEqual('POST', writes[0][0])
+        self.assertEqual(['Aharon'], writes[0][2]['assignees'])
+        for _, _, data in writes:
+            self.assertNotIn('@', data['body'])
+
+    def test_the_scan_never_reads_a_pipeline_file_for_a_toolchain_pin(self):
+        self.assertFalse(hasattr(scan, 'TOOLCHAIN_PINS'))
+        self.assertFalse(hasattr(scan, 'require_group_progress'))

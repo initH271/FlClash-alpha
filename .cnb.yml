@@ -12,102 +12,16 @@
       script: python3 .cnb/mirror-release.py
       timeout: 10m
 
-.controller-wake: &controller-wake
-  name: Wake task controller
-  runner: { cpus: 1 }
-  docker:
-    image: python:3.12-slim
-  stages:
-    - name: Dispatch reconciliation from trusted branch
-      imports: https://cnb.cool/507space/FlClash-alpha-secrets/-/blob/main/github-dispatch.yml
-      script: python3 .automation/wake.py
-      timeout: 2m
 main:
   push:
     - *mirror
-  "crontab: */15 * * * *":
-    - name: Wake stalled requirements
-      runner: { cpus: 1 }
-      docker:
-        image: python:3.12-slim
-      stages:
-        - name: Bridge stalled requirements into comment wakes
-          script: python3 .automation/wake.py watchdog
-          timeout: 3m
-    - name: Wake task controller while work is open
-      runner: { cpus: 1 }
-      docker:
-        image: python:3.12-slim
-      stages:
-        - name: Dispatch reconciliation from trusted schedule
-          imports: https://cnb.cool/507space/FlClash-alpha-secrets/-/blob/main/github-dispatch.yml
-          script: python3 .automation/wake.py
-          timeout: 2m
   "crontab: 7 * * * *":
     - *mirror
 $:
-  issue.open:
-    - name: Wake task controller
-      runner: { cpus: 1 }
-      docker:
-        image: python:3.12-slim
-      stages:
-        - name: Bridge issue open into a comment wake
-          script: python3 .automation/wake.py
-          timeout: 2m
-  issue.comment:
-    - name: Wake GitHub controller after approval or review
-      runner: { cpus: 1 }
-      docker:
-        image: python:3.12-slim
-      stages:
-        - name: Validate comment and request controller run
-          imports: https://cnb.cool/507space/FlClash-alpha-secrets/-/blob/main/github-dispatch.yml
-          script: python3 .automation/wake.py
-          timeout: 2m
-  pull_request.target:
-    - *controller-wake
   api_trigger:
     - *mirror
   web_trigger:
     - *mirror
-  api_trigger_fallback:
-    - name: Compile fallback artifact without personal signing key
-      runner: { cpus: 8 }
-      docker:
-        build: .cnb/Dockerfile
-        volumes:
-          - /root/.pub-cache:copy-on-write
-          - /root/.gradle:copy-on-write
-          - /root/go:copy-on-write
-          - /root/.cache/go-build:copy-on-write
-      lock:
-        key: flclash-fallback-build
-        wait: true
-      stages:
-        - name: Verify source and prepare
-          script: |
-            test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_SHA"
-            bash .cnb/run.sh prepare
-          timeout: 20m
-        - name: Analyze and test
-          script: bash .cnb/run.sh check
-          timeout: 20m
-        - name: Compile temporary artifact
-          script: |
-            build=$(python3 -c "import json; print(json.load(open('.github/release.json'))['build'])")
-            display_version=$(python3 tool/release_identity.py --field displayVersion)
-            flutter build apk --release --target-platform android-arm64 --dart-define=APP_ENV=stable --build-name "$display_version" --build-number "$build"
-            python3 .automation/fallback.py produce
-          timeout: 45m
-  api_trigger_permissions:
-    - name: Verify temporary Release permissions
-      runner: { cpus: 1 }
-      docker:
-        image: python:3.12-slim
-      stages:
-        - script: python3 .automation/release_permission_probe.py
-          timeout: 2m
   # GitHub PR review, advisory only (.github/workflows/npc-review.yml). Started with `npc: {name: CodeBuddy}` so it
   # counts as dev quota. The prompts stay here on main and the request carries only validated numbers and SHAs:
   # `$` in env prompts gets expanded, and rawConfig and the result are public, so nothing here may be secret.
@@ -168,9 +82,9 @@ $:
             echo NPC_REVIEW_BEGIN
             printf '%s\n' "$NPC_REVIEW"
             echo NPC_REVIEW_END
+  # Upstream analysis: control.watch names these roles in the body of the upgrade Issue it opens.
   issue.comment@npc:
-    - &reviewer-npc
-      name: Project NPC review
+    - name: Project NPC review
       runner: { cpus: 2 }
       docker:
         image: cnbcool/default-npc:latest
@@ -195,8 +109,6 @@ $:
             maxTokens: 48k
             thinkingLevel: medium
             supportImage: true
-  pull_request.comment@npc:
-    - *reviewer-npc
   vscode:
     - name: FlClash cloud development
       runner: { cpus: 4 }
@@ -213,36 +125,3 @@ $:
         - name: Prepare development dependencies
           script: bash .cnb/run.sh prepare
           timeout: 20m
-开发助手:
-  issue.comment@npc:
-    - &developer-npc
-      name: Project NPC development
-      runner: { cpus: 4 }
-      docker:
-        build:
-          dockerfile: .cnb/npc.Dockerfile
-          versionBy:
-            - .cnb/npc.Dockerfile
-        volumes:
-          - /root/.pub-cache:copy-on-write
-          - /root/go:copy-on-write
-          - /root/.cache/go-build:copy-on-write
-      stages:
-        - name: DeepSeek development
-          type: npc:go
-          options:
-            maxTurns: 240
-            model: deepseek-v4.1-flash
-            contextWindow: 1m
-            thinkingLevel: 'off'
-            supportImage: true
-          timeout: 60m
-  pull_request.comment@npc:
-    - name: Developer NPC notes PR comments instead of a dispatch
-      runner: { cpus: 1 }
-      docker:
-        image: python:3.12-slim
-      stages:
-        - name: Explain the dispatch entry
-          script: echo 开发助手不接受 PR 评论派发，请在需求 Issue 里由控制器派发
-          timeout: 2m

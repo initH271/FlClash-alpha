@@ -90,7 +90,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: dependency-security-report
-      - name: Track findings and request bounded repair PRs
+      - name: Track findings in the CNB security Issues
         env:
           GH_TOKEN: ${{ github.token }}
           CNB_AUTOMATION_TOKEN: ${{ secrets.CNB_AUTOMATION_TOKEN }}

@@ -44,11 +44,10 @@ class ReleaseIdentityWiringTests(unittest.TestCase):
         self.assertIn("'--display-version', identity['displayVersion']", source)
         self.assertIn("metadata['tag'] = identity['tag']", source)
 
-    def test_workflow_and_cnb_pass_build_name(self):
-        for path in ('.github/workflows/build.yaml', '.cnb.yml'):
-            source = self.read(path)
-            self.assertIn('tool/release_identity.py --field displayVersion', source)
-            self.assertIn('--build-name "$display_version"', source)
+    def test_workflow_passes_build_name(self):
+        source = self.read('.github/workflows/build.yaml')
+        self.assertIn('tool/release_identity.py --field displayVersion', source)
+        self.assertIn('--build-name "$display_version"', source)
 
     def test_release_title_uses_display_version(self):
         source = self.read('.github/workflows/build.yaml')

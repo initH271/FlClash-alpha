@@ -2,8 +2,7 @@
 
 A scan that cannot reach its advisory source is neither clean nor exposed, so it
 leaves a machine-readable marker on stdout and exits with its own code. Callers
-that only look for "non-zero" still fail, while the controller can tell the two
-apart and retry instead of opening or closing security work.
+that only look for "non-zero" still fail.
 """
 
 import json
@@ -21,18 +20,3 @@ class EnvironmentFailure(RuntimeError):
 
 def line(kind, **detail):
     return MARKER + ' ' + json.dumps({'kind': kind, **detail}, ensure_ascii=False, sort_keys=True)
-
-
-def parse(text):
-    marker = MARKER + ' '
-    results = []
-    for row in text.splitlines():
-        if not row.startswith(marker):
-            continue
-        try:
-            payload = json.loads(row[len(marker):])
-        except ValueError:
-            continue
-        if isinstance(payload, dict) and isinstance(payload.get('kind'), str):
-            results.append(payload)
-    return results

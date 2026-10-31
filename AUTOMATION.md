@@ -1,5 +1,9 @@
 # FlClash-alpha automation
 
+The controller was removed from this repository: paired reviews, requirements, the CNB wake pipelines, the security
+repair queue and the CNB build fallback no longer exist, so sections describing them are history until this file is
+rewritten. An upgrade now ends in a draft PR the owner merges; merging publishes the release.
+
 ## Owner decision and upstream tracking
 
 GitHub's `Upstream decisions and build scheduling` workflow checks official stable
@@ -55,12 +59,11 @@ The owner then:
 1. Merges that upstream commit into main by hand, resolving the conflicts. Leave
    `.automation/policy.json` and `.github/release.json` to the controller, and do
    not merge the draft PR or edit its branch.
-2. Replies `OK` on the Issue, which wakes the controller. The scheduled controller
-   pass picks it up anyway if the event is lost.
+2. Replies `OK` on the Issue. The hourly controller pass picks it up.
 
 Once the commit is in main, the controller prepares a fresh candidate from main on
-the same branch and draft PR, without `UPSTREAM_REVIEW.md`, and the normal path
-continues: paired reviews, build, publication. It takes over only a branch carrying
+the same branch and draft PR, without `UPSTREAM_REVIEW.md`, and the owner merges
+that PR, which publishes the release. It takes over only a branch carrying
 `UPSTREAM_REVIEW.md` and no candidate of this Issue. If main still carries an earlier
 upgrade's unfinished candidate, it waits until that one's Issue closes or its release
 is published. A branch that lost `UPSTREAM_REVIEW.md` is left alone: delete it and
@@ -131,8 +134,8 @@ Webhook or external messaging account has been configured. Approval is entered
 on the relevant CNB Issue. Expired/insufficient tokens fail the workflow visibly.
 
 Manual controls live in GitHub Actions:
-- upstream.yaml: watch / approvals / scheduler / reviews / all.
-- build.yaml: source_ref (exact approved SHA), reuse_run or cnb_fallback.
+- upstream.yaml: watch / sync / approvals / scheduler / preflight / all.
+- build.yaml: source_ref (must be the current main) and reuse_run.
 
 `main.pull_request` also declares `Automation unit tests`: a PR that touches
 `.automation/`, `.cnb/`, `.cnb.yml`, `.github/` or `tool/` runs every `.automation`

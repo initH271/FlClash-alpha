@@ -7,9 +7,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 GUARD = "always() && steps.credentials.outcome == 'success'"
 GUARDED_STEPS = (
     'Notify new stable upstream release',
-    'Reconcile PR review gates',
+    'Bring CNB main up to GitHub main',
     'Process owner approvals',
-    'Reuse artifacts or dispatch infrastructure fallback',
+    'Reuse artifacts of stopped release builds',
 )
 
 
@@ -25,7 +25,24 @@ def step_conditions():
     return found
 
 
-FORBIDDEN = ('/merge', "'PATCH'", "'PUT'", 'promote(', 'merge_one(')
+FORBIDDEN = ('/merge', "'PATCH'", "'PUT'", 'promote(')
+
+
+GONE = {'ci_paths', 'fallback', 'npc_recovery', 'pause', 'release_permission_probe', 'requirements', 'review_evidence',
+        'reviews', 'security_finish', 'security_queue', 'wake'}
+
+
+def defined(tree):
+    """The names a module binds at its top level, its own imports included."""
+    names = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.Assign):
+            names |= {target.id for target in node.targets if isinstance(target, ast.Name)}
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            names |= {(alias.asname or alias.name).split('.')[0] for alias in node.names}
+    return names
 
 
 def reachable_source(module, entry):
@@ -64,46 +81,77 @@ class WorkflowGateTests(unittest.TestCase):
         source = (ROOT / '.github/workflows/upstream.yaml').read_text(encoding='utf-8')
         self.assertNotIn('continue-on-error', source)
 
-    def test_build_dispatching_steps_receive_the_security_finish_outcome(self):
+    def test_the_controller_steps_are_gone(self):
         source = (ROOT / '.github/workflows/upstream.yaml').read_text(encoding='utf-8')
-        blocks = {re.search(r'name: (.+)', b).group(1).strip(): b
-                  for b in re.split(r'\n      - ', source)[1:] if re.search(r'name: (.+)', b)}
-        step_id = re.search(r'\n        id: (\S+)', blocks['Finish verified compatible security repairs'])
-        self.assertIsNotNone(step_id)
-        expected = 'FLCLASH_SECURITY_OUTCOME: ${{ steps.%s.outcome }}' % step_id.group(1)
-        for name in ('Process owner approvals', 'Reuse artifacts or dispatch infrastructure fallback'):
-            with self.subTest(step=name):
-                self.assertRegex(blocks[name], r'\n        env:\n(          .+\n)*          '
-                                 + re.escape(expected) + r'\n')
+        for script in ('reviews.py', 'npc_recovery.py', 'security_queue.py', 'security_finish.py', 'requirements.py',
+                       'FLCLASH_SECURITY_OUTCOME'):
+            self.assertNotIn(script, source)
+        self.assertFalse((ROOT / '.github/workflows/reviews.yaml').exists())
 
-    def test_security_finish_runs_whenever_a_build_dispatching_step_runs(self):
-        """control.security_hold lets a skipped security outcome through.
+    def test_every_scheduled_run_brings_cnb_main_up_to_date(self):
+        # A merge without a new version skips build.yaml's sync, so this is what carries it, and .cnb.yml, to CNB.
+        block = next(b for b in re.split(r'\n      - ', (ROOT / '.github/workflows/upstream.yaml').read_text(encoding='utf-8'))
+                     if 'Bring CNB main up to GitHub main' in b)
+        self.assertIn('python3 .automation/control.py sync', block)
+        self.assertEqual(GUARD + " && inputs.operation != 'preflight'", step_conditions()['Bring CNB main up to GitHub main'])
 
-        That is only safe while every run of approvals or the scheduler also runs the security step.
-        Each alternative inside their parentheses must be a schedule event, which carries no inputs, or
-        an explicit non-preflight operation; anything else could let a skipped security step release a build.
-        """
-        conditions = step_conditions()
-        security = conditions['Finish verified compatible security repairs']
-        self.assertEqual(security, GUARD + " && inputs.operation != 'preflight'",
-                         'security finish condition changed: re-check that skipped still implies it never ran '
-                         'alongside approvals or the scheduler, then update this test')
-        for name in ('Process owner approvals', 'Reuse artifacts or dispatch infrastructure fallback'):
-            cond = conditions[name]
-            with self.subTest(step=name):
-                self.assertTrue(cond.startswith(GUARD + ' && (') and cond.endswith(')'), cond)
-                for option in cond[len(GUARD + ' && ('):-1].split(' || '):
-                    schedule = re.fullmatch(r"github\.event\.schedule == '[^']+'", option)
-                    operation = re.fullmatch(r"inputs\.operation == '([a-z_]+)'", option)
-                    self.assertTrue(schedule or (operation and operation.group(1) != 'preflight'),
-                                    f'{name} may run without the security step on {option!r}; a skipped '
-                                    'security outcome would then release a build unchecked')
+    def test_the_upstream_workflow_keeps_its_own_schedules(self):
+        # Nothing wakes it from CNB any more: watch runs every six hours, approvals and the scheduler hourly.
+        source = (ROOT / '.github/workflows/upstream.yaml').read_text(encoding='utf-8')
+        self.assertEqual(["17 */6 * * *", "0 * * * *"], re.findall(r"cron: '([^']+)'", source))
+
+    def test_the_release_build_publishes_from_main_without_a_fallback(self):
+        source = (ROOT / '.github/workflows/build.yaml').read_text(encoding='utf-8')
+        for gone in ('cnb_fallback', 'CNB_FALLBACK', 'fallback.py'):
+            self.assertNotIn(gone, source)
+        for step in ('python3 .automation/build_plan.py', 'python3 .automation/reuse.py',
+                     'bash .github/scripts/sign-apk.sh', 'python3 .automation/control.py promote',
+                     'python3 .automation/control.py validate', 'python3 .automation/control.py notify',
+                     'python3 .automation/control.py status'):
+            self.assertIn(step, source)
+        self.assertLess(source.index('control.py promote'), source.index('gh release create'))
+        self.assertLess(source.index('gh release create'), source.index('control.py notify'))
+
+    def test_every_script_a_pipeline_runs_exists(self):
+        sources = [*(ROOT / '.github/workflows').glob('*.y*ml'), ROOT / '.cnb.yml']
+        scripts = set()
+        for path in sources:
+            scripts |= set(re.findall(r'(?:tools/)?(\.(?:automation|cnb|github)/[\w./-]+\.(?:py|sh))',
+                                      path.read_text(encoding='utf-8')))
+        self.assertIn('.automation/control.py', scripts)
+        for script in scripts:
+            with self.subTest(script=script):
+                self.assertTrue((ROOT / script).is_file())
+
+    def test_every_control_command_a_pipeline_runs_exists(self):
+        sources = ''.join(path.read_text(encoding='utf-8') for path in (ROOT / '.github/workflows').glob('*.y*ml'))
+        tree = ast.parse((ROOT / '.automation/control.py').read_text(encoding='utf-8'))
+        commands = next(ast.literal_eval(ast.Tuple(node.value.keys, ast.Load())) for node in ast.walk(tree)
+                        if isinstance(node, ast.Assign) and getattr(node.targets[0], 'id', '') == 'commands')
+        used = set(re.findall(r'\.automation/control\.py (\w+)', sources))
+        self.assertTrue(used)
+        self.assertLessEqual(used, set(commands))
+
+    def test_no_automation_module_imports_a_name_that_is_gone(self):
+        directory = ROOT / '.automation'
+        modules = {path.stem: ast.parse(path.read_text(encoding='utf-8')) for path in directory.glob('*.py')}
+        for name, tree in modules.items():
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    pairs = [(alias.name, None) for alias in node.names]
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    pairs = [(node.module, alias.name) for alias in node.names]
+                else:
+                    continue
+                for module, symbol in pairs:
+                    self.assertNotIn(module, GONE, f'{name} imports {module}')
+                    if module in modules and symbol:
+                        self.assertIn(symbol, defined(modules[module]), f'{name} imports {module}.{symbol}')
 
     def test_always_run_steps_never_merge_or_push_main_themselves(self):
         """Running after a failed security step must only record approvals and schedule builds.
 
-        Merging and publishing live in security_finish.py and in build.yaml's promote step,
-        which re-validates the candidate; the two always-run entry points must not reach them.
+        Publishing lives in build.yaml, on the current main; the two always-run entry points must not reach it.
         """
         for module, entry in (('control', 'approvals'), ('scheduler', 'schedule')):
             source = reachable_source(module, entry)

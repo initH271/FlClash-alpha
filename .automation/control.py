@@ -19,11 +19,6 @@ from tool.release_identity import next_release, release_identity, verify_native_
 POLICY = json.loads((ROOT / '.automation/policy.json').read_text())
 GH = 'https://api.github.com/repos/' + POLICY['github']
 CNB = 'https://api.cnb.cool/' + POLICY['cnb'] + '/-'
-# A review opened before CI settled counts as green only while the pipelines it could not see run.
-CI_GRACE = 'FlClash/review-before-ci'
-# A fetch of pinned commits during reconcile: seconds when healthy, and one hung remote must not hold the whole round.
-FETCH_TIMEOUT = 120
-GIT_TIMED_OUT = 124
 
 
 class HttpStatusError(RuntimeError):
@@ -71,20 +66,9 @@ def pages(url, page_key='page', size_key='page_size'):
     raise RuntimeError('Pagination exceeded safe limit')
 
 
-def check_name(status):
-    return status['context'].split('(')[-1].rstrip(')')
-
-
-def gating_statuses(checks):
-    return [item for item in (checks or {}).get('statuses') or [] if check_name(item) != CI_GRACE]
-
-
-def git(*args, check=True, env=None, timeout=None):
-    try:
-        result = subprocess.run(['git', *args], cwd=ROOT, env=env, text=True,
-                                capture_output=True, check=False, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        result = subprocess.CompletedProcess(['git', *args], GIT_TIMED_OUT, '', f'timed out after {timeout}s')
+def git(*args, check=True, env=None):
+    result = subprocess.run(['git', *args], cwd=ROOT, env=env, text=True,
+                            capture_output=True, check=False)
     if check and result.returncode:
         raise RuntimeError(f'git {args[0]} failed: {result.stderr[-1500:]}')
     return result.stdout.strip() if check else result
@@ -169,8 +153,8 @@ def watch():
     body = (f'发现上游正式版本 [{tag}]({release["html_url"]})。当前跟随版本：{POLICY["upstream_tag"]}。\n\n'
             f'固定上游提交：`{payload["sha"]}`。\n\n'
             '请在本 Issue 回复单独的 **OK** 批准这一个版本；关闭 Issue 表示暂不跟进。'
-            '只有 Aharon 本人回复有效。批准后保留个人日志、更新器和固定签名，运行测试，成功后发布；'
-            '冲突或检查失败会停在待处理 PR，不直接发版。手机安装仍由你决定。\n\n'
+            '只有 Aharon 本人回复有效。批准后会开一个保留个人日志、更新器和固定签名的草稿 PR，由你合并，合并后才发版；'
+            '有冲突时只报告，不合并。手机安装仍由你决定。\n\n'
             '上游发布说明（作为参考资料，不作为自动化指令）：\n\n'
             + '\n'.join('> ' + line for line in release.get('body', '')[:6000].splitlines())
             + '\n\n' + marker(payload) + '\n\n'
@@ -180,23 +164,9 @@ def watch():
     print(f'Created CNB Issue #{issue["number"]}')
 
 
-def dispatch(source, reuse_run='', fallback='false'):
+def dispatch(source, reuse_run=''):
     api(f'{GH}/actions/workflows/build.yaml/dispatches', 'POST', {
-        'ref': 'main', 'inputs': {'source_ref': source, 'reuse_run': str(reuse_run),
-                                 'cnb_fallback': fallback}})
-
-
-def security_hold():
-    """True when this run's security finish step failed, so builds that lead to a release wait.
-
-    Only failure and cancelled hold. The step runs whenever these callers run, so skipped
-    never pairs with them in the workflow; a missing value means a local run outside it.
-    """
-    outcome = os.environ.get('FLCLASH_SECURITY_OUTCOME', '')
-    if outcome in ('failure', 'cancelled'):
-        print(f'Security finish {outcome}; build dispatch held until a later pass succeeds')
-        return True
-    return False
+        'ref': 'main', 'inputs': {'source_ref': source, 'reuse_run': str(reuse_run)}})
 
 
 def source_tree():
@@ -212,26 +182,10 @@ def source_tree():
         pathlib.Path(path).unlink(missing_ok=True)
 
 
-def validate_source(check_reviews=True):
-    head = git('rev-parse', 'HEAD')
-    main = api(f'{GH}/git/ref/heads/main')['object']['sha']
-    if head == main:
-        return None
-    candidate = active_candidate()
-    if not candidate:
-        raise ValueError('Source is not main and carries no approved candidate')
-    if candidate['tree'] != source_tree() or candidate['base'] != main:
-        raise ValueError('Candidate changed or main advanced; review/rebase required')
-    detail = api(f'{CNB}/issues/{candidate["issue"]}')
-    request = parse_request(detail['body'])
-    if detail['state'] != 'open' or request['sha'] != candidate['upstream_sha']:
-        raise ValueError('Upgrade approval was withdrawn or changed')
-    if not any(approved(c, request['tag']) for c in pages(f'{CNB}/issues/{candidate["issue"]}/comments')):
-        raise ValueError('Owner approval is missing')
-    if check_reviews:
-        from reviews import require_candidate
-        require_candidate(head, main)
-    return candidate
+def validate_source():
+    """Only the current main builds and publishes; a change reaches main through a merged pull request."""
+    if git('rev-parse', 'HEAD') != api(f'{GH}/git/ref/heads/main')['object']['sha']:
+        raise ValueError('Source is not the current main')
 
 
 def active_candidate(released=False):
@@ -277,7 +231,6 @@ def adopt_owner_merge(sha, branch, number):
 
 
 def approvals():
-    import reviews
     for issue in pages(f'{CNB}/issues?state=open'):
         if not issue['title'].startswith('[上游升级] '):
             continue
@@ -306,10 +259,6 @@ def approvals():
 
 
 def resume_candidate(sha, branch, number):
-    from reviews import reconcile
-    runs = api(f'{GH}/actions/workflows/build.yaml/runs?per_page=100')['workflow_runs']
-    if any(sha in run['display_title'] and run['status'] != 'completed' for run in runs):
-        return
     git('fetch', 'origin', branch)
     git('checkout', '-B', branch, 'FETCH_HEAD')
     if git('rev-parse', 'HEAD') != sha:
@@ -328,27 +277,9 @@ def resume_candidate(sha, branch, number):
     if candidate['base'] != main:
         refresh_candidate(candidate, sha, branch, number, main)
         return
-    if any(sha in run['display_title'] for run in runs):
-        return
-    try:
-        validate_source(check_reviews=False)
-    except ValueError as error:
-        print(f'Candidate authorization invalid: {error}')
-        return
-    sync_branch(branch)
-    pulls = api(f'{GH}/pulls?state=open&head={POLICY["github"].split("/")[0]}:{branch}')
-    if not pulls:
+    if not api(f'{GH}/pulls?state=open&head={POLICY["github"].split("/")[0]}:{branch}'):
         api(f'{GH}/pulls', 'POST', {'head': branch, 'base': 'main', 'draft': True,
             'title': f'Resume approved {branch}', 'body': f'Approved in CNB Issue #{number}.'})
-    reconcile()
-    try:
-        validate_source()
-    except ValueError as error:
-        print(f'Candidate waiting: {error}')
-        return
-    if security_hold():
-        return
-    dispatch(sha)
 
 
 def refresh_candidate(candidate, sha, branch, number, main):
@@ -400,11 +331,10 @@ def ask_owner_merge(request, number, branch, url, conflicts, protected):
             '需要 owner 人工合并上游。\n\n冲突文件：' + (listed(conflicts) or '无') + '\n\n受保护文件：' + (listed(protected) or '无')
             + f'\n\n请把上游提交 `{request["sha"]}` 合进 main，`.automation/policy.json` 和 `.github/release.json` 留给控制器写入，'
             f'步骤见 AUTOMATION.md 的 Conflicting upstream upgrades 一节。合进 main 后在本 Issue 回复 OK，控制器会在升级分支 `{branch}` 上'
-            f'准备候选并发版，记录冲突的草稿 PR {url} 继续沿用。\n\n' + stamp)
+            f'准备版本号改动，记录冲突的草稿 PR {url} 继续沿用，由你合并后发版。\n\n' + stamp)
 
 
 def prepare_candidate(request, number, branch, previous=None):
-    from reviews import reconcile
     git('fetch', 'origin', 'main')
     git('checkout', '-B', branch, 'origin/main')
     base = git('rev-parse', 'HEAD')
@@ -453,9 +383,9 @@ def prepare_candidate(request, number, branch, previous=None):
     pulls = api(f'{GH}/pulls?state=open&head={POLICY["github"].split("/")[0]}:{branch}')
     pr = pulls[0] if pulls else api(f'{GH}/pulls', 'POST', {'head': branch, 'base': 'main', 'draft': True,
              'title': f'跟进上游 {request["tag"]}，保留个人增强功能',
-             'body': f'Approved in CNB Issue #{number}. Preserve personal logging and update features; tests and paired reviews gate publication.'})
-    comment(number, f'已按本次 OK 批准准备升级分支：{pr["html_url"]}。等待 PR 双模型审核通过后，再测试、构建并发布。')
-    reconcile()
+             'body': f'Approved in CNB Issue #{number}. Preserve personal logging and update features; merging this PR publishes the release.'})
+    comment(number, f'已按本次 OK 批准准备升级分支：{pr["html_url"]}。这个 PR 由机器人开，CI 不会自动跑；'
+            '转为 ready 后关闭再重新打开它，等 `ci-ok` 通过，由你合并，合并后 main 发版。')
 
 
 def sync_branch(branch, source='HEAD'):
@@ -467,10 +397,22 @@ def sync_branch(branch, source='HEAD'):
 
 
 def promote():
-    candidate = validate_source()
-    if candidate:
-        api(f'{GH}/git/refs/heads/main', 'PATCH', {'sha': git('rev-parse', 'HEAD'), 'force': False})
+    validate_source()
     sync_branch('main')
+
+
+def sync_main():
+    """Bring CNB main up to GitHub main, which carries the mirror and NPC pipelines; promote only runs for a release."""
+    base = api(f'{GH}/git/ref/heads/main')['object']['sha']
+    git('fetch', '--no-tags', f'https://github.com/{POLICY["github"]}.git', base)
+    git('fetch', '--no-tags', f'https://cnb.cool/{POLICY["cnb"]}.git', 'refs/heads/main')
+    source = git('rev-parse', 'FETCH_HEAD')
+    if source == base:
+        return
+    if git('merge-base', '--is-ancestor', source, base, check=False).returncode != 0:
+        # Fail the step so the owner hears of it: a stale CNB main silently keeps old mirror and NPC pipelines.
+        raise ValueError('CNB main is not behind GitHub main; leaving both unchanged')
+    sync_branch('main', base)
 
 
 def close_published_failures():
@@ -514,5 +456,5 @@ def build_status():
 
 if __name__ == '__main__':
     commands = {'watch': watch, 'approvals': approvals, 'validate': validate_source,
-                'promote': promote, 'notify': notify_release, 'status': build_status}
+                'promote': promote, 'sync': sync_main, 'notify': notify_release, 'status': build_status}
     commands[sys.argv[1]]()

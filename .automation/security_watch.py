@@ -94,18 +94,6 @@ def unresolved_group(payload, report):
             or bool(set(payload.get('component_keys', [])) & {key(p) for p in report['unscanned']}))
 
 
-def active_developer(issue, comments):
-    state = None
-    for item in [issue] + sorted(comments, key=lambda c: (c.get('created_at', ''), int(c['id']))):
-        for entry in (item.get('statuses') or {}).get('npc', []):
-            context = entry.get('context') or {}
-            if context.get('npc.slug') == POLICY['cnb'] and context.get('npc.name') == '开发助手':
-                statuses = entry.get('statuses') or []
-                if statuses:
-                    state = statuses[-1].get('state')
-    return state is not None and state not in ('success', 'error', 'failure', 'cancel', 'cancelled')
-
-
 def monitor(report):
     if report.get('complete') is not True or report.get('schema') != 1:
         raise ValueError('Incomplete scan cannot update security tasks')
@@ -147,8 +135,8 @@ def monitor(report):
             payload = payload_for(slug)
             links = '\n'.join(f'- 原记录 #{i["number"]}：https://cnb.cool/{POLICY["cnb"]}/-/issues/{i["number"]}'
                               for i, p in legacy if group_for(p) == slug)
-            body = f'统一处理 `{path}` 的相关依赖，一组一个开发任务和修复分支。\n\n{links}\n\n'
-            body += '允许有证据的部分修复，剩余漏洞逐条保留，不忽略告警、不自行合并或发布。'
+            body = f'记录 `{path}` 相关依赖的扫描结果，同一模块共用这一个任务。\n\n{links}\n\n'
+            body += '这里只做检测，不会自动派开发；剩余漏洞逐条保留，不忽略告警。修复走普通 PR。'
             issue = {'body': body}
             payload['history'] = scan_history([], findings, report['unscanned'])
             issue = api(f'{CNB}/issues', 'POST', {'title': '[安全修复] ' + title,
@@ -173,9 +161,7 @@ def monitor(report):
         if any(issue.get(k) != v for k, v in update.items()):
             api(f'{CNB}/issues/{issue["number"]}', 'PATCH', update)
     migrate_legacy(legacy, parents)
-    from security_queue import reconcile
-    reconcile()
-    print(f'Tracked {len(parents)} repair groups; reconciled worker queue')
+    print(f'Tracked {len(parents)} repair groups')
 
 
 if __name__ == '__main__':
