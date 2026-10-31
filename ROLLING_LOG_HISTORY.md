@@ -82,8 +82,7 @@ on pushes to `main` and manual workflow dispatches. The workflow pins the upstre
 Flutter 3.47.6, Go 1.27.1, NDK r28c, Java 17, and Rust 1.99.0 toolchains. It runs
 core tests, Go vet, Flutter analysis, and the focused log export tests before
 building. The APK and SHA-256 checksum are retained as an Actions artifact for
-14 days. The original multi-platform workflow is preserved outside the active
-workflow directory at `.github/upstream-build.yaml`.
+14 days.
 
 The release build keeps the upstream `.dev` application ID behavior. A dedicated
 personal signing key is restored from the `ANDROID_DEBUG_KEYSTORE` repository
@@ -107,6 +106,3 @@ transitive Android dependencies also contain unused libraries for other ABIs.
 The signing certificate SHA-256 is
 `4cc5094e24f4a4cfde3a37d6c839ae376bd74c50075d8ee6bc73e25682e9afad`.
 The phone was disconnected at delivery, so no installation or device test was run.
-
-Requirement loop probe: req-open
-Requirement loop probe: req-auto

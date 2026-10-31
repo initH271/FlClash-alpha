@@ -5,8 +5,7 @@
 # it would move mihomo to the tip of its branch, ahead of the upstream release and around the owner's OK. The pinned commit
 # only moves with an upstream upgrade.
 #
-# pub: plugins/wifi_ssid has no external dependency. Indirect Go modules are left to security updates, because mihomo
-# decides those versions and a weekly bump of all of them would mostly be noise.
+# pub: plugins/wifi_ssid has no external dependency.
 version: 2
 updates:
   - package-ecosystem: pub
@@ -39,11 +38,11 @@ updates:
       day: monday
       time: '09:00'
       timezone: Asia/Shanghai
-    open-pull-requests-limit: 1
+    # Security updates only. A version update runs `go mod tidy`, which drops the indirect fix versions core/go.mod holds
+    # for mihomo's dependencies, so versions fall back and the scan fails it every time. This limit does not apply to
+    # security updates, which have their own fixed limit.
+    open-pull-requests-limit: 0
     groups:
-      version-updates:
-        applies-to: version-updates
-        patterns: ['*']
       security-updates:
         applies-to: security-updates
         patterns: ['*']
@@ -56,6 +55,11 @@ updates:
       day: monday
       time: '09:00'
       timezone: Asia/Shanghai
+    # Patch releases only: a group is all or nothing, so one breaking minor (rquickjs without Android bindings) sinks the
+    # rest. `allow` rather than `ignore` because GitHub documents that allow's update-types never limit security updates.
+    allow:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-patch']
     open-pull-requests-limit: 2
     groups:
       version-updates:

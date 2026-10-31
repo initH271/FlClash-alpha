@@ -50,11 +50,10 @@ hooks:
       build_assets: true   # false does the same for the Rust library
 ```
 
-CI flips `setup` to `false` with `yq` in its throwaway checkout before
-`dart run tool/changelog.dart` and `dart run tool/test.dart`; no test loads the Go core. `rust_api`
-stays on there because the editor tests in `test/plugins/code_forge/` and the socket
-test in `test/core/desktop/ipc_native_test.dart` load the Rust library the hook
-builds; the release-notes job, which runs no tests, flips both.
+The Flutter job in `.github/workflows/ci.yml` sets both to `false` with `sed` in its throwaway checkout, because no test
+loads the Go core. It builds the Rust library with `cargo build --locked` and points `FRB_DART_LOAD_EXTERNAL_LIBRARY_NATIVE_LIB_DIR`
+at it, since the editor tests in `test/plugins/code_forge/` and the socket test in `test/core/desktop/ipc_native_test.dart`
+load that library.
 Never commit `false`: a build with it set stages whatever `libclash/` already
 holds and bundles no Rust library, which is why `setup.dart` refuses to package
 while it is set. Locally, `false` is worth setting for a Dart-only test loop,
@@ -208,9 +207,11 @@ What those suites own:
 
 `.automation/` holds the release and upstream Python, and its unit tests need Python 3.11 or newer because the security
 scan modules read `Cargo.toml` files through `tomllib`; the `Automation unit tests` job in `.github/workflows/ci.yml` runs
-the same command:
+the same commands:
 
 ```bash
+python3 .cnb/test_mirror_release.py
+python3 -m unittest tool.test_release_identity
 python3 -m unittest discover -s .automation -p 'test_*.py'
 ```
 
@@ -268,33 +269,12 @@ dart run tool/changelog.dart render release --out release.md
 dart run tool/changelog.dart render telegram --out telegram.md
 ```
 
-Releasing a stable version, in order:
+Release through a pull request: change `.github/release.json` and `.github/release-notes.md`, and merging publishes. See
+[AUTOMATION.md](../AUTOMATION.md#releases). A tag starts no workflow here and `main` takes no direct push, so
+`tool/release.sh` and `tool/bump_version.sh`, which come from upstream, have no part in a release.
 
-```bash
-tool/bump_version.sh all
-dart run tool/changelog.dart release --version 0.8.96
-git commit -am "chore(release): v0.8.96"
-git tag v0.8.96
-git push origin main && git push origin v0.8.96
-```
-
-Push the tag by name. Every release tag here is lightweight, and `--follow-tags` carries annotated tags only: it skips a
-lightweight one silently, so the branch lands, the tag does not, and the release workflow never fires.
-
-`tool/release.sh` drives both paths so the ordering below cannot be got wrong by hand. It resolves the version (bumping
-the patch when pubspec still names an already tagged one), prints the notes the tag would ship, and only pushes with
-`--push`:
-
-```bash
-tool/release.sh pre --dry-run     # plan and notes, changes nothing
-tool/release.sh pre --push        # bump, tag vX.Y.Z-pre.N, push
-tool/release.sh stable --push     # changelog, chore(release) commit, tag, push
-```
-
-The release commit comes before the tag on purpose: the generated wording is reviewable in the diff before it ships, and
-the tag is what `render release` reads. CI never writes back to the repository; it only runs `verify`. Wording in
-`changelog.json` may be edited by hand as long as no derivable entry disappears and every entry still points at a commit
-inside that version's range.
+Wording in `changelog.json` may be edited by hand as long as no derivable entry disappears and every entry still points at
+a commit inside that version's range.
 
 Entries at or below `v0.8.96` are frozen: they predate the pipeline, live under the `<!-- changelog:frozen -->` marker
 in `CHANGELOG.md`, and are never regenerated.
@@ -304,63 +284,27 @@ in `CHANGELOG.md`, and are never regenerated.
 skipped and moves on instead of reporting drift that does not exist. Checking mere tag existence is what made every such
 branch fail on an unrelated release.
 
-Prerelease tags (`v0.8.96-pre.N`) skip the release commit, and CI renders their notes with `build --unreleased` for the
-Telegram post. They publish no GitHub release, so the update dialog never sees them. `build --unreleased` reads the
-version from `pubspec.yaml` rather than the tag, so the patch has to be bumped before the first `-pre.N` of a cycle:
-while `v<pubspec version>` is still tagged it refuses to collect anything and the release job fails.
-
 ## Verify
 
-In the public repository every branch push runs the `dart` job; in the private
-`origin` every check job runs only when started by hand (`workflow_dispatch`).
-The `dart` job performs these root-package checks in order:
+`.github/workflows/ci.yml` runs on every pull request. `.github/scripts/ci_changes.py` picks the jobs from the changed
+paths, and the required check `ci-ok` passes when every job passed or was skipped. To reproduce a job:
 
-```bash
-bash tool/hooks/test.sh
-flutter pub get
-dart format --output=none --set-exit-if-changed lib test tool plugins setup.dart
-flutter analyze --no-fatal-infos
-dart run tool/changelog.dart verify   # main and tags only
-dart run tool/test.dart -- --reporter expanded --coverage
-dart run tool/check_coverage.dart coverage/lcov.info 75
-```
+| Job | Command |
+|---|---|
+| Automation | See the `.automation/` commands above |
+| Go | `cd core && CGO_ENABLED=0 go test . ./internal/logstore && CGO_ENABLED=0 go vet . ./internal/logstore`, plus the Android vet under Native Component Verification |
+| Rust | `cargo test --locked --manifest-path services/helper/Cargo.toml` and `--manifest-path plugins/rust_api/rust/Cargo.toml` |
+| Flutter | `flutter analyze --no-fatal-infos`, then `flutter test` |
+| Android unit | `cd android && ./gradlew :common:testDebugUnitTest :service:testDebugUnitTest :app:testDebugUnitTest -Ptarget-platform=android-arm64` |
+| Android compile | `flutter build apk --release --target-platform android-arm64` |
 
-`tool/hooks/` holds the scripts the git hooks run, and `tool/hooks/test.sh` runs every `*_test.sh` beside them, so a
-new hook script needs only its test file next to it, not a workflow step.
+Run `flutter analyze --no-fatal-infos` before committing; CI fails on a warning or error.
 
-Run `flutter analyze --no-fatal-infos` before committing; CI runs the same command and fails on a warning or error.
+CI leaves these to you. Run them when you touch their area:
 
-Release builds run only for `v*` tag pushes; pull requests trigger nothing.
-Root analysis excludes `plugins/**`, and root tests do not discover nested
-plugin packages, so parallel jobs validate the rest from their own package
-directories: `plugins` (local Flutter packages and the setup build tool), `go`
-(the Core wrapper, plus a vet of the Android files), `android` (JVM unit tests
-for `:common`, `:service` and `:app`, with the Flutter compile tasks excluded
-and the gomobile AAR built for one ABI), `rust` (both crates), and a
-Windows runner for the helper's `windows-service` feature. On branch pushes a
-`desktop` job also compiles a debug build per desktop platform; a tag skips it,
-since its release matrix compiles the same native code. Release builds run only
-in the public repository and start alongside the checks; `upload` publishes
-only once every build and every check job passes.
-
-`bash tool/check_plugins.sh` is that plugin gate, and CI runs the same script.
-It discovers every `plugins/*/pubspec.yaml`, analyzes each package, and runs
-`flutter test` wherever `test/*_test.dart` exists. Adding a plugin package needs
-no workflow edit; enumerating packages by hand in the workflow is what
-previously left `plugins/tray` unanalyzed and untested.
-
-### CI Caches
-
-A run restores only cache entries saved on its own branch or tag, or on the default branch (`main`), and the
-repository holds 10 GB before evicting the least recently used entries. Every release is a new tag that no later run
-reads from, so `BRANCH_CACHE` turns caching off in tag runs: one release used to write about 9 GB of such entries and
-evict everything `dev` had saved. Release builds therefore start cold; branch runs, chiefly `dev`, keep the caches.
-
-- setup-go keys its entry on the `cache-dependency-path` files alone and saves only on a miss, so jobs listing the
-  same files share one entry holding the build cache of whichever finished first. `desktop` and `android` each add
-  the file that drives their Core build to get an entry of their own.
-- setup-gradle writes only on the default branch unless told otherwise, so `android` lets `dev` write as well. Its
-  entries are keyed by job, which is one more reason the release build gains nothing from caching.
+- `bash tool/check_plugins.sh` analyzes and tests every package under `plugins/`. Root analysis excludes `plugins/**`, and
+  root tests do not discover nested plugin packages.
+- `bash tool/hooks/test.sh` runs every `*_test.sh` beside the git hook scripts.
 
 ## Worktree Tooling
 

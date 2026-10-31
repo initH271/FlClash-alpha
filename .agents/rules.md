@@ -565,13 +565,12 @@ failure, disposal, and any timer boundary that changes visible state.
 
 ## Automation Changes
 
-`.automation/`, `.cnb/`, `.cnb.yml` and `.github/` describe how this repository is automated, so a change to them goes
-through the owner channel: the owner pushes the branch to GitHub, opens the pull request and merges it there.
+`.automation/`, `.cnb/`, `.cnb.yml` and `.github/` describe how this repository is automated. Change them through an
+ordinary GitHub pull request, with the same required checks as any other: `ci-ok` and `Dependency vulnerability scan`.
 
-### Owner pull requests
-
-An owner pull request goes straight to GitHub, where `ci-ok` and the Dependency vulnerability scan are the required
-checks. CNB runs no CI: there is no `owner/**` pipeline, so do not push a branch to CNB to test it.
+- Read [AUTOMATION.md](../AUTOMATION.md) first, and update it or `SECURITY_AUTOMATION.md` in the same pull request.
+- Push the branch to GitHub to test it: CI runs there and nowhere else.
+- The owner merges.
 
 ## Commit Messages
 

@@ -1,11 +1,11 @@
 ## 改动摘要
 
 
-## 关联的需求或 issue
+## 关联的 issue
 issue：
 
 ## CI 证据
-- CI 在本 PR 上自动跑：必需检查是 `ci-ok` 和 Dependency vulnerability scan，不用再推 CNB。
+- CI 在本 PR 上自动跑：必需检查是 `ci-ok` 和 Dependency vulnerability scan。
 
 ## 用户可见的界面变化
 - [ ] 本 PR 有用户看得见的界面变化（含上游升级带来的变化）
@@ -18,5 +18,5 @@ issue：
 风险：
 回滚方式：
 
-## 自动化配置
-- [ ] 本 PR 改动了 `.github/workflows` 或 `.automation`（这类改动走 owner 通道）
+## 流程改动
+- [ ] 本 PR 改动了 `.github/`、`.automation/`、`.cnb/` 或 `.cnb.yml`，并在同一个 PR 更新了 `AUTOMATION.md` 或 `SECURITY_AUTOMATION.md`
