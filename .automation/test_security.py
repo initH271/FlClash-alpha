@@ -328,8 +328,15 @@ class DependabotTests(unittest.TestCase):
     def test_the_other_ecosystems_keep_every_version_update(self):
         for ecosystem in ('pub', 'gradle', 'github-actions'):
             with self.subTest(ecosystem=ecosystem):
-                self.assertNotRegex(self.blocks[ecosystem], r'(?m)^    (allow|ignore):')
+                self.assertNotRegex(self.blocks[ecosystem], r'(?m)^    allow:')
                 self.assertRegex(self.blocks[ecosystem], r'(?m)^    open-pull-requests-limit: [12]$')
+        for ecosystem in ('gradle', 'github-actions'):
+            self.assertNotRegex(self.blocks[ecosystem], r'(?m)^    ignore:')
+
+    def test_pub_only_holds_back_screen_retriever_which_the_desktop_code_is_written_against(self):
+        block = self.blocks['pub']
+        self.assertEqual(['screen_retriever'], re.findall(r'(?m)^      - dependency-name: (\S+)$', block))
+        self.assertIn("update-types: ['version-update:semver-minor', 'version-update:semver-major']", block)
 
     def test_yaml_aliases_are_not_relied_on(self):
         self.assertNotRegex(self.source, r'[&*]\w+\s*$')

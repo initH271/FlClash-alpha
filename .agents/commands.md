@@ -172,15 +172,17 @@ isolate, so a test can see state a file before it left behind; the script runs e
 its own, lets that run decide, and names the files that only failed together. See the Shared Test Isolate section of
 `rules.md` before fixing one.
 
-`plugins/setup/setup_hooks/` is a pure Dart package and is tested with `dart test` from its own directory, which is
-also what CI runs; `tool/check_plugins.sh` does not descend into it. It must stay out of `flutter test`, because a test
-run of `plugins/setup` would execute the build hook itself.
+`plugins/setup/setup_hooks/` is a pure Dart package and is tested with `dart test` from its own directory;
+`tool/check_plugins.sh` does not descend into it. It must stay out of `flutter test`, because a test run of `plugins/setup`
+would execute the build hook itself.
 
-Native plugin code under `plugins/*/{linux,macos,windows}` is compiled by the CI `desktop` job, which runs
-`flutter build <platform> --debug` on every branch push, and by the release matrix on a tag; `tool/check_plugins.sh`
-only analyzes and tests the Dart side.
+CI builds Android only, so nothing compiles the native plugin code under `plugins/*/{linux,macos,windows}`.
+`tool/check_plugins.sh` only analyzes and tests the Dart side.
 
-Root `flutter test` only discovers the root package's `test/` directory by default. Include bundled plugin Dart tests by passing paths explicitly, or run `flutter test` from that plugin package directory, or run `bash tool/check_plugins.sh` to analyze and test every plugin package the way CI does. Native plugin tests under platform folders are not run by `flutter test`.
+Root `flutter test` only discovers the root package's `test/` directory by default. Include bundled plugin Dart tests by passing paths explicitly, or run `flutter test` from that plugin package directory, or run `bash tool/check_plugins.sh` to analyze and test every plugin package. Native plugin tests under platform folders are not run by `flutter test`.
+
+CI does not run `tool/check_plugins.sh`, the `setup_hooks` tests, the hook tests, `dart format` or a coverage gate. Those
+mostly guard desktop plugins and appearance, and this fork ships Android. Run them by hand when you change that code.
 
 For the current Core/service architecture, useful focused checks are:
 
@@ -252,9 +254,9 @@ emulator validation; Kotlin compilation cannot prove those system callbacks.
 
 ## Changelog And Release
 
-The changelog is derived from Conventional Commits by `tool/changelog.dart` and written to two committed files:
-`CHANGELOG.md` for readers and `changelog.json` for the renderers. See `.agents/rules.md` for the `Changelog:` trailers
-that decide the wording.
+This fork writes its release text by hand in `.github/release-notes.md`. `tool/changelog.dart`, `CHANGELOG.md` and
+`changelog.json` come from upstream and stay for upstream merges: the tool derives the changelog from Conventional Commits,
+and `.agents/rules.md` covers the `Changelog:` trailers that decide the wording. CI does not run it.
 
 The app ships no changelog of its own. `render release` appends the released version as JSON inside an HTML comment
 (`<!-- flclash:changelog:json … -->`), so the release body GitHub already returns to `checkForUpdate` carries the
@@ -262,7 +264,7 @@ notes shown in the update dialog. `parseReleaseChangelog` reads that block and f
 bullets when a release predates it.
 
 ```bash
-dart run tool/changelog.dart verify                  # what CI checks
+dart run tool/changelog.dart verify
 dart run tool/changelog.dart release --version 0.8.96
 dart run tool/changelog.dart build --unreleased      # changelog.json only, includes untagged work
 dart run tool/changelog.dart render release --out release.md
