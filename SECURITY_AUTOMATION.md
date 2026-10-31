@@ -1,5 +1,8 @@
 # Dependency security automation
 
+The repair queue and automatic merges were removed: the workflow below only detects and records findings, and no
+developer NPC is dispatched. Sections describing repairs are history until this file is rewritten.
+
 The daily GitHub `Dependency security` workflow resolves the Go module graph in
 `core` and reads both Rust lockfiles, then queries the OSV database. CNB's existing
 findings add priority information; their old revision is not treated as a fresh

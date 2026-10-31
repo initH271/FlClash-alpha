@@ -1,13 +1,12 @@
-import json
+import contextlib
+import io
 import os
 import pathlib
-import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
 
 import control
-import reviews
 import scheduler
 
 
@@ -63,31 +62,24 @@ class AuthorizationTests(unittest.TestCase):
 
 
 class RecoveryTests(unittest.TestCase):
-    def test_test_failure_never_fails_over_even_with_artifact(self):
+    def test_test_failure_never_reuses_even_with_artifact(self):
         steps = [{'name': 'Analyze and test', 'conclusion': 'failure'}]
-        self.assertIsNone(scheduler.recovery_kind(steps, 'failure', True))
+        self.assertFalse(scheduler.can_reuse(steps, True))
 
     def test_existing_artifact_reused_after_publication_failure(self):
         steps = [{'name': 'Publish GitHub release', 'conclusion': 'failure'}]
-        self.assertEqual('reuse', scheduler.recovery_kind(steps, 'failure', True))
+        self.assertTrue(scheduler.can_reuse(steps, True))
 
-    def test_setup_failure_allows_fallback(self):
-        steps = [{'name': 'Run actions/setup-go@v5', 'conclusion': 'failure'}]
-        self.assertEqual('fallback', scheduler.recovery_kind(steps, 'failure', False))
+    def test_without_an_artifact_nothing_is_reused(self):
+        for name in ('Build ARM64 APK', 'Run actions/setup-go@v5'):
+            self.assertFalse(scheduler.can_reuse([{'name': name, 'conclusion': 'failure'}], False))
 
-    def test_unknown_compile_error_requires_diagnosis(self):
-        steps = [{'name': 'Build ARM64 APK', 'conclusion': 'failure'}]
-        self.assertIsNone(scheduler.recovery_kind(steps, 'failure', False))
-        self.assertEqual('fallback', scheduler.recovery_kind(steps, 'failure', False, 'No space left on device'))
-
-    def test_timeout_alone_does_not_prove_infrastructure_failure(self):
-        self.assertIsNone(scheduler.recovery_kind([], 'timed_out', False))
-
-    def test_running_primary_never_dispatches_fallback(self):
-        run = {'id': 10, 'display_title': 'Android ' + 'a' * 40, 'status': 'in_progress', 'conclusion': None}
-        with patch.object(scheduler, 'api', return_value={'workflow_runs': [run]}), patch.object(scheduler, 'dispatch') as dispatch:
-            scheduler.schedule()
-        dispatch.assert_not_called()
+    def test_running_primary_never_dispatches(self):
+        for status in ('in_progress', 'queued'):
+            run = {'id': 10, 'display_title': 'Android ' + 'a' * 40, 'status': status, 'conclusion': None}
+            with patch.object(scheduler, 'api', return_value={'workflow_runs': [run]}), patch.object(scheduler, 'dispatch') as dispatch:
+                scheduler.schedule()
+            dispatch.assert_not_called()
 
     def test_recovery_run_never_recursively_retries(self):
         run = {'id': 10, 'display_title': 'Android ' + 'a' * 40 + ' recovery', 'status': 'completed', 'conclusion': 'failure'}
@@ -98,128 +90,121 @@ class RecoveryTests(unittest.TestCase):
 
     def test_manual_cancellation_is_not_restarted(self):
         run = {'id': 10, 'display_title': 'Android ' + 'a' * 40, 'status': 'completed', 'conclusion': 'cancelled'}
-        def api(url, *args, **kwargs):
-            if 'workflows/build.yaml/runs' in url:
-                return {'workflow_runs': [run]}
-            if url.endswith('/artifacts'):
-                return {'artifacts': []}
-            if url.endswith('/jobs'):
-                return {'jobs': []}
-            if '/git/ref/' in url:
-                return None
-            self.fail('Unexpected API call: ' + url)
-        with patch.object(scheduler, 'api', api), patch.object(scheduler, 'dispatch') as dispatch:
+        with patch.object(scheduler, 'api', return_value={'workflow_runs': [run]}), patch.object(scheduler, 'dispatch') as dispatch:
             scheduler.schedule()
         dispatch.assert_not_called()
 
-
-OUTCOMES = {'failure': False, 'cancelled': False, 'success': True, 'skipped': True, None: True}
-TAG, ISSUE = 'v999.0.0', 7
-MAIN, HEAD, UPSTREAM, TREE = 'a' * 40, 'b' * 40, 'c' * 40, 'd' * 40
-
-
-def outcome_env(outcome):
-    env = {'UPSTREAM_APPROVAL_KEY': 'unit-test-key', 'CNB_AUTOMATION_TOKEN': 'unit-test-cnb'}
-    if outcome:
-        env['FLCLASH_SECURITY_OUTCOME'] = outcome
-    cleared = dict(os.environ)
-    cleared.pop('FLCLASH_SECURITY_OUTCOME', None)
-    return patch.dict(os.environ, dict(cleared, **env), clear=True)
-
-
-class SecurityHoldTests(unittest.TestCase):
-    """Only the HTTP layer (api, pages) and git subprocesses are faked; dispatch runs for real."""
-
-    def approvals(self, outcome):
-        posts, pushes = [], []
-        branch = f'automation/upstream-{TAG}'
-        with outcome_env(outcome):
-            request = control.marker({'tag': TAG, 'sha': UPSTREAM, 'upstream': control.POLICY['upstream']})
-            envelope = control.sign({'issue': str(ISSUE), 'base': MAIN, 'tree': TREE, 'upstream_sha': UPSTREAM})
-        owner_ok = {'author': {'username': control.POLICY['approver'], 'is_npc': False}, 'body': 'OK'}
-
-        def api(url, method='GET', data=None, missing=False, timeout=60):
-            if method == 'POST':
-                posts.append(url)
-                return {}
-            if url.endswith(f'/issues/{ISSUE}'):
-                return {'body': request, 'state': 'open'}
-            if 'workflows/build.yaml/runs' in url:
-                return {'workflow_runs': []}
-            if url.endswith('/git/ref/heads/main'):
-                return {'object': {'sha': MAIN}}
-            if url.endswith('/git/ref/heads/' + branch):
-                return {'object': {'sha': HEAD}}
-            if '/pulls?state=open' in url:
-                return [{'number': 1}]
-            self.fail('Unexpected API call: ' + url)
-
-        def pages(url, page_key='page', size_key='page_size'):
-            if url.endswith('/issues?state=open'):
-                return iter([{'title': f'[上游升级] FlClash {TAG}', 'number': ISSUE}])
-            return iter([owner_ok])
-
-        def git(*args, check=True, env=None):
-            if args[0] == 'push':
-                pushes.append(args)
-            out = {'rev-parse': HEAD, 'write-tree': TREE}.get(args[0], '')
-            return out if check else subprocess.CompletedProcess(['git', *args], 0, out, '')
-
-        with tempfile.TemporaryDirectory() as directory, outcome_env(outcome):
-            root = pathlib.Path(directory)
-            (root / '.automation').mkdir()
-            (root / '.automation/candidate.json').write_text(json.dumps(envelope))
-            # active_candidate reads the released version; this one names another upstream, so the candidate stays.
-            (root / '.github').mkdir()
-            (root / '.github/release.json').write_text(json.dumps({'upstreamVersion': '0.0.0'}))
-            with patch.object(control, 'ROOT', root), patch.object(control, 'api', api), \
-                    patch.object(control, 'pages', pages), patch.object(control, 'git', git), \
-                    patch.object(reviews, 'reconcile') as reconcile, \
-                    patch.object(reviews, 'require_candidate'):
-                control.approvals()
-        return posts, pushes, reconcile
-
-    def test_failed_security_finish_records_approval_but_holds_the_build(self):
-        for outcome, dispatches in OUTCOMES.items():
-            with self.subTest(outcome=outcome):
-                posts, pushes, reconcile = self.approvals(outcome)
-                self.assertTrue(pushes)
-                reconcile.assert_called_once()
-                built = [url for url in posts if url.endswith('/build.yaml/dispatches')]
-                self.assertEqual(1 if dispatches else 0, len(built))
-
-    def schedule(self, outcome):
-        run = {'id': 10, 'display_title': 'Android ' + MAIN, 'status': 'completed', 'conclusion': 'failure'}
+    def schedule(self, steps, artifacts, conclusion='failure'):
+        run = {'id': 10, 'display_title': 'Android ' + 'a' * 40, 'status': 'completed', 'conclusion': conclusion,
+               'html_url': 'https://github.com/x/y/actions/runs/10'}
         posts = []
 
         def api(url, method='GET', data=None, missing=False, timeout=60):
             if method == 'POST':
-                posts.append(url)
+                posts.append((url, data))
                 return {}
             if 'workflows/build.yaml/runs' in url:
                 return {'workflow_runs': [run]}
             if '/git/ref/heads/automation/recovery-' in url:
                 return None
             if url.endswith('/artifacts'):
-                return {'artifacts': [{'name': 'FlClash-arm64-log-history', 'expired': False}]}
+                return {'artifacts': artifacts}
             if url.endswith('/jobs'):
-                return {'jobs': [{'steps': [{'name': 'Publish release', 'conclusion': 'failure'}],
-                                  'check_run_url': 'https://api.github.com/check-runs/1'}]}
-            if url.endswith('/annotations'):
-                return []
+                return {'jobs': [{'steps': steps}]}
             self.fail('Unexpected API call: ' + url)
 
-        with outcome_env(outcome), patch.object(scheduler, 'api', api), patch.object(control, 'api', api):
+        with patch.object(scheduler, 'api', api), patch.object(control, 'api', api), \
+                patch.object(scheduler, 'all_issues', return_value=[]):
             scheduler.schedule()
         return posts
 
-    def test_failed_security_finish_holds_stopped_build_recovery(self):
-        for outcome, dispatches in OUTCOMES.items():
-            with self.subTest(outcome=outcome):
-                posts = self.schedule(outcome)
-                built = [url for url in posts if url.endswith('/build.yaml/dispatches')]
-                self.assertEqual(1 if dispatches else 0, len(built))
-                self.assertEqual(2 if dispatches else 0, len(posts))
+    def test_a_publication_failure_dispatches_one_reuse_of_the_exact_source(self):
+        posts = self.schedule([{'name': 'Publish GitHub release', 'conclusion': 'failure'}],
+                              [{'name': 'FlClash-arm64-log-history', 'expired': False}])
+        self.assertEqual(2, len(posts))
+        self.assertTrue(posts[0][0].endswith('/git/refs'))
+        self.assertTrue(posts[1][0].endswith('/build.yaml/dispatches'))
+        self.assertEqual({'source_ref': 'a' * 40, 'reuse_run': '10'}, posts[1][1]['inputs'])
+
+    def test_a_setup_failure_only_notifies_and_starts_no_build(self):
+        posts = self.schedule([{'name': 'Run actions/setup-go@v5', 'conclusion': 'failure'}], [])
+        self.assertEqual(1, len(posts))
+        self.assertTrue(posts[0][0].endswith('/issues'))
+        self.assertIn('[构建待处理] GitHub #10', posts[0][1]['title'])
+
+    def test_a_startup_failure_stays_quiet(self):
+        self.assertEqual([], self.schedule([], [], 'startup_failure'))
+
+
+class SyncMainTests(unittest.TestCase):
+    """Local git decides the direction, so the check is real; only the fetches and the push are replaced."""
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = pathlib.Path(directory.name)
+        self.real_git = control.git
+        for item in (patch.object(control, 'ROOT', self.root),
+                     patch.object(control, 'git', self.git),
+                     patch.object(control, 'sync_branch')):
+            item.start()
+            self.addCleanup(item.stop)
+        self.sync = control.sync_branch
+        self.real_git('init', '-q', '-b', 'main')
+        self.real_git('config', 'user.name', 'Test')
+        self.real_git('config', 'user.email', 'test@example.invalid')
+        self.older = self.commit('older')
+        self.newer = self.commit('newer')
+
+    def commit(self, message):
+        self.real_git('commit', '-q', '--allow-empty', '-m', message)
+        return self.real_git('rev-parse', 'HEAD')
+
+    def git(self, *args, check=True, env=None):
+        if args[0] == 'fetch':
+            return ''
+        if args[:2] == ('rev-parse', 'FETCH_HEAD'):
+            return self.cnb
+        return self.real_git(*args, check=check, env=env)
+
+    def run_sync(self, github, cnb):
+        self.cnb = cnb
+        with patch.object(control, 'api', return_value={'object': {'sha': github}}), \
+                contextlib.redirect_stdout(io.StringIO()) as printed:
+            control.sync_main()
+        return printed.getvalue()
+
+    def test_cnb_behind_is_fast_forwarded_to_github_main(self):
+        self.run_sync(self.newer, self.older)
+        self.sync.assert_called_once_with('main', self.newer)
+
+    def test_equal_mains_push_nothing(self):
+        self.run_sync(self.newer, self.newer)
+        self.sync.assert_not_called()
+
+    def test_cnb_ahead_or_diverged_changes_nothing_and_opens_nothing(self):
+        self.assertIn('leaving both unchanged', self.run_sync(self.older, self.newer))
+        self.sync.assert_not_called()
+
+
+class PromoteTests(unittest.TestCase):
+    def test_promote_only_synchronizes_the_current_main(self):
+        sha = 'a' * 40
+        with patch.object(control, 'git', return_value=sha), \
+                patch.object(control, 'api', return_value={'object': {'sha': sha}}) as api, \
+                patch.object(control, 'sync_branch') as sync:
+            control.promote()
+        sync.assert_called_once_with('main')
+        self.assertTrue(all(call.args[0].endswith('/git/ref/heads/main') for call in api.call_args_list))
+        self.assertTrue(all(len(call.args) == 1 for call in api.call_args_list))
+
+    def test_a_source_that_is_not_main_stops_before_any_push(self):
+        with patch.object(control, 'git', return_value='b' * 40), \
+                patch.object(control, 'api', return_value={'object': {'sha': 'a' * 40}}), \
+                patch.object(control, 'sync_branch') as sync:
+            with self.assertRaisesRegex(ValueError, 'not the current main'):
+                control.promote()
+        sync.assert_not_called()
 
 
 class SourceTreeTests(unittest.TestCase):

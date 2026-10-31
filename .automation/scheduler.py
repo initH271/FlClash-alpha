@@ -1,24 +1,13 @@
-import datetime
-import json
 import re
 
-from control import GH, CNB, POLICY, api, dispatch, all_issues, security_hold
-from fallback import remaining_hours
+from control import GH, CNB, POLICY, api, dispatch, all_issues
 
 
-def recovery_kind(steps, conclusion, has_artifact, annotations=''):
+def can_reuse(steps, has_artifact):
+    """A built APK survives a later signing or publishing failure; a failed test or source check never reuses it."""
     failed = [s['name'] for s in steps if s.get('conclusion') == 'failure']
-    if any('test' in s.lower() or 'analyz' in s.lower() or 'source' in s.lower() for s in failed):
-        return None
-    if has_artifact:
-        return 'reuse'
-    if conclusion == 'startup_failure':
-        return 'fallback'
-    if re.search(r'no space left on device|runner.*lost communication|runner.*offline', annotations, re.I):
-        return 'fallback'
-    setup = ('Setup', 'Set up', 'Run actions/', 'Run subosito/', 'Run nttld/',
-             'Run gradle/', 'Run Swatinem/', 'Free runner')
-    return 'fallback' if failed and all(s.startswith(setup) for s in failed) else None
+    return has_artifact and not any(
+        'test' in s.lower() or 'analyz' in s.lower() or 'source' in s.lower() for s in failed)
 
 
 def notify_once(run, reason):
@@ -32,69 +21,39 @@ def notify_once(run, reason):
 
 def schedule():
     runs = api(f'{GH}/actions/workflows/build.yaml/runs?per_page=30')['workflow_runs']
-    now = datetime.datetime.now(datetime.timezone.utc)
     for run in runs:
         sha_match = re.fullmatch(r'Android ([0-9a-f]{40})(?: recovery)?', run['display_title'])
         if not sha_match:
             continue
         if run['display_title'].endswith(' recovery'):
             if run['status'] == 'completed' and run['conclusion'] in ('failure', 'timed_out', 'startup_failure'):
-                notify_once(run, '备用构建或产物复用流程失败，已停止自动重试，请检查日志。')
+                notify_once(run, '产物复用流程失败，已停止自动重试，请检查日志。')
             continue
         sha = sha_match[1]
-        if run['status'] == 'in_progress' or run['conclusion'] == 'success':
+        if run['status'] != 'completed' or run['conclusion'] in ('success', 'cancelled'):
             continue
         if any(r['id'] > run['id'] and sha in r['display_title'] for r in runs):
             continue
         lock = f'automation/recovery-{run["id"]}'
         if api(f'{GH}/git/ref/heads/{lock}', missing=True):
             continue
-        if run['status'] == 'queued':
-            created = datetime.datetime.fromisoformat(run['created_at'].replace('Z', '+00:00'))
-            if (now - created).total_seconds() < POLICY['queue_timeout_minutes'] * 60:
-                continue
-            api(f'{GH}/git/refs', 'POST', {'ref': f'refs/heads/automation/queue-cancel-{run["id"]}', 'sha': sha})
-            api(f'{GH}/actions/runs/{run["id"]}/cancel', 'POST')
-            print('Requested cancellation; next scheduler pass verifies it stopped')
-            return
-        if run['status'] != 'completed':
-            continue
         artifacts = api(f'{GH}/actions/runs/{run["id"]}/artifacts')['artifacts']
         has_artifact = any(a['name'] == 'FlClash-arm64-log-history' and not a['expired'] for a in artifacts)
         jobs = api(f'{GH}/actions/runs/{run["id"]}/jobs')['jobs']
         steps = [step for job in jobs for step in job.get('steps', [])]
-        annotations = ' '.join(a.get('message', '') for job in jobs
-                               for a in api(job['check_run_url'] + '/annotations'))
-        kind = recovery_kind(steps, run['conclusion'], has_artifact, annotations)
-        if run['conclusion'] == 'cancelled' and api(
-                f'{GH}/git/ref/heads/automation/queue-cancel-{run["id"]}', missing=True):
-            kind = 'fallback'
-        elif run['conclusion'] == 'cancelled':
-            continue
-        if kind is None:
+        if not can_reuse(steps, has_artifact):
             if run['conclusion'] == 'failure':
                 notify_once(run, '代码/测试或未分类故障，已暂停自动跟进。需要检查并通过 PR 修复。')
             continue
-        if kind == 'fallback':
-            try:
-                enough_quota = remaining_hours() >= POLICY['fallback_min_core_hours']
-            except RuntimeError:
-                notify_once(run, '无法读取 CNB 额度，未自动切换。请检查令牌 group-resource:r 权限。')
-                continue
-            if not enough_quota:
-                notify_once(run, 'CNB 免费额度不足，未执行备用构建。')
-                continue
         if any(r['status'] != 'completed' and sha in r['display_title'] for r in runs):
             continue
-        if security_hold():
-            return
         api(f'{GH}/git/refs', 'POST', {'ref': 'refs/heads/' + lock, 'sha': sha})
         try:
-            dispatch(sha, run['id'] if kind == 'reuse' else '', 'true' if kind == 'fallback' else 'false')
+            dispatch(sha, run['id'])
         except Exception:
             api(f'{GH}/git/refs/heads/{lock}', 'DELETE')
             raise
-        print(f'{kind} dispatched for stopped run {run["id"]}')
+        print(f'reuse dispatched for stopped run {run["id"]}')
         return
 
 

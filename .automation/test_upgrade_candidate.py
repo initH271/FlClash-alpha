@@ -10,7 +10,6 @@ import unittest
 from unittest.mock import patch
 
 import control
-import reviews
 
 OWNER = {'username': control.POLICY['approver'], 'is_npc': False}
 GH_PR = 'https://github.com/example/pull/5'
@@ -26,13 +25,12 @@ class UpgradeRepo(unittest.TestCase):
         for item in (patch.object(control, 'ROOT', self.root),
                      patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'unit-test-key', 'CNB_AUTOMATION_TOKEN': 'unit'}),
                      patch.object(control, 'git', self.git), patch.object(control, 'api', self.api),
-                     patch.object(control, 'pages', self.pages), patch.object(reviews, 'api', self.api),
-                     patch.object(reviews, 'pages', self.pages)):
+                     patch.object(control, 'pages', self.pages)):
             item.start()
             self.addCleanup(item.stop)
         self.remote, self.pushed, self.calls, self.comments = {}, [], [], []
         self.older_issue = None
-        self.issue_state, self.gh_pulls, self.review_issue, self.release, self.issue_error = 'open', [], None, None, None
+        self.issue_state, self.release, self.issue_error = 'open', None, None
         self.real('init', '-q', '-b', 'main')
         self.real('config', 'user.name', 'Test')
         self.real('config', 'user.email', 'test@example.invalid')
@@ -73,8 +71,6 @@ class UpgradeRepo(unittest.TestCase):
             return [{'number': 5, 'html_url': GH_PR}] if any(c[0] == 'POST' and c[1].endswith('/pulls') for c in self.calls) else []
         if url.endswith('/pulls') and method == 'POST':
             return {'number': 5, 'html_url': GH_PR}
-        if url.endswith('/pulls/5'):
-            return self.gh_pulls[0]
         if '/releases/tags/' in url:
             return self.release
         if '/git/ref/tags/' in url:
@@ -88,25 +84,13 @@ class UpgradeRepo(unittest.TestCase):
                 self.issue_state = data['state']
                 return {}
             return {'state': self.issue_state, 'body': control.marker(self.request)}
-        if url.endswith('/issues/300'):
-            return self.review_issue
-        if 'workflows/build.yaml/runs' in url:
-            return {'workflow_runs': []}
-        if '/statuses/' in url or url.endswith('/status'):
-            return {'statuses': []}
-        if url.endswith('/dispatches') or url.endswith('/build/start'):
+        if url.endswith('/build/start'):
             return None
         self.fail(f'Unexpected API call: {method} {url}')
 
     def pages(self, url, page_key='page', size_key='page_size'):
         if url.endswith('/issues/217/comments'):
             return [{'author': OWNER, 'body': 'OK'}] + list(self.comments)
-        if url.endswith('/issues/300/comments'):
-            return self.review_reports
-        if '/issues?state=open' in url and self.review_issue:
-            return [{'number': 300}]
-        if url.startswith(control.GH) and '/pulls?state=open' in url:
-            return self.gh_pulls
         return []
 
     def commit(self, name, text, message):
@@ -129,21 +113,14 @@ class UpgradeRepo(unittest.TestCase):
     def owner_comments(self):
         return [c for c in self.comments if 'flclash-owner-merge' in c['body']]
 
-    def pass_reviews_and_resume(self, head, branch, main):
-        """Report paired reviews for head, resume it, and return the dispatched source."""
-        request = {'platform': 'github', 'number': '5', 'base': main, 'head': head}
-        self.gh_pulls = [{'number': 5, 'state': 'open', 'title': 't', 'draft': True, 'body': '',
-                          'base': {'sha': main, 'ref': 'main'}, 'head': {'sha': head, 'ref': branch}}]
-        self.review_issue = {'number': 300, 'state': 'open', 'created_at': '1', 'author': OWNER,
-                             'title': reviews.review_title(request, 't'),
-                             'body': '<!-- flclash-pr-review ' + json.dumps(control.sign(request)) + ' -->'}
-        report = 'FLCLASH_REVIEW ' + json.dumps({'request': reviews.identity(request), 'verdict': 'pass', 'blockers': 0})
-        self.review_reports = [{'author': {'username': f'{control.POLICY["cnb"]}({r})', 'is_npc': True},
-                                'id': str(i), 'created_at': '2', 'body': report} for i, r in enumerate(reviews.ROLES)]
-        with contextlib.redirect_stdout(io.StringIO()) as printed:
+    def assert_waits_for_the_owner(self, head, branch):
+        """A resume of an unchanged candidate keeps its one PR and starts nothing: the owner's merge publishes."""
+        calls, comments, pushed = len(self.calls), list(self.comments), list(self.pushed)
+        with contextlib.redirect_stdout(io.StringIO()):
             control.resume_candidate(head, branch, 217)
-        self.assertNotIn('invalid', printed.getvalue())
-        return [c for c in self.calls if c[1].endswith('/dispatches')][0][2]['inputs']['source_ref']
+        self.assertEqual(head, self.remote[branch])
+        self.assertEqual((comments, pushed), (self.comments, self.pushed))
+        self.assertEqual([], [c for c in self.calls[calls:] if c[0] != 'GET'])
 
 
 class ConflictHandoffTests(UpgradeRepo):
@@ -174,7 +151,7 @@ class ConflictHandoffTests(UpgradeRepo):
 
 
 class UpstreamAlreadyInMainTests(UpgradeRepo):
-    def test_owner_merged_upstream_prepares_without_merging_again_and_reaches_dispatch(self):
+    def test_owner_merged_upstream_prepares_without_merging_again_and_leaves_a_pr_for_the_owner(self):
         upstream = self.upstream()
         self.commit('personal.txt', 'mine\n', 'personal change')
         self.real('merge', '-q', '--no-ff', '-X', 'theirs', '-m', 'owner merges upstream', upstream)
@@ -190,8 +167,8 @@ class UpstreamAlreadyInMainTests(UpgradeRepo):
         self.assertEqual(upstream, json.loads((self.root / '.automation/policy.json').read_text())['upstream_sha'])
         self.assertEqual([], self.owner_comments())
         self.assertIn('已按本次 OK 批准', self.comments[-1]['body'])
-
-        self.assertEqual(head, self.pass_reviews_and_resume(head, branch, main))
+        self.assertIn('由你合并', self.comments[-1]['body'])
+        self.assert_waits_for_the_owner(head, branch)
 
     def test_prepare_overwrites_a_stale_candidate_left_on_main(self):
         stale = {'issue': '200', 'base': self.base, 'tree': 'f' * 40, 'upstream_sha': 'a' * 40}
@@ -240,7 +217,7 @@ class UpstreamAlreadyInMainTests(UpgradeRepo):
         self.remote['main'] = self.real('rev-parse', 'HEAD')
         return conflict
 
-    def test_candidate_finished_on_main_does_not_block_adoption_through_to_dispatch(self):
+    def test_candidate_finished_on_main_does_not_block_adoption(self):
         branch = 'automation/upstream-v9.9.9'
         conflict = self.conflict_inheriting_candidate_of_issue_200('closed')
         main = self.remote['main']
@@ -252,7 +229,7 @@ class UpstreamAlreadyInMainTests(UpgradeRepo):
         self.assertEqual(('217', main), (candidate['issue'], candidate['base']))
         self.assertEqual(candidate['tree'], control.source_tree())
         self.assertNotIn('UPSTREAM_REVIEW.md', self.real('ls-tree', '-r', '--name-only', head).splitlines())
-        self.assertEqual(head, self.pass_reviews_and_resume(head, branch, main))
+        self.assert_waits_for_the_owner(head, branch)
 
     def test_candidate_still_active_on_main_is_not_taken_over_until_it_finishes(self):
         branch = 'automation/upstream-v9.9.9'
@@ -313,6 +290,14 @@ class UpstreamAlreadyInMainTests(UpgradeRepo):
         edited = self.commit('unsigned.txt', 'edit\n', 'unsigned edit')
         self.remote['automation/upstream-v9.9.9'] = edited
         self.assert_left_alone(edited)
+
+    def test_a_valid_candidate_branch_does_not_build_or_publish_until_it_is_merged(self):
+        head = self.prepared_branch(217)
+        self.real('checkout', '-q', head)
+        with self.assertRaisesRegex(ValueError, 'not the current main'):
+            control.validate_source()
+        self.remote['main'] = head
+        self.assertIsNone(control.validate_source())
 
     def test_finish_check_looks_up_the_tag_the_candidate_publishes(self):
         head = self.prepared_branch(217)
@@ -379,7 +364,7 @@ class FinishedCandidateTests(UpgradeRepo):
         self.assertFalse(any(c[0] == 'PATCH' for c in self.calls))
         self.assertIsNone(control.validate_source())
         self.commit('later.txt', 'x\n', 'unreviewed change')
-        with self.assertRaisesRegex(ValueError, 'no approved candidate'):
+        with self.assertRaisesRegex(ValueError, 'not the current main'):
             control.validate_source()
         self.remote['automation/upstream-v9.9.9'] = head
         with contextlib.redirect_stdout(io.StringIO()):
@@ -395,7 +380,7 @@ class FinishedCandidateTests(UpgradeRepo):
         self.assertIsNone(control.validate_source())
         self.remote['main'] = self.commit('later.txt', 'x\n', 'later')
         self.real('checkout', '-q', main)
-        with self.assertRaisesRegex(ValueError, 'no approved candidate'):
+        with self.assertRaisesRegex(ValueError, 'not the current main'):
             control.validate_source()
         self.remote['automation/upstream-v9.9.9'] = main
         with contextlib.redirect_stdout(io.StringIO()):

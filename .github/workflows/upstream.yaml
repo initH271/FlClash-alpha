@@ -7,14 +7,12 @@ on:
     inputs:
       operation:
         type: choice
-        options: [all, watch, approvals, scheduler, reviews, recovery, preflight]
+        options: [all, watch, sync, approvals, scheduler, preflight]
         default: all
 permissions:
   contents: write
   actions: write
   pull-requests: write
-  checks: read
-  statuses: write
 concurrency:
   group: flclash-upstream-controller
   cancel-in-progress: false
@@ -45,29 +43,12 @@ jobs:
       - name: Notify new stable upstream release
         if: always() && steps.credentials.outcome == 'success' && (github.event.schedule == '17 */6 * * *' || inputs.operation == 'all' || inputs.operation == 'watch')
         run: python3 .automation/control.py watch
-      - name: Reconcile PR review gates
+      - name: Bring CNB main up to GitHub main
         if: always() && steps.credentials.outcome == 'success' && inputs.operation != 'preflight'
-        run: python3 .automation/reviews.py reconcile
-      - name: Recover failed NPC tasks once
-        if: always() && steps.credentials.outcome == 'success' && inputs.operation != 'preflight'
-        run: python3 .automation/npc_recovery.py
-      - name: Continue security repairs and fill available slots
-        if: always() && steps.credentials.outcome == 'success' && inputs.operation != 'preflight'
-        run: python3 .automation/security_queue.py
-      - name: Finish verified compatible security repairs
-        id: security_finish
-        if: always() && steps.credentials.outcome == 'success' && inputs.operation != 'preflight'
-        run: python3 .automation/security_finish.py
-      - name: Dispatch requirement development
-        if: always() && steps.credentials.outcome == 'success' && inputs.operation != 'preflight'
-        run: python3 .automation/requirements.py
+        run: python3 .automation/control.py sync
       - name: Process owner approvals
         if: always() && steps.credentials.outcome == 'success' && (github.event.schedule == '0 * * * *' || inputs.operation == 'all' || inputs.operation == 'approvals')
-        env:
-          FLCLASH_SECURITY_OUTCOME: ${{ steps.security_finish.outcome }}
         run: python3 .automation/control.py approvals
-      - name: Reuse artifacts or dispatch infrastructure fallback
+      - name: Reuse artifacts of stopped release builds
         if: always() && steps.credentials.outcome == 'success' && (github.event.schedule == '0 * * * *' || inputs.operation == 'all' || inputs.operation == 'scheduler')
-        env:
-          FLCLASH_SECURITY_OUTCOME: ${{ steps.security_finish.outcome }}
         run: python3 .automation/scheduler.py

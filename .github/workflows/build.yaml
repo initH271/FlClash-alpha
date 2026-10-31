@@ -1,26 +1,20 @@
 name: Android release
-run-name: Android ${{ inputs.source_ref || github.sha }}${{ (inputs.reuse_run || inputs.cnb_fallback == 'true') && ' recovery' || '' }}
+run-name: Android ${{ inputs.source_ref || github.sha }}${{ inputs.reuse_run && ' recovery' || '' }}
 on:
   push:
     branches: [main]
   workflow_dispatch:
     inputs:
       source_ref:
-        description: Exact approved source commit (empty uses main)
+        description: Exact source commit, which must be the current main (empty uses main)
         type: string
       reuse_run:
         description: Reuse an existing successful APK artifact from this run
         type: string
-      cnb_fallback:
-        description: Compile on CNB, then sign and publish on GitHub
-        type: choice
-        options: ['false', 'true']
-        default: 'false'
 permissions:
   contents: write
   actions: read
   statuses: write
-  pull-requests: read
 concurrency:
   group: android-${{ inputs.source_ref || github.sha }}
   cancel-in-progress: false
@@ -35,7 +29,6 @@ jobs:
       CNB_AUTOMATION_TOKEN: ${{ secrets.CNB_AUTOMATION_TOKEN }}
       UPSTREAM_APPROVAL_KEY: ${{ secrets.UPSTREAM_APPROVAL_KEY }}
       REUSE_RUN: ${{ inputs.reuse_run }}
-      CNB_FALLBACK: ${{ inputs.cnb_fallback }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -126,9 +119,6 @@ jobs:
       - name: Verify reused source and artifact
         if: steps.plan.outputs.active == 'true' && inputs.reuse_run != ''
         run: python3 .automation/reuse.py
-      - name: Compile once on CNB fallback
-        if: steps.plan.outputs.active == 'true' && inputs.cnb_fallback == 'true'
-        run: python3 .automation/fallback.py consume
       - name: Restore personal signing key
         if: steps.plan.outputs.active == 'true'
         env:
@@ -154,7 +144,7 @@ jobs:
           path: dist/
           retention-days: 14
           if-no-files-found: error
-      - name: Promote approved source and synchronize CNB
+      - name: Synchronize CNB main before publishing
         if: steps.plan.outputs.active == 'true' && env.CNB_AUTOMATION_TOKEN != ''
         run: python3 .automation/control.py promote
       - name: Publish GitHub release

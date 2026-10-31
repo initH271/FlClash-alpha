@@ -199,16 +199,16 @@
 
 ### E1. 控制器与流水线
 
-- **文件**：fork 文件 `.automation/`、`.cnb/`、`.cnb.yml`、`.github/workflows/upstream.yaml`、`.github/workflows/reviews.yaml`、`.github/workflows/security.yaml`、`AUTOMATION.md`、`CNB_DEVELOPMENT.md`、`SECURITY_AUTOMATION.md`。
-- **改了什么**：上游版本追踪和 owner 批准、需求从 Issue 走到合并、配对审查、依赖漏洞扫描与修复、CNB 上的测试流水线。
+- **文件**：fork 文件 `.automation/`、`.cnb/`、`.cnb.yml`、`.github/workflows/upstream.yaml`、`.github/workflows/security.yaml`、`AUTOMATION.md`、`CNB_DEVELOPMENT.md`、`SECURITY_AUTOMATION.md`。
+- **改了什么**：上游版本追踪和 owner 批准、依赖漏洞扫描、CNB main 同步和国内下载镜像。
 - **为什么**：新的上游正式版要经 owner 批准和审查后才合入、发布（`AUTOMATION.md`）；依赖漏洞的处理见 `SECURITY_AUTOMATION.md`。
-- **核对**：基本不冲突。上游新增顶层目录或构建输入时，更新 `.automation/ci_paths.py` 的 `TRIGGERS`、`NEUTRAL`、`AREAS`。上游改 CI 或路径时看 `.automation/policy.json` 的 `protected_paths`。兜底：`python3 -m unittest discover -s .automation -p 'test_*.py'`。
+- **核对**：基本不冲突。上游新增顶层目录或构建输入时，看 `.github/scripts/ci_changes.py` 的 `NEUTRAL`、`RULES`。上游改 CI 或路径时看 `.automation/policy.json` 的 `protected_paths`。兜底：`python3 -m unittest discover -s .automation -p 'test_*.py'`。
 
 ### E2. 上游的 agent 文档
 
 - **文件**：上游文件 `AGENTS.md`、`.agents/rules.md`、`.agents/commands.md`。
 - **改了什么**：`AGENTS.md` 加一条自动化路径规则；`rules.md` 加 Automation Changes 一节；`commands.md` 加自动化单元测试命令。
-- **为什么**：自动化配置走需求流程，手推分支绕不过合并门禁（`.agents/rules.md`）。
+- **为什么**：自动化配置走 owner 通道（`.agents/rules.md`）。
 - **核对**：这几个文件上游常改，冲突时保留这些段落。没有测试兜底，合并后 `grep -n 'Automation Changes' .agents/rules.md`。
 
 ## F. Android 侧改动

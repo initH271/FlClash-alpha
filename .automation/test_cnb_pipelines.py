@@ -11,13 +11,10 @@ except ImportError:
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CNB = ROOT / '.cnb.yml'
-GATE = 'Paired review gate'
-QUARTER = 'crontab: */15 * * * *'
 HOURLY = 'crontab: 7 * * * *'
 MIRROR = 'Mirror signed GitHub release to CNB'
-# CI runs on GitHub. These stay until the controller is removed, except the mirror and the NPC review, which stay for good.
-EVENTS = ['issue.open', 'issue.comment', 'pull_request.target', 'api_trigger', 'web_trigger', 'api_trigger_fallback',
-          'api_trigger_permissions', 'api_trigger_npc_review', 'issue.comment@npc', 'pull_request.comment@npc', 'vscode']
+# CI runs on GitHub. CNB keeps the download mirror, the NPC review, the upstream NPC analysis and cloud development.
+EVENTS = ['api_trigger', 'web_trigger', 'api_trigger_npc_review', 'issue.comment@npc', 'vscode']
 
 
 # A mapping entry: a plain or quoted key followed by a colon that ends the line or precedes a space.
@@ -187,25 +184,25 @@ class CnbPipelineTests(unittest.TestCase):
 
     def test_the_text_reader_matches_yaml(self):
         expected = text_main(self.source)
-        self.assertEqual(['push', QUARTER, HOURLY], list(expected))
+        self.assertEqual(['push', HOURLY], list(expected))
         if yaml is not None:
             self.assertEqual(yaml.safe_load(self.source)['main'], expected)
 
     def test_the_text_reader_places_an_alias_under_its_own_schedule(self):
-        moved = self.source.replace(f'  "{HOURLY}":\n    - *mirror\n', f'  "{HOURLY}":\n    - *controller-wake\n')
-        self.assertEqual(['Wake task controller'], [job['name'] for job in text_main(moved)[HOURLY]])
+        moved = '.other: &other\n  name: Other job\n' + self.source.replace(
+            f'  "{HOURLY}":\n    - *mirror\n', f'  "{HOURLY}":\n    - *other\n')
+        self.assertEqual(['Other job'], [job['name'] for job in text_main(moved)[HOURLY]])
         if yaml is not None:
             self.assertEqual(yaml.safe_load(moved)['main'], text_main(moved))
 
     def test_cnb_runs_no_ci(self):
         self.both(lambda: self.assertNotIn('pull_request', main_block()))
         self.assertNotRegex(self.source, r'(?m)^"?owner/')
-        import reviews
-        for text in (*reviews.CI_PIPELINES, 'ci_paths.py', 'wake.py ci-done', 'endStages', 'cnbcool/sca-vulnerability',
-                     'unittest discover', 'flutter test', 'cargo test', 'go test'):
+        for text in ('Automation unit tests', 'Dependency vulnerability gate', 'ci_paths.py', 'endStages',
+                     'cnbcool/sca-vulnerability', 'unittest discover', 'flutter test', 'cargo test', 'go test'):
             self.assertNotIn(text, self.source)
         if yaml is not None:
-            self.assertEqual({'.mirror', '.controller-wake', 'main', '$', '开发助手'}, set(yaml.safe_load(self.source)))
+            self.assertEqual({'.mirror', 'main', '$'}, set(yaml.safe_load(self.source)))
 
     def test_every_alias_names_an_anchor_defined_before_it(self):
         anchors, aliases = [], []
@@ -214,62 +211,46 @@ class CnbPipelineTests(unittest.TestCase):
             for name in re.findall(r'^\s*-\s+\*([\w-]+)$', line):
                 self.assertIn(name, anchors)
                 aliases.append(name)
-        self.assertEqual({'mirror', 'controller-wake', 'reviewer-npc'}, set(aliases))
+        self.assertEqual({'mirror'}, set(aliases))
+        self.assertEqual({'mirror'}, set(anchors))
 
-    def test_the_events_the_controller_and_the_mirror_use_stay(self):
+    def test_the_mirror_and_the_npc_events_stay(self):
         _, body = _top(self.source, '$')
         self.assertEqual(EVENTS, re.findall(r'^  (\S+):$', '\n'.join(body), re.M))
         self.both(lambda: self.assertEqual([MIRROR], [job['name'] for job in main_block()['push']]))
         for event in ('api_trigger', 'web_trigger'):
             self.both(lambda: self.assertEqual([MIRROR], event_jobs(event)))
+        self.assertIn('script: python3 .cnb/mirror-release.py', self.source)
 
-    def test_controller_paths_that_still_run_on_cnb_find_their_pipeline(self):
-        # Each of these names an event in a /build/start or a script path; removing one fails the run that reaches it.
+    def test_the_api_calls_that_still_start_a_build_find_their_pipeline(self):
+        # Each of these names an event in a /build/start; removing one fails the run that reaches it.
         root = CNB.parent
-        fallback = (root / '.automation/fallback.py').read_text(encoding='utf-8')
-        credentials = (root / '.automation/credentials.py').read_text(encoding='utf-8')
-        control = (root / '.automation/control.py').read_text(encoding='utf-8')
-        review = (root / '.github/scripts/npc_review.py').read_text(encoding='utf-8')
-        for source, event in ((fallback, 'api_trigger_fallback'), (credentials, 'api_trigger_permissions'),
-                              (control, 'api_trigger'), (review, 'api_trigger_npc_review')):
-            self.assertIn(f"'{event}'", source)
+        for script, event in (('.automation/control.py', 'api_trigger'), ('.automation/credentials.py', 'api_trigger'),
+                              ('.github/scripts/npc_review.py', 'api_trigger_npc_review')):
+            self.assertIn(f"'{event}'", (root / script).read_text(encoding='utf-8'))
             self.assertIn(event, EVENTS)
-        self.assertIn('python3 .automation/fallback.py produce', self.source)
-        self.assertIn('python3 .automation/release_permission_probe.py', self.source)
 
-    def test_a_cnb_pull_without_ci_waits_and_is_never_called_failed(self):
-        # What a CNB requirement or security pull sees until the controller is removed: no CI row ever arrives.
-        import requirements
-        import reviews
-        import security_finish
-        wake = [{'context': 'cnb/pipeline-1(Wake task controller)', 'state': 'success'}]
-        for rows in ([], wake):
-            checks = {'statuses': rows}
-            self.assertEqual('pending', reviews.ci_state(checks))
-            with patch.object(requirements.control, 'api', return_value=checks):
-                self.assertEqual((False, False), requirements.check_state('12'))
-            with patch.object(security_finish, 'api', return_value=checks):
-                self.assertFalse(security_finish.passed_checks('12'))
+    def test_the_controller_left_no_trigger_on_cnb(self):
+        for text in ('wake.py', 'fallback.py', 'release_permission_probe.py', 'github-dispatch', 'crontab: */',
+                     'issue.open', 'pull_request.target', 'pull_request.comment@npc', 'api_trigger_fallback',
+                     'api_trigger_permissions', '开发助手', 'npc.Dockerfile', 'Paired review gate'):
+            self.assertNotIn(text, self.source)
 
-    def test_the_ci_list_still_reads_old_rows_and_ignores_the_gate(self):
-        import reviews
-        self.assertNotIn(GATE, reviews.CI_PIPELINES)
-        pull = {'number': '12', 'base': {'sha': 'a' * 40},
-                'head': {'sha': 'b' * 40, 'ref': 'refs/heads/automation/req-9'}}
-        five = [{'context': f'cnb/pipeline-{i}({name})', 'state': 'success', 'created_at': '2026-10-30T00:00:00Z'}
-                for i, name in enumerate(reviews.CI_PIPELINES)]
-        # A head pushed before the gate pipeline was removed may still carry its row; it never holds CI.
-        for gate in ([], [{'context': f'cnb/pipeline-9({GATE})', 'state': 'pending',
-                           'created_at': '2026-10-30T00:00:00Z'}]):
-            checks = {'statuses': five + gate}
-            self.assertEqual('success', reviews.ci_state(checks))
-
-            def api(url, method='GET', data=None, missing=False, timeout=60):
-                self.assertTrue(url.endswith('/pulls/12/commit-statuses'), url)
-                return checks
-            with (patch.object(reviews, 'api', side_effect=api),
-                  patch.object(reviews, 'pages', side_effect=lambda url, page_key='page', size_key='page_size': iter([]))):
-                self.assertEqual((False, False), reviews.ci_hold(pull))
+    def test_every_npc_role_the_automation_names_exists_and_none_develops(self):
+        # control.watch and scheduler.notify_once summon these in an Issue body, through issue.comment@npc.
+        root = CNB.parent
+        settings = (root / '.cnb/settings.yml').read_text(encoding='utf-8')
+        self.assertEqual(['上游更新助手', '审查助手', 'GLM复核助手'], re.findall(r'^    - name: (.+)$', settings, re.M))
+        roles = re.findall(r'^    - name: (.+)$', settings, re.M)
+        named = set()
+        for path in (root / '.automation').glob('*.py'):
+            if not path.name.startswith('test_'):
+                named |= set(re.findall(r'[\w]*助手', path.read_text(encoding='utf-8')))
+        self.assertEqual(set(roles), named)
+        _, body = _top(self.source, '$')
+        block = '\n'.join(body[body.index('  issue.comment@npc:'):])
+        self.assertIn('[ "$CNB_NPC_NAME" = "GLM复核助手" ]', block)
+        self.assertIn('[ "$CNB_NPC_NAME" != "GLM复核助手" ]', block)
 
     def test_the_npc_review_is_sandboxed_bounded_and_outside_every_gate(self):
         event = 'api_trigger_npc_review'
@@ -292,36 +273,9 @@ class CnbPipelineTests(unittest.TestCase):
         if yaml is not None:
             self.assertEqual(['NPC PR review'], [job['name'] for job in yaml.safe_load(self.source)['$'][event]])
 
-    def test_the_paired_review_gate_pipeline_is_gone(self):
-        # 2-1c: the 32-minute polling job only produced timeouts; the review verdict decides on its own.
-        self.assertNotIn(GATE, self.source)
-        self.assertNotIn('cnb-gate', self.source)
-        target = 'pull_request.target'
-        if yaml is not None:
-            self.assertEqual([job['name'] for job in yaml.safe_load(self.source)['$'][target]],
-                             text_event(self.source, target))
-        self.both(lambda: self.assertEqual(['Wake task controller'], event_jobs(target)))
-
-    def test_the_sleeping_waker_and_the_five_minute_schedule_are_gone(self):
-        self.assertNotIn('Wake controller after checks', self.source)
-        self.assertNotIn('crontab: */5', self.source)
-        self.assertNotIn('wake.py settled', self.source)
-
-    def test_the_quarter_hour_schedule_watches_stalls_and_wakes_the_controller(self):
-        def check():
-            jobs = main_block()[QUARTER]
-            self.assertIn('python3 .automation/wake.py watchdog', jobs[0]['stages'][0]['script'])
-            self.assertEqual('3m', jobs[0]['stages'][0]['timeout'])
-            self.assertIn('github-dispatch.yml', jobs[1]['stages'][0]['imports'])
-            self.assertEqual('python3 .automation/wake.py', jobs[1]['stages'][0]['script'])
-            self.assertEqual('2m', jobs[1]['stages'][0]['timeout'])
-        self.both(check)
-
     def test_the_mirror_runs_hourly(self):
         def check():
-            schedules = main_block()
-            self.assertNotIn(MIRROR, [job['name'] for job in schedules[QUARTER]])
-            self.assertEqual([MIRROR], [job['name'] for job in schedules[HOURLY]])
+            self.assertEqual([MIRROR], [job['name'] for job in main_block()[HOURLY]])
         self.both(check)
 
 

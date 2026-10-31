@@ -566,58 +566,12 @@ failure, disposal, and any timer boundary that changes visible state.
 ## Automation Changes
 
 `.automation/`, `.cnb/`, `.cnb.yml` and `.github/` describe how this repository is automated, so a change to them goes
-through the owner channel: the owner pushes the branch to GitHub, opens the pull request and merges it there. Do not open
-a CNB `[需求]` issue for one. CNB runs no CI, so a requirement's pull request never turns green and never reaches `main`.
-
-What follows describes the requirement flow the controller still runs. Its form selects 自动化配置 under 影响范围 and
-checks 允许改自动化配置. The checkbox is the owner's
-authorization: without it the requirement cannot modify those paths at all, and `.automation/requirements.py` rejects
-the form when the area is selected unchecked. The development NPC implements the change on the `automation/req-<n>`
-branch the controller names; the controller merges the PR. The development NPC takes work through no other door:
-it ignores every `@` in PR comments, the owner's included. To send it back, the owner posts a comment on the
-requirement issue whose first line starts with `REWORK:` followed by the blocker list; `owner_rework` in
-`.automation/requirements.py` reads only the owner's own comment, dispatches it once as a targeted round that raises
-the rung, and treats it as answered after the next signed dispatch. It acts while the pull request is open and not yet
-green; once the ladder has stopped as stuck, HOLD and push instead.
-
-`.github/workflows/` is the exception: the controller's GitHub token cannot push workflow files, so a change there
-always goes through the owner channel, where the owner pushes the branch, opens the pull request and merges it on GitHub.
-A requirement whose diff touches `.github/workflows/` gets one signed `stuck` stop and is neither dispatched nor
-forwarded. For the other protected paths the controller checks the diff against `protected_paths` in
-`.automation/policy.json` before forwarding and refuses it when 允许改自动化配置 is unchecked.
-
-### Taking a requirement branch by hand
-
-The owner may add commits to `automation/req-<n>` directly, but only through the HOLD/RELEASE handshake. First post a
-comment on the requirement issue whose body is exactly `HOLD` and nothing else; push the commits; then post a second
-comment whose body is exactly `RELEASE`. While the branch is held the controller dispatches nobody, folds no `main`
-into the branch and forwards nothing, so it cannot overwrite work in progress. The controller recognises the pair by the
-body alone, since it comments with the owner's account, and it treats the last of the two as current. `HOLD` cannot stop
-a development NPC that is already running: wait for it to finish, or cancel it on CNB, before pushing. Every appended
-commit passes CNB checks and paired review like any other, and the controller forwards the result to GitHub once
-`RELEASE` lifts the hold. An owner commit carries no `FlClash-Actor` trailer, and the controller names those commits in
-the next dispatch and in the mirrored GitHub pull request so the next agent reads them instead of reverting them. An
-agent may push on the owner's behalf only when the owner asked for it explicitly in that session; it never decides to
-push there on its own.
+through the owner channel: the owner pushes the branch to GitHub, opens the pull request and merges it there.
 
 ### Owner pull requests
 
 An owner pull request goes straight to GitHub, where `ci-ok` and the Dependency vulnerability scan are the required
 checks. CNB runs no CI: there is no `owner/**` pipeline, so do not push a branch to CNB to test it.
-
-### Reviewer non-delivery
-
-A reviewer that ends a summon without a report is summoned again by `.automation/npc_recovery.py`, up to twice per
-request and role, then the review issue gets one stop notice. Do not summon it again by hand. Not posting, running out
-of turns, HTTP 429 and running past the deadline all count, and none of them ever passes the gate.
-A `HOLD` on the requirement pauses this for its pull's review until `RELEASE`; it does not reach a pull that is not a
-requirement's.
-
-When a reviewer has delivered nothing on two runs in a row for the same request, the maintainer reviews in its place
-instead of waiting for a third, and posts the review on the pull request, saying who did it: usually an agent acting on
-the owner's authorization, which is not a person having read the code. The gate cannot take that review as the
-reviewer's conclusion yet, so a merge still needs the owner to lift the protection. This covers only a reviewer that
-delivered nothing: a delivered block stands until a new head passes, and it is not a non-delivery however wrong it looks.
 
 ## Commit Messages
 

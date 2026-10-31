@@ -1,11 +1,11 @@
 name: Bug
-description: 反馈使用中遇到的问题（不会派开发助手）
+description: 反馈使用中遇到的问题
 title: "[Bug] "
 body:
   - type: markdown
     attributes:
       value: |
-        这是问题反馈，不会自动派开发助手。要让开发助手改代码，请用「需求」表单。
+        这是问题反馈，不会自动派 NPC 改代码。
   - type: markdown
     attributes:
       value: "## 应用版本"

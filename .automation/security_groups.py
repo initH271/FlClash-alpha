@@ -20,9 +20,3 @@ def payload_for(slug):
     title, path, ecosystem = GROUPS[slug]
     return {'key': group_key(slug), 'group': slug, 'package': title,
             'file': path, 'ecosystem': ecosystem, 'history': [], 'component_keys': [], 'auto_resolved': False}
-
-
-def repair_branch(payload):
-    if payload.get('group') in GROUPS:
-        return 'security/group-' + payload['group']
-    return 'security/fix-' + payload['key'][:12]
