@@ -34,7 +34,7 @@ FlClash-alpha 是 [chen08209/FlClash](https://github.com/chen08209/FlClash) 的�
 
 - [日志实现与保留策略](../ROLLING_LOG_HISTORY.md)
 - [双渠道发布和更新机制](../RELEASE_CHANNELS.md)
-- [上游批准、NPC 和构建调度](../AUTOMATION.md)
+- [PR、CI、发版和上游升级](../AUTOMATION.md)
 - [CNB 开发环境](../CNB_DEVELOPMENT.md)
 - [构建与测试命令](../.agents/commands.md)
 

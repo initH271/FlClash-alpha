@@ -1,428 +1,163 @@
 # FlClash-alpha automation
 
-The controller was removed from this repository: paired reviews, requirements, the CNB wake pipelines, the security
-repair queue and the CNB build fallback no longer exist, so sections below this one describing them are history until
-this file is rewritten.
+GitHub is the single source of truth: issues, pull requests, CI, signing and releases. CNB serves downloads inside China
+and supplies NPC compute. Merging takes CI and the owner's click. A model's output is only ever advice.
 
-## Owner decision and upstream tracking
+## Pull requests
 
-`.github/workflows/upstream.yaml` checks official stable upstream releases every six hours. It ignores prereleases and
-versions at or below `.automation/policy.json`. Each new version opens one GitHub Issue assigned to the repository
-owner, with the fixed upstream commit in a marker the bot wrote. Closed Issues are not recreated. The release text is
-linked, not copied, so its mentions cannot notify anyone.
+1. Develop locally with Claude, or by hand. Claude runs only on the owner's machine: there is no Claude Action, App or
+   token on GitHub.
+2. Push the branch to GitHub and open a PR.
+3. Wait for the required checks: `ci-ok` and `Dependency vulnerability scan`.
+4. Read the NPC comment, if there is one.
+5. The owner merges.
 
-`.github/workflows/npc-upstream.yml` then asks the CNB NPC for a read-only analysis and posts it as one comment. It is
-advice: a failure only means no comment. Run the workflow by hand on main to retry.
+Branch protection on `main` requires those two checks and an up-to-date branch, and applies to admins. It requires no
+review. A user-visible UI change needs before and after screenshots and the owner's confirmation before merging. That
+rule is in the PR template, and no check enforces it.
 
-An approval is a comment on that Issue that says exactly `OK` or `OK vX.Y.Z`, from the repository owner, on an Issue the
-bot opened. `.github/workflows/upstream-approval.yml` reacts to the comment within a minute or so, and the hourly pass
-covers a lost event. Closing the Issue withdraws the upgrade.
+| Check | Workflow | What it does |
+|---|---|---|
+| `ci-ok` | `.github/workflows/ci.yml` | Runs on every PR and passes when every job passed or was skipped. `.github/scripts/ci_changes.py` picks the jobs from the changed paths: automation tests, Go, Rust, Flutter, Android unit tests, Android release compile. A path no rule names runs every job. A change to `.automation/policy.json` runs every job |
+| `Dependency vulnerability scan` | `.github/workflows/security.yaml` | See [SECURITY_AUTOMATION.md](SECURITY_AUTOMATION.md) |
+| `NPC review (advisory)` | `.github/workflows/npc-review.yml` | Not required, and not part of `ci-ok` |
 
-A clean merge goes on `agent/upstream-vX.Y.Z` with the new `upstream_tag` and `upstream_sha`, and opens an ordinary PR
-that closes the Issue when merged. A PR opened with `GITHUB_TOKEN` only starts its workflows after approval: select
-**Approve workflows to run** in the merge box, or close and reopen the PR. A `workflow_dispatch` run does not help here,
-because GitHub does not count its checks towards a required check. A change to `.automation/policy.json` runs every CI
-job. Merging publishes nothing: `.github/release.json` and `.github/release-notes.md` change in a later PR of their own,
-and merging that one releases. To start over after closing the PR unmerged, delete the branch.
+### NPC review
 
-There is no candidate build, signing record or release lock any more: what guards an upgrade is the CI of its PR and
-the owner reading it.
+`npc-review.yml` starts the CNB event `api_trigger_npc_review`, reads the report from the build log and writes one PR
+comment, updated on each head. It skips drafts, forks and Dependabot PRs. Every failure path leaves the PR green and just
+means no comment, including a large diff that uses up the 40 turns. Merge without it when it is missing.
+
+## Releases
+
+Change `.github/release.json` and `.github/release-notes.md` in a PR. Merging that PR releases.
+
+Every push to `main` runs `.github/workflows/build.yaml`. `.automation/build_plan.py` takes the tag from `release.json`.
+If that tag is already published, the run stops there, so a merge without a version change publishes nothing. Otherwise
+the run tests, compiles, signs and verifies the APK, moves CNB main with `control.py promote`, publishes the GitHub
+Release, and `control.py notify` starts the CNB mirror.
+
+Only the current `main` builds. If a later step fails after the APK was built, `.automation/scheduler.py` reruns the build
+with that artifact on its hourly pass, without compiling again. A branch `automation/recovery-<run>` marks that attempt, so
+keep those branches. A failure it cannot reuse opens a `[构建待处理]` Issue, and a later release that contains the commit
+closes it.
+
+`control.py status` also writes the commit status `FlClash/approved-build`. Nothing reads it.
+
+[RELEASE_CHANNELS.md](RELEASE_CHANNELS.md) covers the channels and the app's updater, and
+[CHANGELOG_STYLE.md](CHANGELOG_STYLE.md) covers the release text.
+
+## Upstream upgrades
+
+Not yet run end to end. See [Not yet exercised](#not-yet-exercised).
+
+1. `.github/workflows/upstream.yaml` checks the latest stable upstream release every six hours and ignores versions at or
+   below `upstream_tag` in `.automation/policy.json`. Each new version opens one Issue assigned to the owner, with the
+   upstream commit in a marker. The release text is linked, not copied, so its mentions notify nobody. A closed Issue is
+   not recreated.
+2. `.github/workflows/npc-upstream.yml` posts one read-only NPC analysis on the Issue. It is advice, and a failure leaves
+   no comment. Run the workflow by hand on `main` to retry.
+3. The owner comments exactly `OK` or `OK vX.Y.Z`. Comments from anyone else, and Issues the bot did not open, do not
+   count. `.github/workflows/upstream-approval.yml` reacts within about a minute, and the hourly pass of `upstream.yaml`
+   covers a lost event. Closing the Issue withdraws the upgrade.
+4. A clean merge goes on `agent/upstream-vX.Y.Z` with the new `upstream_tag` and `upstream_sha`, and opens a PR that closes
+   the Issue when merged. To start over after closing that PR unmerged, delete the branch.
+5. `GITHUB_TOKEN` opened that PR, so its workflows wait for approval. Select **Approve workflows to run** in the merge box,
+   or close and reopen the PR. A `workflow_dispatch` run does not help, because GitHub does not count its checks towards a
+   required check.
+6. The owner merges. This publishes nothing: release in a later PR, as in [Releases](#releases).
 
 ### Conflicting upstream upgrades
 
-When the approved upstream commit conflicts with main, or touches a protected path, nothing is merged or pushed. The
-Issue gets one comment listing the files and the upstream commit, and it is not retried. The owner then:
+When the approved upstream commit conflicts with `main`, or touches a path in `protected_paths` of
+`.automation/policy.json`, nothing is merged or pushed. The Issue gets one comment listing the files and the upstream
+commit, and it is not retried. The owner then:
 
-1. Merges that upstream commit on a branch of their own, resolving the conflicts by `FORK_PATCHES.md`.
+1. Merges that upstream commit on a branch of their own, resolving the conflicts by [FORK_PATCHES.md](FORK_PATCHES.md).
 2. Sets `upstream_tag` and `upstream_sha` in `.automation/policy.json` to that version.
-3. Opens an ordinary PR whose body says `Closes #<Issue>`. Its CI starts by itself, since the owner opened it.
+3. Opens a PR whose body says `Closes #<Issue>`. Its CI starts by itself, since the owner opened it.
 
-## NPC roles and permissions
+## Dependencies
 
-`.cnb/settings.yml` defines no NPC role any more. The two NPC jobs, the PR review and the upstream analysis, carry their
-prompts in `.cnb.yml`, start from GitHub through `api_trigger`, and use deepseek-v4.1-flash.
-Main is protected on CNB: ordinary developers/NPCs cannot push directly;
-PRs require administrator approval and passing checks. The owner account's scoped
-automation token may synchronize main. Personal signing stays on GitHub.
+Dependabot and the scan, with what each one misses: [SECURITY_AUTOMATION.md](SECURITY_AUTOMATION.md).
 
-The development NPC takes work from one entry only: an issue comment dispatched by
-the controller. Its `pull_request.comment@npc` pipeline is a one-CPU echo guard with
-no `npc:go` stage, so an `@` in a PR comment — the owner's included — never starts
-a model run; only an issue comment does. The `DeepSeek development` stage carries a
-60-minute `timeout`. Until an NPC run finishes, the controller holds the ladder: a
-row whose dispatch comment has no valid `flclash-requirement` signature is not a
-controller dispatch and never opens a PR or raises the rung. A developer run that
-is still not terminal 75 minutes after its dispatch gets one unsigned
-`<!-- flclash-requirement-overrun <sn> -->` comment naming the build and the runtime;
-the controller does not dispatch again, so a missing 60-minute timeout stays
-visible. Commits record their origin in a `FlClash-Actor` trailer: `npc/开发助手`
-for the development NPC and `controller` for the controller's own merge commits. A
-commit without that trailer is a human commit.
+## CNB
 
-## One build, two download channels
+`.cnb.yml` does these things, and CNB runs no CI:
 
-GitHub standard public runners are primary. The scheduler first reuses an APK
-artifact for the exact source commit and build number after publication failures.
-A normal build with an already-published commit is skipped. Reusing a published
-build number for a different commit is rejected before compilation.
+- **Download mirror**: `.cnb/mirror-release.py` on a push to CNB main, hourly at minute 7, and when `control.py notify` or
+  the web button starts it. See [RELEASE_CHANNELS.md](RELEASE_CHANNELS.md).
+- **NPC compute**: `api_trigger_npc_review` and `api_trigger_npc_upstream`. Both run `deepseek-v4.1-flash` with
+  `sandbox: true` and 40 turns. GitHub starts them with `npc: {name: CodeBuddy}`, which counts against development quota.
+  The prompts live in `.cnb.yml`, and each request carries only validated numbers and SHAs. Keep secrets out of them,
+  since the configuration and results are publicly readable.
+- **Cloud development**: see [CNB_DEVELOPMENT.md](CNB_DEVELOPMENT.md).
 
-Queued jobs older than ten minutes are cancelled by the controller. A later pass
-must confirm completion before fallback. The polling interval is 15 minutes, so
-this is a threshold, not a ten-minute response-time guarantee. Manual cancellation
-is respected. Startup/setup faults and explicit disk/runner failures can fail over;
-ordinary compile errors, tests and ambiguous timeouts go to diagnosis instead.
-Recovery attempts are deduplicated and never recursively retried.
+CNB main follows GitHub main one way. Every run of `upstream.yaml` runs `control.py sync`, so a merge reaches CNB within
+about an hour, and a release moves it immediately. The step fails if CNB main has commits GitHub does not have, and it
+leaves both branches alone. A new `.cnb.yml` takes effect only once it reaches CNB main.
 
-CNB fallback requires at least seven free build core-hours and uses an 8-CPU
-runner, with a 50-minute orchestration deadline. It tests and compiles the exact
-commit, uploads a temporary draft artifact (one-day retention), and never receives
-the personal signing key. GitHub verifies source/version/hash, applies the fixed
-personal signature, and publishes. The waiting GitHub runner performs no duplicate
-compilation. If GitHub is completely unavailable, final signing/publication waits
-for recovery; the system does not claim total platform independence.
+Automation writes no CNB Issues or comments, and nothing on CNB merges. Bug reports go to GitHub Issues.
 
-Release publication triggers CNB synchronization immediately. The existing
-15-minute mirror schedule remains as a recovery path. Both public channels serve
-the same signed bytes. `APP_ENV=stable` removes the PRE banner without changing
-the compatible com.follow.clash.dev package ID.
+## Notifications
 
-## Credentials and notification delivery
+| Source | What you get | When |
+|---|---|---|
+| `control.watch` | Issue assigned to the owner | New stable upstream version, one per version |
+| `npc-upstream.yml` | Issue comment | After `watch` |
+| `control.open_pull_request` | PR, and an Issue comment with the link | After OK |
+| `control.report_conflict` | Issue comment | After OK, on a conflict or protected path, once per upstream commit |
+| `scheduler.notify_once` | `[构建待处理]` Issue assigned to the owner | Build on `main` failed and cannot be reused, one per run |
+| `npc-review.yml` | PR comment | Each head of a non-Dependabot PR |
+| Dependabot | PRs, alert emails | Weekly, or when an advisory appears |
+| GitHub | Workflow failure email | Scheduled or release run failed |
 
-GitHub Actions Secrets:
-- ANDROID_DEBUG_KEYSTORE: existing personal signing key.
-- CNB_AUTOMATION_TOKEN: scoped to 507space/FlClash-alpha, with code/Issue/comment
-  read/write, PR read/comment write, build trigger/history and Release read permissions. Quota inspection
-  additionally needs group-resource:r. It is never committed or printed.
+## Credentials
 
-Notifications are CNB Issues assigned to Aharon and their comments, with an
-optional user-configured CNB notification delivery channel. No enterprise WeChat
-Webhook or external messaging account has been configured. Approval is entered
-on the relevant CNB Issue. Expired/insufficient tokens fail the workflow visibly.
+GitHub Actions secrets, and these two are all there are:
 
-Manual controls live in GitHub Actions:
-- upstream.yaml: watch / sync / approvals / scheduler / preflight / all.
-- build.yaml: source_ref (must be the current main) and reuse_run.
+| Secret | Used by | Needs |
+|---|---|---|
+| `ANDROID_DEBUG_KEYSTORE` | `build.yaml`, `sign-existing.yaml` | The personal signing key. It stays on GitHub only |
+| `CNB_AUTOMATION_TOKEN` | `build.yaml`, `upstream.yaml`, `npc-review.yml`, `npc-upstream.yml` | On `507space/FlClash-alpha`: code push, build trigger, status, stop and stage logs, release read |
 
-`main.pull_request` also declares `Automation unit tests`: a PR that touches
-`.automation/`, `.cnb/`, `.cnb.yml`, `.github/` or `tool/` runs every `.automation`
-unittest on a one-CPU `python:3.12` runner within ten minutes; other PRs print
-`Skipped: no automation changes` and exit 0. `.automation/test_cnb_pipelines.py`
-locks that definition down so it cannot be dropped or narrowed unnoticed.
+The CNB mirror uses CNB's own pipeline token. Everything else on GitHub uses `GITHUB_TOKEN`, with permissions declared in
+each workflow. The repository default is read-only, and Actions may create pull requests.
 
-Validation: `python -m unittest discover -s .automation -p 'test_*.py'` plus the
-existing mirror tests and CNB schema validator. Failure switching is tested with
-fixtures rather than deliberately duplicating a full build or exhausting quota.
+## Manual controls
 
-Initial verification (2026-09-20): the controller created CNB Issue #1 for upstream
-v0.8.98, assigned it to Aharon, and left approval pending. The upstream NPC ran
-successfully using deepseek-v4.1-flash: 0 billed AI Credits, about 0.03 development
-core-hours. The `preflight` manual controller operation checks CNB release read,
-quota, Issue/comment access and mirror trigger/status permissions without building.
+Run these from GitHub Actions on `main`:
 
-Final integration verification: GitHub run 35455547751 passed the complete CNB
-preflight, including creating and deleting a temporary unpublished Release/tag
-through a delegated runner token. No extra token permissions were required.
-The earlier immediate mirror returned HTTP 403; the scheduled recovery published
-2026094003 successfully. Error reports now identify the host and sanitized reason.
-GitHub release run 35454382586 succeeded. Source/version/ARM64 runtime and personal
-certificate checks passed for the downloaded 2026094003 APK. Main-branch protection
-and actual upstream NPC replies were also verified. Heavy CNB fallback compilation
-was not deliberately exercised because that would duplicate a successful build.
+- `upstream.yaml`, `operation`: `watch`, `sync`, `approvals`, `scheduler`, `preflight` (checks the CNB token), `all`.
+- `build.yaml`: `source_ref` must be the current `main`. `reuse_run` takes a run whose artifact to reuse.
+- `npc-upstream.yml`: `issue`, `tag`, `base`, `head`.
+- `sign-existing.yaml`: signs the artifact of an earlier run.
 
-## DeepSeek and GLM paired reviews
+## Changing the process
 
-Existing roles explicitly use `deepseek-v4.1-flash`. The new `GLM复核助手`
-role routes to `glm-5.3-flash` for both Issue and PR mentions, with 128k context,
-60 turns, the platform minimum 48k maxTokens setting and a ten-minute stage timeout.
-Only its GLM stage runs; other roles run only the DeepSeek stage. Both use
-2-CPU NPC runners. These model IDs were verified against CNB's official
-npc/CodeBuddy configuration. GLM usage is billed separately in AI Credits;
-DeepSeek's current promotional zero billing does not imply free GLM usage.
+A change to `.github/`, `.automation/`, `.cnb/` or `.cnb.yml` is an ordinary PR, with the same checks and the owner's merge.
 
-New upstream decision Issues ask the upstream DeepSeek role and GLM to review
-the same fixed upstream range independently. Every open GitHub or CNB PR receives
-a separate signed review Issue for its platform, PR number and exact base/head.
-Issue titles show the platform, PR number and PR title. Deduplication uses the
-signed record in the body, so renaming an Issue cannot invalidate its review or
-trigger duplicate reviewers. Existing titles follow subsequent PR title changes.
-The PR receives a link to the two reports. No APK is built by either reviewer.
-GitHub PR closed events run cleanup immediately. Every controller reconciliation
-also closes signed review Issues whose GitHub/CNB PR is merged or closed, including
-older review scopes. Reports remain available; unrelated/upstream Issues are not
-closed. CNB closure detection uses the scheduled fallback. Reopening a PR with the
-same commits requires reopening its review Issue; manual closures are not undone.
+- Update this file or `SECURITY_AUTOMATION.md` in the same PR, and rewrite whatever went stale rather than adding to it.
+- Run the checks first:
 
-Reconciliation also closes review Issues superseded by a changed PR base/head.
+  ```bash
+  python3 -m unittest discover -s .automation -p 'test_*.py'
+  python3 .cnb/test_mirror_release.py
+  python3 -m unittest tool.test_release_identity
+  uvx --from actionlint-py actionlint .github/workflows/*.y*ml
+  ```
 
-A diff over 6 files or 350 lines gets one GLM-only review Issue per file group, and
-its main review Issue summons only DeepSeek. GLM passes only when every open shard
-passes; it never passes on a report in the main Issue. A deleted shard, or one whose
-signed record no longer verifies, is replaced on the next reconciliation. So is a
-closed shard, and a pass on it does not count. The exception is a closed shard whose
-latest GLM report is a block or malformed: closing it cannot shed that result, so GLM
-stays blocked until the base/head changes.
+- `npc-review.yml` runs `.github/scripts/npc_review.py` from the base commit, and the scan runs its scanner from `main`, so
+  a PR that changes either does not exercise its own change.
+- `upstream.yaml` and `upstream-approval.yml` run the `.automation` tests on `main` before they change anything, so a red
+  test on `main` stops upstream handling.
 
-The controller checks NPC tasks every 15 minutes while any is open (or with the manual
-`recovery` operation). Only trusted/signed tasks are eligible, and each pass sends at
-most two summons. One failed issue does not stop the pass; the step still ends red.
+## Not yet exercised
 
-A review follows each role's latest summon. The role is summoned again when that summon
-has no report and its run finished, whatever the state: a run in `success` may have left
-its report in the closing message without posting it, and that is how #363 and #366
-waited over an hour. A run still going is never summoned over. It is stopped once overdue,
-40 minutes after the first summon or 20 after any later one, and the next pass finds it
-finished. A summon no run picked up counts as undelivered at the same deadlines. The wait
-after a run ends is 3 minutes, or 15 then 30 minutes when the model answered HTTP 429.
-Each request and role gets two such summons, then one signed stop notice and nothing
-more; a resend does not use up the bounded recheck. A missing report never passes.
-While the owner holds a requirement with `HOLD`, the review of its `automation/req-<n>` pull,
-shards included, gets none of this: no run stopped, no log read, no summon, no stop notice.
-`RELEASE` resumes it on the next pass. A pull on any other branch has no requirement to hold,
-so `HOLD` does not reach its review.
+Unit tests and read-only dry runs cover these. None has run for real:
 
-The controller reads the run's stage log first. If the closing message holds this
-request's machine line, the summon quotes it, with four tool calls to check and post it.
-The quote is not a report: it sits in an owner comment, and its `@` and comment markers are
-neutralised. Otherwise the reviewer gets the review budget, or the recheck budget for a
-recheck.
-
-Any other task gets one bounded retry if its execution failed without a report;
-cancelled/running jobs and completed reports are not retried, and a failed retry leaves
-one explicit stopped notice. Recovery asks the NPC to reuse existing work and publish a
-partial report before its budget ends. These prompt budgets do not guarantee platform
-timeout enforcement.
-Old build-failure Issues close only after a successfully published descendant of
-their failed source commit; unrelated failures remain open.
-
-Reports must identify commit range, evidence, blockers, disagreements and
-unverified behavior. Reviewers first inspect code themselves, then compare
-reports. They must not summon each other or loop through repeated reviews.
-Human-triggered follow-ups should name a new commit range when code changes.
-Upstream decision reports remain advisory. PR reports are required gates, in
-addition to owner OK and deterministic tests. Only reports authored by each exact
-NPC identity, with the matching request digest and a machine-readable pass with
-zero blockers, can pass. Missing, malformed or blocking reports cannot pass.
-Closing a review Issue blocks that scope rather than silently requesting it again.
-Conflicts remain for human resolution.
-
-GitHub PR opened/reopened/synchronize/edited events trigger a trusted-main
-controller. The 15-minute controller also discovers CNB PRs, bot-created GitHub
-PRs and base changes, and refreshes results without rerunning existing requests.
-A new head, or a base that is not a fast-forward of the reviewed one, means a new review.
-When only the base moved forward and the pull's own patch (`git patch-id --stable` of
-merge-base..head) is unchanged, the controller opens a signed reuse Issue instead: it names
-the earlier round, its base/head and both patch-ids, and passes only if that round's recorded
-conclusion is a double pass, no round with the same patch was recorded as blocked, and CI passed:
-on CNB every pull_request pipeline again, with runs newer than that round; on GitHub at least one
-check run or status besides this gate and the controller's own `review` job, all completed with
-success (skipped/neutral not counted). While CI is unsettled the controller opens and writes nothing,
-so the gate stays pending, and the next run decides: GitHub's hourly controller schedule, or any earlier
-wake. CI that ended with a failure means a full review, and so does CI still unsettled 80 minutes after
-the later of the base and head commits, or with a commit dated in the future; each leaves a log line.
-A different patch never waits. Commits a comparison needs are fetched by sha first, from the pull's own
-platform; a failed fetch means a full review and a log line. Fork pulls are not excluded: their heads
-are fetched by sha from the target repository, and one that cannot be fetched takes the same path.
-Closing a reuse Issue by hand blocks that scope only: a reuse round is never a source, so its record does
-not stop a later base from reusing the reviewed round. Otherwise the full review runs. A round GLM passed through shards reuses like any other: its record
-names the shards, and the reuse Issue opens none and needs no GLM report. A block or malformed report
-on the round's main issue or any of its shards, even one posted after the pass was recorded, rules
-out reuse, and so does a recorded shard that can no longer be read back.
-GitHub main requires the FlClash/paired-review status and an up-to-date branch.
-CNB runs no paired-review gate pipeline: the controller reads both reports directly
-and forwards or merges nothing until the review for that base/head passes, so a
-corrected blocking report takes effect on its next run.
-GitHub result polling uses the existing schedule. An API error on one pull, gate or review
-Issue is logged and the round goes on, ending red at the end. A head with a pull that failed
-keeps its gate as it was, since the gate is the worst over every pull on that head.
-
-Candidate construction no longer dispatches a release build immediately. The
-controller resumes it only after both reports pass, and promotion checks the
-reports again. GitHub PR status writes and reviews run without checking out or
-executing PR code. CNB gates accept requests only from the configured owner; the
-GitHub controller additionally verifies their HMAC. Owner/admin credentials remain
-trusted, as they already control repository settings and release automation.
-
-GLM-5.3-Flash is the default independent reviewer, including image support.
-Full GLM-5.3 may be considered for complex changes or unresolved disagreements;
-it is not automatically invoked as a third reviewer.
-
-GLM should finish evidence gathering by approximately turn 45 or eight minutes,
-then reserve the remaining budget for its report. Batch related reads and reuse
-verified facts. An incomplete review must report uncertainty and cannot pass;
-this is a prompt-level stopping strategy, not a guaranteed pre-timeout callback.
-
-
-## Controller wakeup and security queue
-
-Every wake ends in a dispatch of `operation=all`; nothing sleeps or polls on a
-runner. Trusted `pull_request.target` events wake the controller when a PR opens or
-moves. Each of the five `main.pull_request` pipelines now ends with a short
-`endStages` job that runs `wake.py ci-done '<pipeline>'`: CNB runs `endStages` once
-`prepare` succeeded, whatever `stages` did, and its own result does not change the
-pipeline state. When every other pipeline on that head has appeared and finished,
-success or failure, the job posts one
-`<!-- flclash-requirement-wake ci-<sha> -->` comment on the requirement issue for
-`automation/req-<n>` branches; the `issue.comment` pipeline turns that comment into a
-dispatch. A plain `pull_request` build cannot import the dispatch credential, so the
-comment is the bridge. `ci-done` ignores moved heads, closed PRs and every branch
-that is not a requirement, catches all exceptions and always exits 0: a wake attempt
-never fails a pipeline. `security/group-*` PRs are woken by the schedule below.
-
-All wakes dispatch `operation=all`. Known developer and reviewer reports also wake
-the controller through issue comments. When the controller forwards a requirement to
-GitHub, it waits for GitHub to settle the merge state and merges in the same run.
-
-The fifteen-minute schedule (`crontab: */15 * * * *`) has two jobs. The first
-(`wake.py watchdog`, three minutes) looks for requirement states no event will
-advance: a bridge that never fired, a dispatch with no receipt after 35 minutes, an
-NPC run that ended without a report, green checks that were never forwarded, a
-forwarded PR still open, or a requirement PR that has sat on the same head for 40
-minutes without green checks (up to three times per head, since a silent reviewer
-failure may need several). It writes one `<!-- flclash-requirement-wake <state> -->`
-comment per state. A review or analysis NPC run still pending after an hour is
-stopped, so the one-time recovery can retry it. The second job imports the dispatch
-credential and runs `wake.py`, which dispatches only while there is work: an open
-owner `[需求]` issue, an open issue carrying a `flclash-pr-review`,
-`flclash-upstream` or `flclash-security-group` marker, or an open PR whose head is
-`automation/req-*` or `security/group-*`; otherwise it prints `idle`. A requirement
-the owner holds with `HOLD` is not work: its `[需求]` issue, its `automation/req-<n>`
-PR and the review issue of that PR stay idle until `RELEASE`. The hourly
-`crontab: 7 * * * *` schedule keeps mirroring artifacts, and the hourly GitHub
-schedule remains a further backstop. An unsuccessful dispatch fails visibly in CNB.
-
-Reviews no longer open the moment a requirement or security PR appears. For a CNB PR
-whose head is `automation/req-*` or `security/group-*` and which has no review issue
-yet, the controller reads `/pulls/{n}/commit-statuses` and looks only at the five
-`main.pull_request` pipelines (`CI_PIPELINES`). CNB has no paired-review gate pipeline;
-a `Paired review gate` row left on a head pushed before its removal is ignored. A missing pipeline or
-one that has not settled leaves that head `pending`: while the earliest status is
-younger than 80 minutes the controller prints `cnb PR #n: waiting for CI` and opens
-nothing; a settled non-success prints `cnb PR #n: CI failed, review deferred` and
-also opens nothing. A head with no status at all counts from the `created_at` of its
-entry in the open PR list, because `/pulls/{n}` returns no time field; one without
-even that timestamp prints `cnb PR #n: waiting for CI (no PR created_at)` and opens
-nothing rather than waiting forever. Past 80 minutes it opens the review anyway,
-prints `cnb PR #n: CI unsettled after 80m, review opened`, and the brief names the
-pipelines that had not finished as unverified; when the head carried no status at
-all, the brief instead states there is no CI evidence and treats every entry as
-unverified. Reviews that already exist, other branches and
-GitHub PRs keep their previous timing. The controller finds an existing review from
-the notice it left on the PR (`/pulls/{n}/comments`): the
-`<!-- flclash-review-notice <review issue> -->` marker, or for notices written before
-the marker, the review issue link; the issue must still carry the signed request for
-that base/head. A review opened before CI settled shows a red
-`FlClash/review-before-ci` commit status on the requirement PR while any pipeline is
-pending or failed, and turns it green once every one has succeeded; the status is
-posted only when its value changes and never gates anything itself. `check_state`
-counts a requirement PR as green only when all five pipelines succeeded and the
-paired review for that base/head is `success`; the gate's own row is ignored. So two
-passing reviewers cannot forward or merge a requirement whose CI has not settled; the
-wake that follows the last pipeline re-runs the controller and the forwarding then
-sees green.
-
-Deployment prerequisite: in the existing private `github-dispatch.yml` KeyStore,
-retain the exact repository and `main` branch restrictions and token value, and
-allow only these additional events alongside `issue.comment`:
-
-```yaml
-allow_events:
-  - issue.comment
-  - 'crontab: */15 * * * *'
-  - pull_request.target
-```
-
-Never authorize ordinary `pull_request` or source-branch execution to import this
-credential; the `ci-done` end stage uses the build token for `repo-notes:rw`
-comments only, and wakes the controller through the comment bridge. The GitHub
-controller independently validates signed work records.
-
-Security queue reconciliation runs even if review reconciliation fails, provided
-credentials passed validation. It uses signed dispatch receipts, checks both
-Issue and PR developer attempts, preserves a two-group execution limit and exposes
-blocked/stalled states in the master Issue. It cannot merge or publish repairs.
-
-Requirement PRs (`automation/req-<n>`) give reviewers the issue's acceptance
-criteria; a criterion that the diff cannot confirm, or that the developer's latest
-report calls unmet, is a block even when CI is green. A reviewer whose bounded
-recheck still omits the machine verdict gets one request to restate its own
-conclusion. The controller reads the review verdict directly; CNB runs no separate
-gate pipeline, and a leftover `Paired review gate` row on an older head never holds
-back a requirement whose review for that base/head has passed.
-Before forwarding, the controller merges the latest GitHub `main` into a green
-requirement branch that has fallen behind (branch protection requires it) and lets
-checks and review rerun; a merge conflict goes back to the developer. An open
-GitHub PR is fast-forwarded to the new commit with a refreshed mirror record.
-`stuck` and `quota` only stop spending developer rounds: work whose checks and
-review are green is still forwarded. When a requirement stopped on a review-only
-block (CI green, developer found nothing to change) and its branch is behind
-`main`, the controller syncs `main`, which gives the new head a fresh review round.
-Review requests spell out the `git fetch` command for the pinned base and head.
-
-Deployment prerequisite: in the existing private `github-dispatch.yml` KeyStore,
-retain the exact repository and `main` branch restrictions and token value, and
-allow only these additional events alongside `issue.comment`:
-
-```yaml
-allow_events:
-  - issue.comment
-  - 'crontab: */15 * * * *'
-  - pull_request.target
-```
-
-Never authorize ordinary `pull_request` or source-branch execution to import this
-credential. The GitHub controller independently validates signed work records.
-CNB no longer runs a synchronous review gate: the trusted PR event only wakes the
-controller, which starts reviewers and reads their verdict directly.
-
-Security queue reconciliation runs even if review reconciliation fails, provided
-credentials passed validation. It uses signed dispatch receipts, checks both
-Issue and PR developer attempts, preserves a two-group execution limit and exposes
-blocked/stalled states in the master Issue. It cannot merge or publish repairs.
-
-
-## Review evidence and bounded reconsideration
-
-New review requests contain controller-generated merge-base, actual three-point
-changed-file paths, ancestor/head blob IDs and the merged tree (or conflict flag).
-No PR code is executed to compute this evidence. Invalid SHA stops evidence creation. For larger
-PRs the first 30 paths include blob IDs and remaining paths are explicitly listed
-without blobs; reviewers must disclose incomplete coverage rather than infer a pass.
-
-A malformed final report, or one blocking report opposed by the other reviewer's
-pass, gets at most one signed reconsideration request per role and fixed scope.
-It includes the same deterministic evidence and requires a corrected machine
-report; the controller never changes an NPC verdict itself. Two blocking reports
-remain blocked. Running reviewers are not duplicated. No recheck is summoned while the owner
-holds the pull's `automation/req-<n>` requirement with `HOLD`. CNB's gate keeps checking
-until its existing deadline so an early malformed report can be corrected without
-immediately leaving a permanently failed check.
-
-Compatible security repair completion, mirror attestations and post-merge scans
-are described in SECURITY_AUTOMATION.md. Protected automation changes themselves
-are outside the auto-merge allowlist and require the normal reviewed rollout.
-
-
-## Single merge authority
-
-GitHub is the only merge entrypoint for security repairs. CNB continues to run the
-native checks and independent NPC reviews, then receives the GitHub main mirror.
-No controller operation attempts to approve or merge its own CNB PR. Compatible
-repairs use a signed, exact-head GitHub forwarding PR; broader migrations use a
-normal reviewed GitHub integration PR. Branch protections remain enabled.
-
-A release in flight freezes that entrypoint. `pause.release_lock()` reads the open
-candidates `automation/upstream-*` pull requests against `main`, and counts a lock while
-one build.yaml run for a candidate head is not `completed`, or while the
-`FlClash/approved-build` status on a candidate head has been `pending` for at most 180
-minutes. A lock only defers the `/merge` calls in `forward_pull` and `merge_ready`;
-forwarding, `requirements.sync_main` and branch refreshes keep running, so a release
-cannot collide with work that is not a merge. Promoting a candidate moves `main` to its
-head and closes its pull request, and a finished run or a final status ends the lock on
-the next pass. Expired `pending` state stops counting as a lock once it is older than
-180 minutes, and the controller says so once in the upgrade issue naming the candidate
-rather than releasing it silently. A lock that lasts longer than 90 minutes gets one
-reminder in that issue, because nothing else would tell the owner a build is stuck.
-
-HOLD still wins: a requirement pull request the owner took by hand is never merged by
-`merge_ready`, lock or not. `pause.py status [automation/req-<n>]` is the read-only
-entrypoint that reports both, using GET requests only and posting nothing.
+- The upstream path from OK onwards: the `issue_comment` trigger, the bot's push and PR, `Closes #<Issue>`.
+- The checks of a bot PR, after **Approve workflows to run**, satisfying the required checks.
+- `api_trigger_npc_upstream`, including whether a truncated diff of about 1 MB still yields a useful analysis.
+- A real release since this process replaced the old one: `control.py promote`, `notify`, and the mirror it starts.
+- Dependabot security updates on `/core`, and the Cargo patch-only rule.

@@ -34,7 +34,7 @@ Open an issue on [GitHub Issues](https://github.com/initH271/FlClash-alpha/issue
 
 - [Log storage and retention](ROLLING_LOG_HISTORY.md)
 - [Release channels and update mechanism](RELEASE_CHANNELS.md)
-- [Upstream approval, NPC roles and build scheduling](AUTOMATION.md)
+- [Pull requests, CI, releases and upstream upgrades](AUTOMATION.md)
 - [CNB development environment](CNB_DEVELOPMENT.md)
 - [Build and test commands](.agents/commands.md)
 

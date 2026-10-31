@@ -24,7 +24,7 @@
 - **锁文件不能直接取上游**：取上游的 `core/go.sum` 和 `Cargo.lock` 会丢掉安全版本，见 G4。
 - **全量回归**：升级 PR 改了 `.automation/policy.json`，`ci.yml` 会跑全部 job。
 - **mihomo**：`core/Clash.Meta` 没有 fork 补丁。改动规则见 `.agents/rules.md` 里关于 `core/Clash.Meta` 的预算条目，默认在 FlClash 这一侧解决。
-- **受保护路径**：`.automation/`、`.cnb/`、`.cnb.yml`、`.github/` 的改动走 owner 通道（GitHub PR），见 `.agents/rules.md` 的 Automation Changes。
+- **受保护路径**：上游提交碰到 `.automation/policy.json` 的 `protected_paths` 时，机器人不合并，只在 Issue 里报告，按 [AUTOMATION.md](AUTOMATION.md) 的 Conflicting upstream upgrades 手工做。
 
 ## A. 滚动日志与导出
 
@@ -128,16 +128,9 @@
 ### D1. 发布工作流
 
 - **文件**：上游文件 `.github/workflows/build.yaml`（整份替换）。
-- **改了什么**：只构建 Android ARM64，用个人证书签名和校验，发布 GitHub Release 并触发 CNB 镜像；构建可复用已有产物，也可回退到 CNB 编译。
+- **改了什么**：只构建 Android ARM64，用个人证书签名和校验，发布 GitHub Release 并触发 CNB 镜像；签名或发布失败后可复用已有产物，不重新编译。
 - **为什么**：fork 只发 Android ARM64，用固定个人密钥，两个渠道发相同的 APK（`RELEASE_CHANNELS.md`）。
-- **核对**：冲突时保留 fork 版本，再读上游这次的工作流差异。上游升工具链时一起改：`go-version`、`flutter-version`、`RUSTUP_TOOLCHAIN`，以及 `.automation/security_scan.py` 的 `TOOLCHAIN_PINS` 列出的 6 处 Go 版本。
-
-### D2. 上游构建工作流副本
-
-- **文件**：fork 文件 `.github/upstream-build.yaml`。
-- **改了什么**：放在 `.github/workflows/` 外面，不会运行。内容来自上游 `build.yaml`，已和 v0.9.2 的版本不同。`.automation/security_scan.py` 从这里读 `GO_VERSION`。
-- **为什么**：保留这份副本的原因未记录。
-- **核对**：确认 `security_scan.py` 仍能读到版本。上游升 Go 时同步这里的 `GO_VERSION`。
+- **核对**：冲突时保留 fork 版本，再读上游这次的工作流差异。上游升工具链时一起改 Go、Flutter、Rust 版本：`.github/workflows/build.yaml`、`ci.yml`、`security.yaml`（只有 Go）、`.github/actions/setup-android-toolchain/action.yml`、`.cnb/Dockerfile`。
 
 ### D3. 签名与发布脚本
 
@@ -195,20 +188,20 @@
 - **为什么**：和条目语气一致。
 - **核对**：上游改这些 key 时保留 fork 的中文，再重新生成 `lib/l10n/`。兜底：`test/widgets/update_dialog_test.dart`。
 
-## E. 自动化控制器
+## E. 自动化
 
-### E1. 控制器与流水线
+### E1. 工作流与脚本
 
-- **文件**：fork 文件 `.automation/`、`.cnb/`、`.cnb.yml`、`.github/workflows/upstream.yaml`、`.github/workflows/security.yaml`、`AUTOMATION.md`、`CNB_DEVELOPMENT.md`、`SECURITY_AUTOMATION.md`。
-- **改了什么**：上游版本追踪和 owner 批准、依赖漏洞扫描、CNB main 同步和国内下载镜像。
-- **为什么**：新的上游正式版要经 owner 批准和审查后才合入、发布（`AUTOMATION.md`）；依赖漏洞的处理见 `SECURITY_AUTOMATION.md`。
+- **文件**：fork 文件 `.automation/`、`.cnb/`、`.cnb.yml`、`.github/workflows/`（`ci.yml`、`upstream.yaml`、`upstream-approval.yml`、`npc-review.yml`、`npc-upstream.yml`、`security.yaml`）、`.github/scripts/ci_changes.py`、`.github/scripts/npc_review.py`、`.github/dependabot.yml`、`.github/pull_request_template.md`、`AUTOMATION.md`、`CNB_DEVELOPMENT.md`、`SECURITY_AUTOMATION.md`。
+- **改了什么**：PR CI、NPC 审核和上游分析（只提意见）、上游版本追踪和 owner 批准、依赖漏洞扫描和 Dependabot、CNB main 同步和国内下载镜像。
+- **为什么**：合并只认 CI 和 owner，新的上游正式版要 owner 批准才开 PR（`AUTOMATION.md`）；依赖漏洞的处理见 `SECURITY_AUTOMATION.md`。
 - **核对**：基本不冲突。上游新增顶层目录或构建输入时，看 `.github/scripts/ci_changes.py` 的 `NEUTRAL`、`RULES`。上游改 CI 或路径时看 `.automation/policy.json` 的 `protected_paths`。兜底：`python3 -m unittest discover -s .automation -p 'test_*.py'`。
 
 ### E2. 上游的 agent 文档
 
 - **文件**：上游文件 `AGENTS.md`、`.agents/rules.md`、`.agents/commands.md`。
-- **改了什么**：`AGENTS.md` 加一条自动化路径规则；`rules.md` 加 Automation Changes 一节；`commands.md` 加自动化单元测试命令。
-- **为什么**：自动化配置走 owner 通道（`.agents/rules.md`）。
+- **改了什么**：`AGENTS.md` 加一条自动化路径规则和 `AUTOMATION.md` 的入口；`rules.md` 加 Automation Changes 一节；`commands.md` 加自动化单元测试命令，发版和 Verify 两节改成本仓库的流程和 `ci.yml`。
+- **为什么**：改流程也走普通 PR，agent 要先读 `AUTOMATION.md`（`.agents/rules.md`）。
 - **核对**：这几个文件上游常改，冲突时保留这些段落。没有测试兜底，合并后 `grep -n 'Automation Changes' .agents/rules.md`。
 
 ## F. Android 侧改动
@@ -218,7 +211,7 @@
 - **文件**：上游文件 `android/app/src/main/kotlin/com/follow/clash/plugins/AppPlugin.kt`。
 - **改了什么**：新增 `getNetworkAddresses`、`createExportDocument`、`copyFileToUri`；请求码 `EXPORT_DOCUMENT_REQUEST_CODE = 1005`；`onActivityResult` 和 detach 时处理待完成的导出。
 - **为什么**：分别服务 C2 的网络匹配和 A4 的导出。
-- **核对**：上游改 `onMethodCall`、`onActivityResult`，或新增请求码时，确认 1005 不撞、导出分支仍排在 VPN 判断前面。兜底：`test/plugins/app_test.dart`、CNB 的 Android 单元测试。
+- **核对**：上游改 `onMethodCall`、`onActivityResult`，或新增请求码时，确认 1005 不撞、导出分支仍排在 VPN 判断前面。兜底：`test/plugins/app_test.dart`、`ci.yml` 的 Android unit tests。
 
 ### F2. 安装器接入
 
@@ -262,7 +255,7 @@
 - **文件**：上游文件 `core/go.mod`、`core/go.sum`、`services/helper/Cargo.toml`、`services/helper/Cargo.lock`、`services/helper/src/service/hub.rs`、`services/helper/src/service/linux.rs`、`plugins/rust_api/rust/Cargo.lock`。
 - **改了什么**：Go 固定 cilium/ebpf、insomniacslk/dhcp、klauspost/compress、goldmark、grpc、go-jose、otel/sdk、x/net 等的修复版本，并把 logrus 变成直接依赖（A1 使用）；helper 升到 warp 0.4，`linux.rs` 自己实现带鉴权的连接服务循环；两个 Rust 锁文件固定 tokio 1.53.3。
 - **为什么**：清除依赖漏洞告警（`8097e29c`、`4021b38d`）。
-- **核对**：合并后对照 `git diff v0.9.2 HEAD -- core/go.mod`，版本不能回退。上游自己升到 warp 0.4 时比较服务循环，保留连接鉴权。兜底：`.github/workflows/security.yaml`、CNB 的 Go 和 Rust 依赖回归流水线、`services/helper` 的 `cargo test`。
+- **核对**：合并后对照 `git diff v0.9.2 HEAD -- core/go.mod`，版本不能回退。上游自己升到 warp 0.4 时比较服务循环，保留连接鉴权。Dependabot 的 `/core` 只开安全更新，就是因为 `go mod tidy` 会删掉这些 indirect 版本（`SECURITY_AUTOMATION.md`）；手工跑过 tidy 也要这样核对。兜底：`.github/workflows/security.yaml`、`services/helper` 的 `cargo test`。
 
 ## H. 测试与 lint 调整
 
