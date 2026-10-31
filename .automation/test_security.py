@@ -309,7 +309,27 @@ class DependabotTests(unittest.TestCase):
             with self.subTest(ecosystem=ecosystem):
                 self.assertIn('interval: weekly', block)
                 self.assertLessEqual(int(re.search(r'open-pull-requests-limit: (\d+)', block).group(1)), 2)
-                self.assertEqual(2, block.count("patterns: ['*']"))
+                self.assertIn('applies-to: security-updates', block)
+                if ecosystem != 'gomod':
+                    self.assertEqual(2, block.count("patterns: ['*']"))
+
+    def test_core_only_gets_security_updates_because_a_version_update_tidies_the_fix_versions_away(self):
+        block = self.blocks['gomod']
+        self.assertRegex(block, r'(?m)^    open-pull-requests-limit: 0$')
+        self.assertNotIn('applies-to: version-updates', block)
+        self.assertEqual(1, block.count("patterns: ['*']"))
+
+    def test_cargo_version_updates_stop_at_patch_without_touching_security_updates(self):
+        block = self.blocks['cargo']
+        self.assertRegex(block, r"(?m)^    allow:\n      - dependency-name: '\*'\n        update-types: \['version-update:semver-patch'\]$")
+        # GitHub documents the guarantee for allow's update-types; an ignore rule would need another look.
+        self.assertNotRegex(block, r'(?m)^    ignore:')
+
+    def test_the_other_ecosystems_keep_every_version_update(self):
+        for ecosystem in ('pub', 'gradle', 'github-actions'):
+            with self.subTest(ecosystem=ecosystem):
+                self.assertNotRegex(self.blocks[ecosystem], r'(?m)^    (allow|ignore):')
+                self.assertRegex(self.blocks[ecosystem], r'(?m)^    open-pull-requests-limit: [12]$')
 
     def test_yaml_aliases_are_not_relied_on(self):
         self.assertNotRegex(self.source, r'[&*]\w+\s*$')
