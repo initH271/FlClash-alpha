@@ -14,12 +14,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: FlClash-arm64-log-history
           path: dist
@@ -39,7 +39,7 @@ jobs:
           cd dist
           sha256sum FlClash-arm64-log-history.apk > SHA256SUMS.txt
           rm -f FlClash-arm64-log-history.apk.idsig
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: FlClash-arm64-log-history
           path: dist/
