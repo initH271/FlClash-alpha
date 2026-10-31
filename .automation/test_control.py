@@ -182,8 +182,9 @@ class SyncMainTests(unittest.TestCase):
         self.run_sync(self.newer, self.newer)
         self.sync.assert_not_called()
 
-    def test_cnb_ahead_or_diverged_changes_nothing_and_opens_nothing(self):
-        self.assertIn('leaving both unchanged', self.run_sync(self.older, self.newer))
+    def test_cnb_ahead_or_diverged_changes_nothing_and_fails_the_step(self):
+        with self.assertRaisesRegex(ValueError, 'leaving both unchanged'):
+            self.run_sync(self.older, self.newer)
         self.sync.assert_not_called()
 
 

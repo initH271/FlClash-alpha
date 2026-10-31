@@ -409,10 +409,10 @@ def sync_main():
     source = git('rev-parse', 'FETCH_HEAD')
     if source == base:
         return
-    if git('merge-base', '--is-ancestor', source, base, check=False).returncode == 0:
-        sync_branch('main', base)
-    else:
-        print('CNB main is not behind GitHub main; leaving both unchanged')
+    if git('merge-base', '--is-ancestor', source, base, check=False).returncode != 0:
+        # Fail the step so the owner hears of it: a stale CNB main silently keeps old mirror and NPC pipelines.
+        raise ValueError('CNB main is not behind GitHub main; leaving both unchanged')
+    sync_branch('main', base)
 
 
 def close_published_failures():
