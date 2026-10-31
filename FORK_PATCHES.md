@@ -373,7 +373,7 @@
 - **文件**：上游文件 `lib/enum/enum.dart`、`lib/views/dashboard/widget_registry.dart`；fork 文件 `lib/views/dashboard/fork/fork_tiles.dart`、`test/views/dashboard/fork/fork_tiles_test.dart`。
 - **改了什么**：`DashboardWidget` 开头留一段 fork 磁贴（`fork*`）；`widget_registry.dart` 的三个 switch 各加一行 `_ => forkTileOf(this)...` 兜底，分发给 `forkTiles`。
 - **为什么**：让升级上游时冲突最少。
-- **核对**：上游改 enum 位置或 switch 结构（比如改成 Map）时，确认兜底还在、fork 段还在上游值前面。删掉兜底会直接编译失败。fork 磁贴名定下后不能改，`fork_tiles_test.dart` 的 `shippedForkTileNames` 守着。宽度 ≥640dp 时用桌面布局（`lib/views/dashboard/layout.dart` 的 `_minDesktopWidth`），fork 磁贴不出现。兜底：`test/views/dashboard/fork/fork_tiles_test.dart`。
+- **核对**：上游改 enum 位置或 switch 结构（比如改成 Map）时，确认兜底还在、fork 段还在上游值前面。删掉兜底会直接编译失败。fork 磁贴名定下后不能改，`fork_tiles_test.dart` 的 `shippedForkTileNames` 守着。宽度 ≥640dp 时用桌面布局（`lib/views/dashboard/layout.dart` 的 `_minDesktopWidth`），fork 磁贴的显示方式见 J6。兜底：`test/views/dashboard/fork/fork_tiles_test.dart`。
 
 ### J2. 推送通道磁贴（#116）
 
@@ -387,7 +387,7 @@
 - **文件**：上游文件 `arb/intl_en.arb`、`arb/intl_es.arb`、`arb/intl_fr.arb`、`arb/intl_ja.arb`、`arb/intl_ko.arb`、`arb/intl_ru.arb`、`arb/intl_zh_CN.arb`、`lib/models/generated/config.g.dart`、`lib/enum/enum.dart`、`test/views/dashboard/edit_test.dart`（一行：视图高度 1400 改 1800）；fork 文件 `lib/providers/fork/route_check.dart`、`lib/views/dashboard/fork/route_check.dart`、`test/providers/fork/route_check_test.dart`、`test/views/dashboard/fork/route_check_test.dart`。
 - **改了什么**：新增 `forkRouteCheck` 磁贴，数据层和界面分开。
 - **为什么**：排查规则分流。
-- **核对**：上游改 `RoutedProbe`（`lib/providers/routed_probe.dart`）、`ProbeParams`（`lib/models/core.dart`）、`outboundIpProbeProvider` 时重看。上游改 `edit_test.dart` 时确认那一行加高还在；上游改 dashboard 布局分支时确认 fork 磁贴在手机布局还能出现。兜底：`test/providers/fork/route_check_test.dart`、`test/views/dashboard/fork/route_check_test.dart`。
+- **核对**：上游改 `RoutedProbe`（`lib/providers/routed_probe.dart`）、`ProbeParams`（`lib/models/core.dart`）、`outboundIpProbeProvider` 时重看。上游改 `edit_test.dart` 时确认那一行加高还在；上游改 dashboard 布局分支时确认 fork 磁贴在手机布局和宽布局（J6）都还能出现。兜底：`test/providers/fork/route_check_test.dart`、`test/views/dashboard/fork/route_check_test.dart`。
 
 ### J4. 手动覆盖修复（#116）
 
@@ -402,6 +402,13 @@
 - **改了什么**：新增 `forkAutoPause` 磁贴。
 - **为什么**：区分规则停止和手动停止，并提供覆盖和恢复（J4）。
 - **核对**：跑 `test/views/dashboard`，核对 `edit_test.dart` 的 `seed` 和 `maxScrollExtent - 330` 偏移；`lib/l10n/` 重新生成。
+
+### J6. 宽布局显示 fork 磁贴
+
+- **文件**：上游文件 `lib/views/dashboard/dashboard.dart`（一行 import，`_DesktopDashboard` 的两个 `SingleChildScrollView` 换成 `ForkTilesScrollView` 并各加三个参数）；fork 文件 `lib/views/dashboard/fork/wide_tiles.dart`、`test/views/dashboard/fork/wide_tiles_test.dart`。
+- **改了什么**：宽度 ≥640dp 时，在上游写死的网格下面追加已保存的 fork 磁贴，分左右两列，按保存顺序交替放，内容多高就多高。上游网格的位置和尺寸不变，没有保存 fork 磁贴时什么也不加。这个布局仍然不能编辑，磁贴在竖屏添加。
+- **为什么**：手机横屏、折叠屏展开和平板看不到竖屏添加的磁贴。
+- **核对**：上游改 `_DesktopDashboard` 的滚动结构时，确认两个分支都还经过 `ForkTilesScrollView`，它的 `physics`、`padding` 和原来的 `SingleChildScrollView` 一致。网格占满窗口时（`fills`），fork 磁贴在第一屏以下，要滚动才能看到。兜底：`test/views/dashboard/fork/wide_tiles_test.dart`。
 
 ## 可以考虑去掉的补丁
 
