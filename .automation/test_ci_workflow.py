@@ -191,6 +191,10 @@ class CiChangesTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(expected, changes.needed_jobs([path]))
 
+    def test_an_upstream_upgrade_runs_every_job_however_small_it_is(self):
+        self.assertEqual(set(changes.JOBS), changes.needed_jobs(['.automation/policy.json', 'lib/main.dart']))
+        self.assertEqual(set(changes.JOBS), changes.needed_jobs(['.automation/policy.json']))
+
     def test_a_rename_counts_both_sides(self):
         with tempfile.TemporaryDirectory() as root:
             def git(*args):

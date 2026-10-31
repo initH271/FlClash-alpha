@@ -12,7 +12,8 @@ concurrency:
 jobs:
   npc-review:
     name: NPC review (advisory)
-    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository
+    # A Dependabot PR runs with a read-only token and no secrets, so the NPC could neither start nor comment.
+    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:

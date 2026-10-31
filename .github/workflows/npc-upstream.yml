@@ -1,0 +1,55 @@
+# Advisory only: a read-only analysis comment on an upstream Issue, started by control.watch. Every failure path just
+# leaves no comment. Run it by hand on main to retry.
+name: NPC upstream analysis
+on:
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: Upstream Issue number
+        required: true
+        type: string
+      tag:
+        description: Upstream tag
+        required: true
+        type: string
+      base:
+        description: Upstream commit main follows now
+        required: true
+        type: string
+      head:
+        description: Upstream commit of the tag
+        required: true
+        type: string
+permissions:
+  contents: read
+  issues: write
+concurrency:
+  group: npc-upstream-${{ inputs.issue }}
+  cancel-in-progress: true
+jobs:
+  npc-upstream:
+    name: NPC upstream analysis (advisory)
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          persist-credentials: false
+      - name: Run the NPC and comment on the Issue
+        continue-on-error: true
+        env:
+          CNB_AUTOMATION_TOKEN: ${{ secrets.CNB_AUTOMATION_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ inputs.issue }}
+          UPSTREAM_TAG: ${{ inputs.tag }}
+          UPSTREAM_BASE: ${{ inputs.base }}
+          UPSTREAM_HEAD: ${{ inputs.head }}
+        run: python3 .github/scripts/npc_review.py upstream
+      - name: Stop the CNB build of a cancelled run
+        if: cancelled()
+        continue-on-error: true
+        env:
+          CNB_AUTOMATION_TOKEN: ${{ secrets.CNB_AUTOMATION_TOKEN }}
+        run: python3 .github/scripts/npc_review.py stop

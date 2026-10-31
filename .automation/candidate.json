@@ -1,9 +1,0 @@
-{
-  "payload": {
-    "issue": "217",
-    "base": "e702023519f776c3a67fcec66a0b3cfc5530d33f",
-    "tree": "18d65bb37439167a621d9fdf7d81b110597a01c7",
-    "upstream_sha": "7fd417fb9a9a277c6a9339a8ac87f907df7c25f7"
-  },
-  "signature": "8b0ec0d765fd78e5603c0674e77086d6fa7fb67e87e8adc5fe9a33fc421e710e"
-}

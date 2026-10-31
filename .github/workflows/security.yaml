@@ -5,11 +5,6 @@ on:
   schedule:
     - cron: '43 3 * * *'
   workflow_dispatch:
-    inputs:
-      scan_only:
-        description: Scan this ref without updating security issues
-        type: boolean
-        default: false
   pull_request:
     types: [opened, reopened, synchronize]
 permissions:
@@ -74,25 +69,3 @@ jobs:
           path: '*security*.json'
           if-no-files-found: error
           retention-days: 14
-  track:
-    if: github.event_name != 'pull_request' && github.event.inputs.scan_only != 'true' && github.event.inputs.scan_only != true
-    needs: scan
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    concurrency:
-      group: flclash-upstream-controller
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: main
-          persist-credentials: false
-      - uses: actions/download-artifact@v4
-        with:
-          name: dependency-security-report
-      - name: Track findings in the CNB security Issues
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CNB_AUTOMATION_TOKEN: ${{ secrets.CNB_AUTOMATION_TOKEN }}
-          UPSTREAM_APPROVAL_KEY: ${{ secrets.UPSTREAM_APPROVAL_KEY }}
-        run: python3 .automation/security_watch.py security-report.json

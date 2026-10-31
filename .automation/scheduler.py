@@ -1,6 +1,6 @@
 import re
 
-from control import GH, CNB, POLICY, api, dispatch, all_issues
+from control import GH, OWNER, api, bot_issues, dispatch
 
 
 def can_reuse(steps, has_artifact):
@@ -12,11 +12,9 @@ def can_reuse(steps, has_artifact):
 
 def notify_once(run, reason):
     title = f'[构建待处理] GitHub #{run["id"]}'
-    if any(i['title'] == title for i in all_issues()):
+    if any(i['title'] == title for i in bot_issues('all')):
         return
-    api(f'{CNB}/issues', 'POST', {'title': title, 'assignees': [POLICY['approver']],
-        'body': f'{reason}\n\n{run["html_url"]}\n\n'
-        '@507space/FlClash-alpha(审查助手) 请分析失败原因；不要重复编译或直接发布。'})
+    api(f'{GH}/issues', 'POST', {'title': title, 'assignees': [OWNER], 'body': f'{reason}\n\n{run["html_url"]}'})
 
 
 def schedule():
@@ -24,6 +22,9 @@ def schedule():
     for run in runs:
         sha_match = re.fullmatch(r'Android ([0-9a-f]{40})(?: recovery)?', run['display_title'])
         if not sha_match:
+            continue
+        # A later green build of main replaced this one: nothing is left to reuse or to look at.
+        if any(r['id'] > run['id'] and r['conclusion'] == 'success' for r in runs):
             continue
         if run['display_title'].endswith(' recovery'):
             if run['status'] == 'completed' and run['conclusion'] in ('failure', 'timed_out', 'startup_failure'):

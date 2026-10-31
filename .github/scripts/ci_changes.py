@@ -12,7 +12,8 @@ NEUTRAL = ('docs/', 'snapshots/', 'LICENSE')
 # First match wins. Every path that is not neutral also runs the automation tests: they take
 # seconds and read files from all over the repository.
 RULES = (
-    (('.github/workflows/ci.yml',), JOBS),
+    # An upstream upgrade always changes the followed version, and it must run everything.
+    (('.github/workflows/ci.yml', '.automation/policy.json'), JOBS),
     (('.automation/', '.cnb/', '.cnb.yml', '.github/workflows/'), ()),
     (('core/', 'build_config.yaml', '.gitmodules'), ('go', 'android_unit', 'android_build')),
     (('services/',), ('rust',)),
