@@ -29,7 +29,7 @@ FORBIDDEN = ('/merge', "'PATCH'", "'PUT'", 'promote(')
 
 
 GONE = {'ci_paths', 'fallback', 'npc_recovery', 'pause', 'release_permission_probe', 'requirements', 'review_evidence',
-        'reviews', 'security_finish', 'security_queue', 'wake'}
+        'reviews', 'security_finish', 'security_groups', 'security_queue', 'security_watch', 'wake'}
 
 
 def defined(tree):
@@ -131,6 +131,57 @@ class WorkflowGateTests(unittest.TestCase):
         used = set(re.findall(r'\.automation/control\.py (\w+)', sources))
         self.assertTrue(used)
         self.assertLessEqual(used, set(commands))
+
+    def test_the_release_build_can_reach_the_github_issues_it_tidies(self):
+        source = (ROOT / '.github/workflows/build.yaml').read_text(encoding='utf-8')
+        self.assertEqual(['contents: write', 'actions: read', 'statuses: write', 'issues: write'],
+                         re.findall(r'^  (\w[\w-]*: \w+)$', source.split('permissions:\n')[1].split('concurrency:')[0], re.M))
+        self.assertIn('issues: write', (ROOT / '.github/workflows/upstream.yaml').read_text(encoding='utf-8'))
+
+    def test_the_approval_workflow_runs_mains_code_for_the_owner_only(self):
+        source = (ROOT / '.github/workflows/upstream-approval.yml').read_text(encoding='utf-8')
+        self.assertEqual(['issue_comment'], re.findall(r'^  ([\w-]+):$', source.split('permissions:')[0].split('on:')[1], re.M))
+        self.assertIn('types: [created]', source)
+        self.assertNotIn('pull_request_target', source)
+        condition = re.search(r'^    if: (.+)$', source, re.M).group(1)
+        for part in ('github.event.issue.pull_request == null', 'github.event.comment.user.login == github.repository_owner',
+                     "github.event.issue.user.login == 'github-actions[bot]'"):
+            self.assertIn(part, condition)
+        self.assertIn('ref: main', source)
+        self.assertLess(source.index('unittest discover'), source.index('control.py approvals'))
+        self.assertEqual(['contents: write', 'pull-requests: write', 'issues: write'],
+                         re.findall(r'^  (\w[\w-]*: \w+)$', source.split('permissions:\n')[1].split('jobs:')[0], re.M))
+
+    def test_no_comment_or_title_text_reaches_a_shell_or_the_environment(self):
+        for name in ('upstream-approval.yml', 'npc-upstream.yml', 'upstream.yaml'):
+            source = (ROOT / '.github/workflows' / name).read_text(encoding='utf-8')
+            self.assertFalse(re.search(r'\$\{\{[^}]*(comment\.body|issue\.body|issue\.title|\.title|\.body)', source), name)
+            for block in re.findall(r'run: (\|\n(?:\s+.*\n)+|.*)', source):
+                self.assertNotIn('${{', block, name)
+        approval = (ROOT / '.github/workflows/upstream-approval.yml').read_text(encoding='utf-8')
+        self.assertEqual(['github.token', 'github.event.issue.number'],
+                         re.findall(r'\$\{\{ ([^}]+) \}\}', approval))
+
+    def test_the_approval_queue_is_entered_only_by_a_job_that_will_run(self):
+        # A skipped job from a stranger's comment must not push a real approval out of the one pending slot.
+        source = (ROOT / '.github/workflows/upstream-approval.yml').read_text(encoding='utf-8')
+        self.assertNotRegex(source, r'(?m)^concurrency:')
+        self.assertIn('    concurrency:\n      group: flclash-upstream-controller', source)
+
+    def test_the_analysis_workflow_is_advice_and_uses_only_what_it_must(self):
+        source = (ROOT / '.github/workflows/npc-upstream.yml').read_text(encoding='utf-8')
+        steps = re.split(r'^      - ', source.split('steps:\n')[1], flags=re.M)[1:]
+        self.assertEqual(3, len(steps))
+        for step in steps:
+            self.assertIn('continue-on-error: true', step)
+        self.assertIn('permissions:\n  contents: read\n  issues: write\nconcurrency:', source)
+        self.assertIn('persist-credentials: false', source)
+        self.assertIn('if: cancelled()', source)
+        self.assertIn('python3 .github/scripts/npc_review.py upstream', source)
+
+    def test_the_owner_ok_also_has_the_hourly_pass_behind_it(self):
+        self.assertIn('python3 .automation/control.py approvals', (ROOT / '.github/workflows/upstream.yaml').read_text(encoding='utf-8'))
+        self.assertIn("github.event.schedule == '0 * * * *'", step_conditions()['Process owner approvals'])
 
     def test_no_automation_module_imports_a_name_that_is_gone(self):
         directory = ROOT / '.automation'

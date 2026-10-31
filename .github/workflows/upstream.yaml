@@ -13,6 +13,7 @@ permissions:
   contents: write
   actions: write
   pull-requests: write
+  issues: write
 concurrency:
   group: flclash-upstream-controller
   cancel-in-progress: false
@@ -23,7 +24,6 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       CNB_AUTOMATION_TOKEN: ${{ secrets.CNB_AUTOMATION_TOKEN }}
-      UPSTREAM_APPROVAL_KEY: ${{ secrets.UPSTREAM_APPROVAL_KEY }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -34,7 +34,6 @@ jobs:
         id: credentials
         run: |
           test -n "$CNB_AUTOMATION_TOKEN" || { echo 'Configure CNB_AUTOMATION_TOKEN before enabling controller'; exit 1; }
-          test -n "$UPSTREAM_APPROVAL_KEY"
           git config user.name FlClash-Automation
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
       - name: Verify CNB integration permissions

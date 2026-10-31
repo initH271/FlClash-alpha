@@ -15,6 +15,8 @@ spec.loader.exec_module(bridge)
 HEAD, BASE = 'b' * 40, 'a' * 40
 ENV = {'PR_NUMBER': '12', 'PR_BASE': BASE, 'PR_HEAD': HEAD, 'CNB_AUTOMATION_TOKEN': 't', 'GH_TOKEN': 'g',
        'GITHUB_REPOSITORY': 'o/r'}
+UPSTREAM_ENV = {'ISSUE_NUMBER': '40', 'UPSTREAM_TAG': 'v9.9.9', 'UPSTREAM_BASE': BASE, 'UPSTREAM_HEAD': HEAD,
+                'CNB_AUTOMATION_TOKEN': 't', 'GH_TOKEN': 'g', 'GITHUB_REPOSITORY': 'o/r'}
 
 
 class TextTests(unittest.TestCase):
@@ -25,6 +27,11 @@ class TextTests(unittest.TestCase):
                 self.assertNotIn(reached, bridge.neutralize(raw))
         self.assertEqual(bridge.MARKER, bridge.render('<!-- flclash-npc-review --> @x', HEAD).split('\n')[0])
         self.assertEqual(1, bridge.render('<!-- flclash-npc-review -->', HEAD).count(bridge.MARKER))
+
+    def test_a_link_cannot_cross_reference_an_issue_elsewhere(self):
+        for url in ('https://github.com/chen08209/FlClash/issues/12', 'https://github.com/a/b/pull/3'):
+            self.assertNotIn(url, bridge.neutralize(url))
+        self.assertIn('https://github.com/a/b/blob/main/x', bridge.neutralize('https://github.com/a/b/blob/main/x'))
 
     def test_output_is_truncated_and_empty_output_says_so(self):
         self.assertLess(len(bridge.render('x' * 100000, HEAD)), bridge.MAX_REVIEW_CHARS + 200)
@@ -132,6 +139,22 @@ class RunTests(unittest.TestCase):
             self.assertIsNone(bridge.wait_for('cnb-1', clock=lambda: next(ticks), sleep=lambda s: None))
         self.assertEqual(('POST', '/build/stop/cnb-1'), calls[-1])
 
+    def test_a_dependabot_style_run_without_secrets_stays_green_and_writes_nothing(self):
+        # A read-only token cannot comment: a write would raise, and nothing should even try.
+        writes = []
+
+        def github(path, method='GET', data=None):
+            if method != 'GET':
+                writes.append(path)
+                raise OSError('403 read-only token')
+            return []
+        env = {k: v for k, v in ENV.items() if k != 'CNB_AUTOMATION_TOKEN'}
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {**env, 'RUNNER_TEMP': temp, 'CNB_AUTOMATION_TOKEN': ''}), \
+                patch.object(bridge, 'cnb') as cnb, patch.object(bridge, 'github', side_effect=github), patch('builtins.print'):
+            self.assertEqual(0, bridge.main(['npc_review.py', 'run']))
+        cnb.assert_not_called()
+        self.assertEqual([], writes)
+
     def test_a_cancelled_run_stops_its_build(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {'RUNNER_TEMP': temp}), \
                 patch.object(bridge, 'cnb') as cnb:
@@ -140,6 +163,61 @@ class RunTests(unittest.TestCase):
             bridge.sn_file().write_text('cnb-9')
             bridge.main(['npc_review.py', 'stop'])
         cnb.assert_called_once_with('/build/stop/cnb-9', 'POST')
+
+
+class UpstreamTests(unittest.TestCase):
+    def drive(self, cnb, comments=(), env=UPSTREAM_ENV):
+        writes = []
+
+        def github(path, method='GET', data=None):
+            if method == 'GET':
+                return list(comments) if path.endswith('page=1') else []
+            writes.append((method, path, data['body']))
+            return {}
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {**env, 'RUNNER_TEMP': temp}), \
+                patch.object(bridge, 'cnb', side_effect=cnb), patch.object(bridge, 'github', side_effect=github), \
+                patch.object(bridge.time, 'sleep'), patch('builtins.print'):
+            self.assertEqual(0, bridge.main(['npc_review.py', 'upstream']))
+        return writes
+
+    def working(self, seen):
+        def cnb(path, method='GET', data=None):
+            if path == '/build/start':
+                seen.append(data)
+                return {'sn': 'cnb-1'}
+            if path.startswith('/build/status/'):
+                return ResultTests.STATUS
+            return {'content': ['NPC_REVIEW_BEGIN', '@a 看 #3，OK', 'NPC_REVIEW_END']}
+        return cnb
+
+    def test_the_analysis_counts_as_dev_quota_and_carries_only_validated_values(self):
+        seen = []
+        writes = self.drive(self.working(seen))
+        self.assertEqual('api_trigger_npc_upstream', seen[0]['event'])
+        self.assertEqual({'name': 'CodeBuddy'}, seen[0]['npc'])
+        self.assertEqual('main', seen[0]['branch'])
+        self.assertEqual({'ISSUE_NUMBER': '40', 'UPSTREAM_TAG': 'v9.9.9', 'UPSTREAM_BASE': BASE, 'UPSTREAM_HEAD': HEAD}, seen[0]['env'])
+        self.assertEqual([('POST', '/issues/40/comments')], [w[:2] for w in writes])
+        self.assertTrue(writes[0][2].startswith(bridge.UPSTREAM_MARKER))
+        self.assertNotIn('@a', writes[0][2])
+        self.assertNotIn('#3', writes[0][2])
+
+    def test_a_failure_is_just_no_comment(self):
+        def cnb(path, method='GET', data=None):
+            raise OSError('down')
+        self.assertEqual([], self.drive(cnb))
+
+    def test_a_rerun_updates_the_one_comment_and_leaves_the_pr_marker_alone(self):
+        ours = {'id': 7, 'user': {'login': bridge.BOT}, 'body': bridge.UPSTREAM_MARKER + '\nold'}
+        other = {'id': 8, 'user': {'login': bridge.BOT}, 'body': bridge.MARKER + '\nreview'}
+        writes = self.drive(self.working([]), [other, ours])
+        self.assertEqual([('PATCH', '/issues/comments/7')], [w[:2] for w in writes])
+
+    def test_bad_input_never_reaches_cnb(self):
+        for name, value in (('UPSTREAM_TAG', '$(id)'), ('UPSTREAM_TAG', 'v1.2'), ('UPSTREAM_HEAD', 'main'), ('ISSUE_NUMBER', '1;id')):
+            with patch.dict(os.environ, {**UPSTREAM_ENV, name: value}), patch.object(bridge, 'cnb') as cnb, patch('builtins.print'):
+                self.assertEqual(0, bridge.main(['npc_review.py', 'upstream']))
+            cnb.assert_not_called()
 
 
 class WorkflowTests(unittest.TestCase):
@@ -157,6 +235,9 @@ class WorkflowTests(unittest.TestCase):
     def test_forks_and_drafts_are_skipped(self):
         self.assertIn('github.event.pull_request.draft == false', WORKFLOW)
         self.assertIn('github.event.pull_request.head.repo.full_name == github.repository', WORKFLOW)
+
+    def test_dependabot_prs_are_skipped_before_anything_runs(self):
+        self.assertIn("github.event.pull_request.user.login != 'dependabot[bot]'", re.search(r'^    if: (.+)$', WORKFLOW, re.M).group(1))
 
     def test_pr_code_is_not_run_and_no_pr_text_reaches_a_shell(self):
         self.assertIn('ref: ${{ github.event.pull_request.base.sha }}', WORKFLOW)

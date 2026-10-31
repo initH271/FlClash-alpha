@@ -14,7 +14,7 @@ CNB = ROOT / '.cnb.yml'
 HOURLY = 'crontab: 7 * * * *'
 MIRROR = 'Mirror signed GitHub release to CNB'
 # CI runs on GitHub. CNB keeps the download mirror, the NPC review, the upstream NPC analysis and cloud development.
-EVENTS = ['api_trigger', 'web_trigger', 'api_trigger_npc_review', 'issue.comment@npc', 'vscode']
+EVENTS = ['api_trigger', 'web_trigger', 'api_trigger_npc_review', 'api_trigger_npc_upstream', 'vscode']
 
 
 # A mapping entry: a plain or quoted key followed by a colon that ends the line or precedes a space.
@@ -226,31 +226,50 @@ class CnbPipelineTests(unittest.TestCase):
         # Each of these names an event in a /build/start; removing one fails the run that reaches it.
         root = CNB.parent
         for script, event in (('.automation/control.py', 'api_trigger'), ('.automation/credentials.py', 'api_trigger'),
-                              ('.github/scripts/npc_review.py', 'api_trigger_npc_review')):
+                              ('.github/scripts/npc_review.py', 'api_trigger_npc_review'),
+                              ('.github/scripts/npc_review.py', 'api_trigger_npc_upstream')):
             self.assertIn(f"'{event}'", (root / script).read_text(encoding='utf-8'))
             self.assertIn(event, EVENTS)
 
     def test_the_controller_left_no_trigger_on_cnb(self):
         for text in ('wake.py', 'fallback.py', 'release_permission_probe.py', 'github-dispatch', 'crontab: */',
                      'issue.open', 'pull_request.target', 'pull_request.comment@npc', 'api_trigger_fallback',
-                     'api_trigger_permissions', '开发助手', 'npc.Dockerfile', 'Paired review gate'):
+                     'api_trigger_permissions', '开发助手', 'npc.Dockerfile', 'Paired review gate', '@npc', '助手'):
             self.assertNotIn(text, self.source)
 
-    def test_every_npc_role_the_automation_names_exists_and_none_develops(self):
-        # control.watch and scheduler.notify_once summon these in an Issue body, through issue.comment@npc.
+    def test_no_npc_role_is_left_for_anyone_to_summon(self):
         root = CNB.parent
-        settings = (root / '.cnb/settings.yml').read_text(encoding='utf-8')
-        self.assertEqual(['上游更新助手', '审查助手', 'GLM复核助手'], re.findall(r'^    - name: (.+)$', settings, re.M))
-        roles = re.findall(r'^    - name: (.+)$', settings, re.M)
-        named = set()
+        self.assertEqual('workspace:', (root / '.cnb/settings.yml').read_text(encoding='utf-8').splitlines()[0])
+        self.assertNotRegex((root / '.cnb/settings.yml').read_text(encoding='utf-8'), r'(?m)^npc:|助手')
         for path in (root / '.automation').glob('*.py'):
             if not path.name.startswith('test_'):
-                named |= set(re.findall(r'[\w]*助手', path.read_text(encoding='utf-8')))
-        self.assertEqual(set(roles), named)
+                self.assertNotIn('助手', path.read_text(encoding='utf-8'), path.name)
+        self.assertNotIn('助手', (root / '.github/scripts/npc_review.py').read_text(encoding='utf-8'))
+
+    def block(self, event):
         _, body = _top(self.source, '$')
-        block = '\n'.join(body[body.index('  issue.comment@npc:'):])
-        self.assertIn('[ "$CNB_NPC_NAME" = "GLM复核助手" ]', block)
-        self.assertIn('[ "$CNB_NPC_NAME" != "GLM复核助手" ]', block)
+        start = body.index(f'  {event}:')
+        end = next(i for i in range(start + 1, len(body)) if body[i].strip() and _indent(body[i]) <= 2)
+        return '\n'.join(body[start:end])
+
+    def test_the_upstream_analysis_is_sandboxed_bounded_and_read_only(self):
+        block = self.block('api_trigger_npc_upstream')
+        self.assertIn('sandbox: true', block)
+        self.assertRegex(block, r'maxTurns: \d+')
+        self.assertIn('model: deepseek-v4.1-flash', block)
+        self.assertEqual(['Fetch upstream from GitHub', 'NPC analysis', 'Review output'],
+                         re.findall(r'^\s+- name: (.+)$', block, re.M)[1:])
+        self.assertNotIn('imports:', block)
+        self.assertNotIn('workMode', block)
+        self.assertEqual(1, block.count('https://github.com/chen08209/FlClash.git'))
+        for text in ('只读', '不回复 OK', '不写 @', 'FORK_PATCHES.md'):
+            self.assertRegex(block, re.escape(text.replace('不写 @', '不写 @ 开头')))
+
+    def test_the_upstream_analysis_checks_what_it_is_handed_before_using_it(self):
+        script = self.block('api_trigger_npc_upstream').split('NPC analysis')[0]
+        fetch = script.index('git fetch')
+        for check in ('bad Issue number', 'bad tag', 'bad SHA'):
+            self.assertLess(script.index(check), fetch)
 
     def test_the_npc_review_is_sandboxed_bounded_and_outside_every_gate(self):
         event = 'api_trigger_npc_review'

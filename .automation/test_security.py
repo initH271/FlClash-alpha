@@ -3,7 +3,9 @@ import io
 import json
 import os
 import pathlib
+import re
 import ssl
+import subprocess
 import tempfile
 import unittest
 import urllib.error
@@ -12,8 +14,6 @@ from unittest.mock import call, patch
 import control
 import env_failure
 import security_scan as scan
-import security_watch as watch
-from security_groups import payload_for
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -228,87 +228,88 @@ class SecurityTests(unittest.TestCase):
         same = self.finding('GHSA-1', ['CVE-2026-1234', 'GHSA-1'], 'v1.0.1')
         new = self.finding('GO-2', ['CVE-2026-2222', 'GO-2'])
         self.assertEqual([new], scan.new_findings(old, {'findings': [same, new]}))
-        grouped = watch.groups({'findings': [self.finding(), self.finding('GHSA-1', ['CVE-2026-1234', 'GHSA-1'])]})
-        self.assertEqual(1, len(next(iter(grouped.values()))))
-
-    def test_incomplete_and_stale_scans_cannot_close_issues(self):
-        with patch.object(watch, 'api', return_value={'object': {'sha': 'new'}}) as api:
-            with self.assertRaises(ValueError):
-                watch.monitor({'schema': 1, 'complete': False})
-            api.assert_not_called()
-            with self.assertRaises(ValueError):
-                watch.monitor({'schema': 1, 'complete': True, 'sha': 'old'})
-            self.assertEqual(1, api.call_count)
-
-    def test_local_replacement_cannot_automatically_close_security_issue(self):
-        finding = self.finding()
-        rows = watch.scan_history([finding], [], [finding])
-        self.assertEqual('待核实（无索引替换）', rows[0]['state'])
-        self.assertTrue(watch.unresolved_group({'history': rows, 'component_keys': [scan.key(finding)]},
-                                              {'unscanned': [finding]}))
 
     def test_concatenated_go_module_json_is_parsed(self):
         self.assertEqual([{'Path': 'a'}, {'Path': 'b'}], list(scan.json_stream(' {"Path":"a"}\n {"Path":"b"}\n')))
 
-    def test_group_record_is_signed_and_distinct_from_legacy_marker(self):
-        with patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'}):
-            payload = payload_for('go-core')
-            issue = {'author': {'username': 'Aharon', 'is_npc': False},
-                     'body': '<!-- flclash-security-group ' + json.dumps(watch.sign(payload)) + ' -->'}
-            self.assertEqual(payload, watch.record(issue))
-            issue['body'] = issue['body'].replace('go-core', 'rust-api')
-            self.assertIsNone(watch.record(issue))
-
-    def test_snapshot_preserves_notes_and_encodes_comment_delimiters(self):
-        with patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'}):
-            payload = payload_for('go-core')
-            payload['package'] = 'literal --> delimiter'
-            body = watch.snapshot_body({'body': 'Human assessment notes'}, payload, {'sha': 'a' * 40})
-            issue = {'body': body, 'author': {'username': 'Aharon', 'is_npc': False}}
-            self.assertEqual(payload, watch.record(issue))
-            self.assertIn('Human assessment notes', body)
-            self.assertEqual(body, watch.snapshot_body(issue, payload, {'sha': 'a' * 40}))
-
-    def test_related_packages_share_task_but_not_vulnerability_identity(self):
-        a = self.finding()
-        b = dict(a, name='another/module')
-        helper = dict(a, name='tokio', ecosystem='crates.io', file='services/helper/Cargo.lock')
-        rust_api = dict(helper, file='plugins/rust_api/rust/Cargo.lock')
-        grouped = watch.groups({'findings': [a, b, helper, rust_api]})
-        self.assertEqual({'go-core', 'rust-helper', 'rust-api'}, set(grouped))
-        self.assertEqual(2, len(grouped['go-core']))
-
-    def test_migration_closes_records_as_consolidated_not_fixed(self):
-        item = self.finding()
-        with patch.object(watch, 'comment') as comment, patch.object(watch, 'api') as api:
-            watch.migrate_legacy([({'number': '11', 'state': 'open'}, item)], {'go-core': '26'})
-            self.assertIn('不表示漏洞已修复', comment.call_args.args[1])
-            self.assertEqual('not_planned', api.call_args.args[2]['state_reason'])
-
-    def test_a_new_finding_is_recorded_once_and_summons_no_npc(self):
-        report = {'schema': 1, 'complete': True, 'sha': 'a' * 40, 'findings': [self.finding()], 'unscanned': []}
-        writes = []
-
-        def api(url, method='GET', data=None, missing=False, timeout=60):
-            if url.endswith('/git/ref/heads/main'):
-                return {'object': {'sha': 'a' * 40}}
-            if '/code/issues?' in url:
-                return {'list': []}
-            if method != 'GET':
-                writes.append((method, url, data))
-                return {'number': '30', 'body': data.get('body', ''), 'state': 'open'}
-            self.fail('Unexpected API call: ' + url)
-
-        with patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'test-key'}), patch.object(watch, 'api', api), \
-                patch.object(watch, 'all_issues', return_value=[]), patch.object(watch, 'comment') as comment, \
-                contextlib.redirect_stdout(io.StringIO()):
-            watch.monitor(report)
-        comment.assert_not_called()
-        self.assertEqual('POST', writes[0][0])
-        self.assertEqual(['Aharon'], writes[0][2]['assignees'])
-        for _, _, data in writes:
-            self.assertNotIn('@', data['body'])
-
     def test_the_scan_never_reads_a_pipeline_file_for_a_toolchain_pin(self):
         self.assertFalse(hasattr(scan, 'TOOLCHAIN_PINS'))
         self.assertFalse(hasattr(scan, 'require_group_progress'))
+
+
+class SecurityWorkflowTests(unittest.TestCase):
+    def setUp(self):
+        self.source = (ROOT / '.github/workflows/security.yaml').read_text(encoding='utf-8')
+
+    def test_the_required_check_keeps_its_name_and_is_the_only_job(self):
+        self.assertEqual(['scan'], re.findall(r'^  ([\w-]+):$', self.source.split('jobs:\n')[1], re.M))
+        self.assertIn('    name: Dependency vulnerability scan\n', self.source)
+
+    def test_it_needs_nothing_a_dependabot_or_fork_pr_lacks(self):
+        self.assertNotIn('secrets.', self.source)
+        self.assertIn('permissions:\n  contents: read\nconcurrency:', self.source)
+        self.assertNotRegex(self.source, r'CNB|security_watch|APPROVAL')
+
+    def test_a_pr_still_compares_base_and_head_with_the_scanner_from_main(self):
+        self.assertIn('types: [opened, reopened, synchronize]', self.source)
+        self.assertIn('security_scan.py source security-report.json --baseline baseline-security.json', self.source)
+        self.assertIn('security_scan.py baseline baseline-security.json', self.source)
+        self.assertIn('ref: main\n          path: tools', self.source)
+        self.assertRegex(self.source, r"cron: '")
+        self.assertIn('branches: [main]', self.source)
+
+    def test_the_tracking_issues_are_gone(self):
+        for name in ('security_watch.py', 'security_groups.py'):
+            self.assertFalse((ROOT / '.automation' / name).exists())
+        for path in (ROOT / '.automation').glob('*.py'):
+            if not path.name.startswith('test_'):
+                self.assertNotIn('安全修复', path.read_text(encoding='utf-8'), path.name)
+
+
+class DependabotTests(unittest.TestCase):
+    """Read as plain text so it works without yaml: a block is the lines under one package-ecosystem."""
+
+    MANIFESTS = {'pub': ('pubspec.yaml',), 'gomod': ('go.mod',), 'cargo': ('Cargo.toml',),
+                 'gradle': ('settings.gradle.kts', 'build.gradle', 'build.gradle.kts'), 'github-actions': ('action.yml', '.github/workflows')}
+
+    def setUp(self):
+        self.source = (ROOT / '.github/dependabot.yml').read_text(encoding='utf-8')
+        parts = re.split(r'^  - package-ecosystem: (\S+)\n', self.source, flags=re.M)
+        self.blocks = dict(zip(parts[1::2], parts[2::2]))
+
+    def directories(self, block):
+        return re.findall(r'^    directory: (\S+)$', block, re.M) + re.findall(r'^      - (/\S*)$', block, re.M)
+
+    def test_every_ecosystem_is_listed_once(self):
+        self.assertEqual(sorted(self.MANIFESTS), sorted(self.blocks))
+        self.assertEqual(len(self.blocks), self.source.count('package-ecosystem:'))
+
+    def test_every_directory_exists_and_holds_that_ecosystems_manifest(self):
+        for ecosystem, block in self.blocks.items():
+            directories = self.directories(block)
+            self.assertTrue(directories, ecosystem)
+            for directory in directories:
+                with self.subTest(ecosystem=ecosystem, directory=directory):
+                    self.assertTrue(any((ROOT / directory.lstrip('/') / name).exists() for name in self.MANIFESTS[ecosystem]))
+
+    def test_every_rust_and_go_manifest_in_the_repository_is_covered(self):
+        tracked = subprocess.run(['git', 'ls-files', '*go.mod', '*Cargo.toml'], cwd=ROOT, capture_output=True, text=True, check=True).stdout.split()
+        wanted = {'/' + str(pathlib.PurePath(path).parent) for path in tracked}
+        self.assertEqual(wanted, set(self.directories(self.blocks['gomod'])) | set(self.directories(self.blocks['cargo'])))
+
+    def test_the_submodules_own_go_mod_is_not_listed_because_it_is_not_in_this_repository(self):
+        self.assertNotIn('Clash.Meta\n', self.source.split('updates:')[1])
+
+    def test_the_submodule_pointer_only_moves_with_an_upstream_upgrade(self):
+        self.assertNotIn('gitsubmodule', self.blocks)
+        self.assertNotRegex(self.source, r'(?m)^\s*-?\s*package-ecosystem:\s*["\']?gitsubmodule')
+
+    def test_it_cannot_flood(self):
+        for ecosystem, block in self.blocks.items():
+            with self.subTest(ecosystem=ecosystem):
+                self.assertIn('interval: weekly', block)
+                self.assertLessEqual(int(re.search(r'open-pull-requests-limit: (\d+)', block).group(1)), 2)
+                self.assertEqual(2, block.count("patterns: ['*']"))
+
+    def test_yaml_aliases_are_not_relied_on(self):
+        self.assertNotRegex(self.source, r'[&*]\w+\s*$')

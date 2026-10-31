@@ -28,7 +28,7 @@ FlClash-alpha 是 [chen08209/FlClash](https://github.com/chen08209/FlClash) 的�
 
 ## 反馈问题
 
-请到 [CNB Issues](https://cnb.cool/507space/FlClash-alpha/-/issues) 提交，使用 Bug 表单。贴日志前，先删掉订阅链接、令牌、节点地址等个人信息。
+请到 [GitHub Issues](https://github.com/initH271/FlClash-alpha/issues) 提交，使用 Bug 表单。贴日志前，先删掉订阅链接、令牌、节点地址等个人信息。
 
 ## 开发与维护
 

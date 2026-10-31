@@ -2,7 +2,7 @@
 
 
 ## 关联的需求或 issue
-CNB 需求 / issue：
+issue：
 
 ## CI 证据
 - CI 在本 PR 上自动跑：必需检查是 `ci-ok` 和 Dependency vulnerability scan，不用再推 CNB。

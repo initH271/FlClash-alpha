@@ -16,13 +16,13 @@
 
 ## 升级时的通用规则
 
-- **自动流程写的文件不手改**：owner 批准后，`.automation/control.py` 写 `.github/release.json`、`.automation/policy.json`、`.github/release-notes.md` 和 `.automation/candidate.json`。合并有冲突时它会停下，开草稿 PR 并写 `UPSTREAM_REVIEW.md`。
+- **上游版本记录**：owner 批准后，`.automation/control.py` 在升级 PR 里写 `.automation/policy.json`。合并有冲突时它会停下，在 Issue 里报告；这时手工合并，`policy.json` 也手工改。版本号和 `.github/release-notes.md` 在之后单独的发版 PR 里改。
 - **整份用 fork 版本**：`.github/workflows/build.yaml`、`README.md`。
 - **继续保持删除**：`.github/workflows/pages.yaml`、`site/`、`tool/build_site.sh`、`tool/render_site.mjs`、`README_zh_CN.md`。
 - **其他冲突文件**：取上游版本，再按本清单把 fork 补丁打回去。提交 `6a7a5383` 是恢复 fork 功能的样板。
 - **生成文件不手工合并**：`lib/**/generated/**` 用 `dart run build_runner build --delete-conflicting-outputs` 重新生成，`lib/l10n/` 用 `dart run intl_utils:generate` 重新生成。
 - **锁文件不能直接取上游**：取上游的 `core/go.sum` 和 `Cargo.lock` 会丢掉安全版本，见 G4。
-- **全量回归**：有 `.automation/candidate.json` 时，`build.yaml` 跑全量 `flutter test`；日常发版只跑其中的子集。
+- **全量回归**：升级 PR 改了 `.automation/policy.json`，`ci.yml` 会跑全部 job。
 - **mihomo**：`core/Clash.Meta` 没有 fork 补丁。改动规则见 `.agents/rules.md` 里关于 `core/Clash.Meta` 的预算条目，默认在 FlClash 这一侧解决。
 - **受保护路径**：`.automation/`、`.cnb/`、`.cnb.yml`、`.github/` 的改动走 owner 通道（GitHub PR），见 `.agents/rules.md` 的 Automation Changes。
 

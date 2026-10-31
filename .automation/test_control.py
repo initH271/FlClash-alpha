@@ -10,55 +10,10 @@ import control
 import scheduler
 
 
-class AuthorizationTests(unittest.TestCase):
-    def setUp(self):
-        self.key = patch.dict(os.environ, {'UPSTREAM_APPROVAL_KEY': 'unit-test-key'})
-        self.key.start()
-        self.addCleanup(self.key.stop)
-
-    def test_valid_signed_issue_roundtrip(self):
-        payload = {'tag': 'v0.8.98', 'sha': 'a' * 40, 'upstream': control.POLICY['upstream']}
-        self.assertEqual(payload, control.parse_request(control.marker(payload)))
-
-    def test_modified_commit_rejected(self):
-        signed = control.sign({'sha': 'a' * 40})
-        signed['payload']['sha'] = 'b' * 40
-        with self.assertRaises(ValueError):
-            control.verify(signed)
-
-    def test_unrelated_or_missing_marker_not_approval(self):
-        self.assertIsNone(control.parse_request('Please update everything'))
-
-    def test_only_exact_owner_ok_approves(self):
-        owner = {'username': 'Aharon', 'is_npc': False}
-        self.assertTrue(control.approved({'author': owner, 'body': ' OK '}, 'v0.8.98'))
-        self.assertTrue(control.approved({'author': owner, 'body': 'ok v0.8.98'}, 'v0.8.98'))
-        for body in ('looks OK', 'OK v0.8.99', 'OK\nrun anything'):
-            self.assertFalse(control.approved({'author': owner, 'body': body}, 'v0.8.98'))
-        self.assertFalse(control.approved({'author': {'username': 'visitor', 'is_npc': False}, 'body': 'OK'}, 'v0.8.98'))
-        self.assertFalse(control.approved({'author': {'username': 'Aharon', 'is_npc': True}, 'body': 'OK'}, 'v0.8.98'))
-        self.assertFalse(control.approved({'author': {'username': 'Aharon'}, 'body': 'OK'}, 'v0.8.98'))
-
+class VersionTests(unittest.TestCase):
     def test_prereleases_not_stable_versions(self):
         self.assertIsNone(control.version('v0.8.99-pre.1'))
         self.assertGreater(control.version('v0.8.100'), control.version('v0.8.99'))
-
-    def test_pair_review_pins_one_range_and_only_read_only_roles(self):
-        text = control.paired_review('a' * 40, 'b' * 40)
-        self.assertIn('a' * 40, text)
-        self.assertIn('b' * 40, text)
-        self.assertEqual(text.count('@507space/FlClash-alpha('), 2)
-        self.assertIn('(审查助手)', text)
-        self.assertIn('(GLM复核助手)', text)
-        self.assertNotIn('(开发助手)', text)
-        with self.assertRaises(ValueError):
-            control.paired_review('a' * 40, 'b' * 40, '开发助手')
-
-    def test_glm_review_cannot_approve_an_upgrade(self):
-        self.assertFalse(control.approved({
-            'author': {'username': '507space/FlClash-alpha(GLM复核助手)', 'is_npc': True},
-            'body': 'OK',
-        }, 'v0.8.98'))
 
 
 class RecoveryTests(unittest.TestCase):
@@ -94,9 +49,11 @@ class RecoveryTests(unittest.TestCase):
             scheduler.schedule()
         dispatch.assert_not_called()
 
-    def schedule(self, steps, artifacts, conclusion='failure'):
+    run_url = 'https://github.com/x/y/actions/runs/10'
+
+    def schedule(self, steps, artifacts, conclusion='failure', later=(), tracked=()):
         run = {'id': 10, 'display_title': 'Android ' + 'a' * 40, 'status': 'completed', 'conclusion': conclusion,
-               'html_url': 'https://github.com/x/y/actions/runs/10'}
+               'html_url': self.run_url}
         posts = []
 
         def api(url, method='GET', data=None, missing=False, timeout=60):
@@ -104,7 +61,7 @@ class RecoveryTests(unittest.TestCase):
                 posts.append((url, data))
                 return {}
             if 'workflows/build.yaml/runs' in url:
-                return {'workflow_runs': [run]}
+                return {'workflow_runs': [*later, run]}
             if '/git/ref/heads/automation/recovery-' in url:
                 return None
             if url.endswith('/artifacts'):
@@ -114,7 +71,7 @@ class RecoveryTests(unittest.TestCase):
             self.fail('Unexpected API call: ' + url)
 
         with patch.object(scheduler, 'api', api), patch.object(control, 'api', api), \
-                patch.object(scheduler, 'all_issues', return_value=[]):
+                patch.object(scheduler, 'bot_issues', return_value=list(tracked)):
             scheduler.schedule()
         return posts
 
@@ -129,8 +86,30 @@ class RecoveryTests(unittest.TestCase):
     def test_a_setup_failure_only_notifies_and_starts_no_build(self):
         posts = self.schedule([{'name': 'Run actions/setup-go@v5', 'conclusion': 'failure'}], [])
         self.assertEqual(1, len(posts))
-        self.assertTrue(posts[0][0].endswith('/issues'))
+        self.assertEqual(f'{control.GH}/issues', posts[0][0])
         self.assertIn('[构建待处理] GitHub #10', posts[0][1]['title'])
+        self.assertEqual([control.OWNER], posts[0][1]['assignees'])
+        self.assertNotIn('@', posts[0][1]['body'])
+        self.assertIn(self.run_url, posts[0][1]['body'])
+
+    def test_one_run_opens_one_issue(self):
+        posts = self.schedule([{'name': 'Run actions/setup-go@v5', 'conclusion': 'failure'}], [],
+                              tracked=[{'title': '[构建待处理] GitHub #10'}])
+        self.assertEqual([], posts)
+
+    def test_a_later_green_build_of_main_leaves_nothing_to_do(self):
+        # The failures from before this moved to GitHub would otherwise all reopen once: their Issues are on CNB.
+        later = [{'id': 11, 'display_title': 'Android ' + 'b' * 40, 'status': 'completed', 'conclusion': 'success'}]
+        self.assertEqual([], self.schedule([{'name': 'Publish GitHub release', 'conclusion': 'failure'}],
+                                           [{'name': 'FlClash-arm64-log-history', 'expired': False}], later=later))
+        self.assertEqual([], self.schedule([{'name': 'Run actions/setup-go@v5', 'conclusion': 'failure'}], [], later=later))
+
+    def test_a_later_build_still_running_or_failed_does_not_hide_a_failure(self):
+        for status, conclusion in (('in_progress', None), ('completed', 'failure')):
+            later = [{'id': 11, 'display_title': 'Android ' + 'b' * 40, 'status': status, 'conclusion': conclusion,
+                      'html_url': self.run_url}]
+            titles = [post[1]['title'] for post in self.schedule([{'name': 'Run actions/setup-go@v5', 'conclusion': 'failure'}], [], later=later)]
+            self.assertIn('[构建待处理] GitHub #10', titles)
 
     def test_a_startup_failure_stays_quiet(self):
         self.assertEqual([], self.schedule([], [], 'startup_failure'))
@@ -206,27 +185,6 @@ class PromoteTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'not the current main'):
                 control.promote()
         sync.assert_not_called()
-
-
-class SourceTreeTests(unittest.TestCase):
-    def test_candidate_envelope_does_not_hide_later_source_changes(self):
-        with tempfile.TemporaryDirectory() as directory, patch.object(control, 'ROOT', pathlib.Path(directory)):
-            control.git('init')
-            control.git('config', 'user.name', 'Test')
-            control.git('config', 'user.email', 'test@example.invalid')
-            root = pathlib.Path(directory)
-            (root / 'app.txt').write_text('approved code')
-            control.git('add', '.')
-            expected = control.git('write-tree')
-            (root / '.automation').mkdir()
-            (root / '.automation/candidate.json').write_text('{}')
-            control.git('add', '.')
-            control.git('commit', '-m', 'test candidate')
-            self.assertEqual(expected, control.source_tree())
-            (root / 'app.txt').write_text('unapproved change')
-            control.git('add', '.')
-            control.git('commit', '-m', 'tampered code')
-            self.assertNotEqual(expected, control.source_tree())
 
 
 if __name__ == '__main__':

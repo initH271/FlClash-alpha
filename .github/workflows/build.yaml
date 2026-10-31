@@ -15,6 +15,7 @@ permissions:
   contents: write
   actions: read
   statuses: write
+  issues: write
 concurrency:
   group: android-${{ inputs.source_ref || github.sha }}
   cancel-in-progress: false
@@ -27,7 +28,6 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       CNB_AUTOMATION_TOKEN: ${{ secrets.CNB_AUTOMATION_TOKEN }}
-      UPSTREAM_APPROVAL_KEY: ${{ secrets.UPSTREAM_APPROVAL_KEY }}
       REUSE_RUN: ${{ inputs.reuse_run }}
     steps:
       - uses: actions/checkout@v4

@@ -6,10 +6,6 @@ body:
   - type: markdown
     attributes:
       value: |
-        **本仓库是 FlClash 的 fork，开发在 CNB 上进行，问题优先在 CNB 提交**
-        **This repository is a fork of FlClash. Development happens on CNB; please file issues there first.**
-        CNB issues: https://cnb.cool/507space/FlClash-alpha/-/issues
-
         在此提交前，请确认 / Before submitting here:
         1. 标题简洁明了 / Use a concise, clear title
         2. 已搜索过[本仓库已有的问题](https://github.com/initH271/FlClash-alpha/issues?q=is%3Aissue)，没有重复 / Search the [existing issues](https://github.com/initH271/FlClash-alpha/issues?q=is%3Aissue) first

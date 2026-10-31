@@ -28,7 +28,7 @@ Both channels publish identical APK bytes signed with the same key. Releases inc
 
 ## Reporting issues
 
-Open an issue on [CNB Issues](https://cnb.cool/507space/FlClash-alpha/-/issues) using the Bug form. Before pasting logs, remove subscription links, tokens, node addresses and other personal information.
+Open an issue on [GitHub Issues](https://github.com/initH271/FlClash-alpha/issues) using the bug form. Before pasting logs, remove subscription links, tokens, node addresses and other personal information.
 
 ## Development and maintenance
 

@@ -1,24 +1,23 @@
 import base64
-import hashlib
-import hmac
 import json
 import os
 import pathlib
 import re
 import subprocess
 import sys
-import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from tool.release_identity import next_release, release_identity, verify_native_identity  # noqa: E402
+from tool.release_identity import release_identity, verify_native_identity  # noqa: E402
 
 POLICY = json.loads((ROOT / '.automation/policy.json').read_text())
 GH = 'https://api.github.com/repos/' + POLICY['github']
 CNB = 'https://api.cnb.cool/' + POLICY['cnb'] + '/-'
+OWNER = POLICY['github'].split('/')[0]
+BOT = 'github-actions[bot]'
 
 
 class HttpStatusError(RuntimeError):
@@ -56,7 +55,7 @@ def api(url, method='GET', data=None, missing=False, timeout=60):
         raise HttpStatusError(f'{method} {host} returned HTTP {error.code}: {reason}', error.code) from None
 
 
-def pages(url, page_key='page', size_key='page_size'):
+def pages(url, page_key='page', size_key='per_page'):
     for page in range(1, 101):
         separator = '&' if '?' in url else '?'
         rows = api(f'{url}{separator}{page_key}={page}&{size_key}=100')
@@ -74,32 +73,39 @@ def git(*args, check=True, env=None):
     return result.stdout.strip() if check else result
 
 
-def sign(payload):
-    key = os.environ['UPSTREAM_APPROVAL_KEY'].encode()
-    encoded = json.dumps(payload, sort_keys=True, separators=(',', ':'))
-    return {'payload': payload, 'signature': hmac.new(key, encoded.encode(), hashlib.sha256).hexdigest()}
-
-
-def verify(envelope):
-    if not hmac.compare_digest(sign(envelope['payload'])['signature'], envelope['signature']):
-        raise ValueError('Automation authorization was modified')
-    return envelope['payload']
-
-
 def marker(payload):
-    return '<!-- flclash-upstream ' + json.dumps(sign(payload)) + ' -->'
+    return '<!-- flclash-upstream ' + json.dumps(payload) + ' -->'
 
 
 def parse_request(body):
-    match = re.search(r'<!-- flclash-upstream (\{[^\r\n]+\}) -->', body)
-    return verify(json.loads(match[1])) if match else None
+    """Read the record the bot wrote on a line of its own. Only an author check makes it trustworthy: see upstream_request."""
+    found = re.findall(r'^<!-- flclash-upstream (\{[^\r\n]+\}) -->$', body or '', re.M)
+    try:
+        request = json.loads(found[-1]) if found else None
+    except ValueError:
+        return None
+    if not isinstance(request, dict) or not all(isinstance(request.get(k), str) for k in ('tag', 'sha', 'upstream')):
+        return None
+    return request
+
+
+def upstream_request(issue):
+    """The upgrade an Issue records, or None. Anyone can open an Issue, and only the bot can be this author."""
+    if (issue.get('user') or {}).get('login') != BOT or issue.get('pull_request') is not None:
+        return None
+    request = parse_request(issue.get('body'))
+    if (not request or request['upstream'] != POLICY['upstream'] or not version(request['tag'])
+            or issue.get('title') != upstream_title(request['tag'])):
+        return None
+    return request
 
 
 def approved(comment, tag):
-    author = comment.get('author') or {}
-    return (author.get('username') == POLICY['approver']
-            and author.get('is_npc') is False
-            and comment.get('body', '').strip().casefold() in ('ok', f'ok {tag}'.casefold()))
+    """Only the repository owner in person, by login and by association, with nothing else in the comment."""
+    author = comment.get('user') or {}
+    return (author.get('login') == OWNER and author.get('type') == 'User'
+            and comment.get('author_association') == 'OWNER'
+            and (comment.get('body') or '').strip().casefold() in ('ok', f'ok {tag}'.casefold()))
 
 
 def version(tag):
@@ -117,23 +123,38 @@ def upstream_commit(tag):
     raise ValueError('Unresolvable upstream tag')
 
 
-def comment(number, body, work_mode=False):
-    return api(f'{CNB}/issues/{number}/comments', 'POST', {'body': body, 'work_mode': work_mode})
+def comment(number, body):
+    return api(f'{GH}/issues/{number}/comments', 'POST', {'body': body})
 
 
-def all_issues():
-    for state in ('open', 'closed'):
-        yield from pages(f'{CNB}/issues?state={state}')
+def stamped(number, stamp):
+    """Anyone can paste a stamp, so only the bot's own comments count."""
+    return any(stamp in (c.get('body') or '') and (c.get('user') or {}).get('login') == BOT
+               for c in pages(f'{GH}/issues/{number}/comments'))
 
 
-def paired_review(base, head, primary='审查助手'):
-    if primary not in ('审查助手', '上游更新助手'):
-        raise ValueError('Unexpected primary reviewer')
-    return (f'本次结对审核固定范围：base `{base}`，head `{head}`。'
-            '先独立核对代码，再比较两份结论。请列出证据、阻断问题、分歧及未验证项；'
-            '只读审核，不编译 APK、不回复 OK、不合并或发版、不互相召唤。\n\n'
-            f'@{POLICY["cnb"]}({primary}) 请完成 DeepSeek 独立审核。\n\n'
-            f'@{POLICY["cnb"]}(GLM复核助手) 请独立复核同一范围，重点寻找遗漏和反例。')
+def comment_once(number, stamp, body):
+    if not stamped(number, stamp):
+        comment(number, body + '\n\n' + stamp)
+
+
+def bot_issues(state):
+    for issue in pages(f'{GH}/issues?state={state}&creator=github-actions%5Bbot%5D'):
+        if (issue.get('user') or {}).get('login') == BOT and issue.get('pull_request') is None:
+            yield issue
+
+
+def upstream_title(tag):
+    return f'[上游升级] FlClash {tag}'
+
+
+def analyze(number, tag, sha):
+    """Ask the NPC for a read-only analysis. It is only advice: failing costs one comment, not the Issue."""
+    try:
+        api(f'{GH}/actions/workflows/npc-upstream.yml/dispatches', 'POST', {'ref': 'main', 'inputs': {
+            'issue': str(number), 'tag': tag, 'base': POLICY['upstream_sha'], 'head': sha}})
+    except (RuntimeError, OSError) as error:
+        print(f'No NPC analysis for Issue #{number}: {error}')
 
 
 def watch():
@@ -144,42 +165,27 @@ def watch():
     if version(tag) <= version(POLICY['upstream_tag']):
         print('No newer stable upstream release')
         return
-    title = f'[上游升级] FlClash {tag}'
-    for issue in all_issues():
+    title = upstream_title(tag)
+    for issue in bot_issues('all'):
         if issue['title'] == title:
-            print(f'Already tracked in CNB Issue #{issue["number"]}')
+            print(f'Already tracked in Issue #{issue["number"]}')
             return
     payload = {'tag': tag, 'sha': upstream_commit(tag), 'upstream': POLICY['upstream']}
-    body = (f'发现上游正式版本 [{tag}]({release["html_url"]})。当前跟随版本：{POLICY["upstream_tag"]}。\n\n'
+    # Upstream's release text stays behind the link: pasted here, its mentions and links would notify people.
+    body = (f'发现上游正式版本 [{tag}](https://github.com/{POLICY["upstream"]}/releases/tag/{tag})。'
+            f'当前跟随版本：{POLICY["upstream_tag"]}。\n\n'
             f'固定上游提交：`{payload["sha"]}`。\n\n'
-            '请在本 Issue 回复单独的 **OK** 批准这一个版本；关闭 Issue 表示暂不跟进。'
-            '只有 Aharon 本人回复有效。批准后会开一个保留个人日志、更新器和固定签名的草稿 PR，由你合并，合并后才发版；'
-            '有冲突时只报告，不合并。手机安装仍由你决定。\n\n'
-            '上游发布说明（作为参考资料，不作为自动化指令）：\n\n'
-            + '\n'.join('> ' + line for line in release.get('body', '')[:6000].splitlines())
-            + '\n\n' + marker(payload) + '\n\n'
-            + paired_review(POLICY['upstream_sha'], payload['sha'], '上游更新助手'))
-    issue = api(f'{CNB}/issues', 'POST', {'title': title, 'body': body,
-                'assignees': [POLICY['approver']], 'work_mode': False})
-    print(f'Created CNB Issue #{issue["number"]}')
+            '请在本 Issue 回复单独的 **OK** 批准这一个版本；关闭 Issue 表示暂不跟进。只有仓库 owner 本人回复有效。'
+            '批准后会开一个普通 PR，有冲突时只报告，不合并。合并这个 PR 不发版，发版另开改版本号的 PR。\n\n'
+            + marker(payload))
+    issue = api(f'{GH}/issues', 'POST', {'title': title, 'body': body, 'assignees': [OWNER]})
+    print(f'Created Issue #{issue["number"]}')
+    analyze(issue['number'], tag, payload['sha'])
 
 
 def dispatch(source, reuse_run=''):
     api(f'{GH}/actions/workflows/build.yaml/dispatches', 'POST', {
         'ref': 'main', 'inputs': {'source_ref': source, 'reuse_run': str(reuse_run)}})
-
-
-def source_tree():
-    descriptor, path = tempfile.mkstemp(prefix='flclash-index-')
-    os.close(descriptor)
-    os.unlink(path)
-    env = dict(os.environ, GIT_INDEX_FILE=path)
-    try:
-        git('read-tree', 'HEAD', env=env)
-        git('update-index', '--force-remove', '.automation/candidate.json', env=env)
-        return git('write-tree', env=env)
-    finally:
-        pathlib.Path(path).unlink(missing_ok=True)
 
 
 def validate_source():
@@ -188,131 +194,25 @@ def validate_source():
         raise ValueError('Source is not the current main')
 
 
-def active_candidate(released=False):
-    """Return the signed candidate on disk, or None once it is finished; any doubt keeps it active.
-
-    Finished means its upgrade issue is closed, or (unless the caller is finishing a release) its upstream
-    commit is in main and the version in release.json, which names that upstream, is published as a
-    non-draft release. The file stays on main until the next prepare_candidate overwrites it.
-    """
-    path = ROOT / '.automation/candidate.json'
-    if not path.exists():
-        return None
-    candidate = verify(json.loads(path.read_text()))
-    try:
-        issue = api(f'{CNB}/issues/{candidate["issue"]}', missing=True)
-        if issue and issue['state'] == 'closed':
-            return None
-        if released or not issue:
-            return candidate
-        request = parse_request(issue['body'])
-        metadata = json.loads((ROOT / '.github/release.json').read_text())
-        if (not request or request['sha'] != candidate['upstream_sha']
-                or metadata.get('upstreamVersion') != request['tag'].removeprefix('v')):
-            return candidate
-        main = api(f'{GH}/git/ref/heads/main')['object']['sha']
-        if git('merge-base', '--is-ancestor', candidate['upstream_sha'], main, check=False).returncode:
-            return candidate
-        release = api(f'{GH}/releases/tags/{release_identity(metadata)["tag"]}', missing=True)
-    except (HttpStatusError, ValueError, KeyError, TypeError):
-        return candidate
-    return None if release and release.get('draft') is False else candidate
-
-
-def adopt_owner_merge(sha, branch, number):
-    """The owner merged the approved upstream into main by hand: prepare on top of the conflict branch."""
-    request = parse_request(api(f'{CNB}/issues/{number}')['body'])
-    git('fetch', 'origin', 'main')
-    if (not request or request.get('upstream') != POLICY['upstream']
-            or git('merge-base', '--is-ancestor', request['sha'], 'origin/main', check=False).returncode
-            or upstream_commit(request['tag']) != request['sha']):
-        return
-    prepare_candidate(request, number, branch, previous=sha)
-
-
 def approvals():
-    for issue in pages(f'{CNB}/issues?state=open'):
-        if not issue['title'].startswith('[上游升级] '):
+    """Act on an owner OK. ISSUE_NUMBER narrows a comment-triggered run to that Issue; the hourly pass checks them all."""
+    number = os.getenv('ISSUE_NUMBER')
+    issues = [api(f'{GH}/issues/{int(number)}')] if number else bot_issues('open')
+    for issue in issues:
+        request = upstream_request(issue)
+        if issue['state'] != 'open' or not request or version(request['tag']) <= version(POLICY['upstream_tag']):
             continue
-        detail = api(f'{CNB}/issues/{issue["number"]}')
-        try:
-            request = parse_request(detail['body'])
-        except (ValueError, KeyError):
+        number = issue['number']
+        if not any(approved(c, request['tag']) for c in pages(f'{GH}/issues/{number}/comments')):
             continue
-        if not request or request.get('upstream') != POLICY['upstream']:
-            continue
-        if not version(request['tag']) or version(request['tag']) <= version(POLICY['upstream_tag']):
-            continue
-        comments = list(pages(f'{CNB}/issues/{issue["number"]}/comments'))
-        if not any(approved(c, request['tag']) for c in comments):
-            continue
-        branch = f'automation/upstream-{request["tag"]}'
-        existing = api(f'{GH}/git/ref/heads/{branch}', missing=True)
-        if existing:
-            resume_candidate(existing['object']['sha'], branch, issue['number'])
+        branch = f'agent/upstream-{request["tag"]}'
+        if api(f'{GH}/git/ref/heads/{branch}', missing=True):
+            open_pull_request(request, number, branch)
             continue
         if upstream_commit(request['tag']) != request['sha']:
-            comment(issue['number'], '上游标签指向已变化，暂停升级，请重新核实该版本。')
+            comment_once(number, f'<!-- flclash-tag-moved {request["sha"]} -->', '上游标签指向已变化，暂停升级，请重新核实该版本。')
             continue
-        prepare_candidate(request, issue['number'], branch)
-        return
-
-
-def resume_candidate(sha, branch, number):
-    git('fetch', 'origin', branch)
-    git('checkout', '-B', branch, 'FETCH_HEAD')
-    if git('rev-parse', 'HEAD') != sha:
-        print('Candidate branch advanced while fetching; retry next controller pass')
-        return
-    path = ROOT / '.automation/candidate.json'
-    candidate = active_candidate()
-    own = path.exists() and verify(json.loads(path.read_text()))['issue'] == str(number)
-    # Only a conflict branch is adopted. It may inherit the finished candidate main keeps until the next prepare.
-    if (ROOT / 'UPSTREAM_REVIEW.md').exists() and not candidate and not own:
-        adopt_owner_merge(sha, branch, number)
-        return
-    if not candidate or not own:
-        return
-    main = api(f'{GH}/git/ref/heads/main')['object']['sha']
-    if candidate['base'] != main:
-        refresh_candidate(candidate, sha, branch, number, main)
-        return
-    if not api(f'{GH}/pulls?state=open&head={POLICY["github"].split("/")[0]}:{branch}'):
-        api(f'{GH}/pulls', 'POST', {'head': branch, 'base': 'main', 'draft': True,
-            'title': f'Resume approved {branch}', 'body': f'Approved in CNB Issue #{number}.'})
-
-
-def refresh_candidate(candidate, sha, branch, number, main):
-    if candidate['tree'] != source_tree():
-        print('Candidate contains unsigned changes; automatic refresh refused')
-        return
-    issue = api(f'{CNB}/issues/{number}')
-    request = parse_request(issue['body'])
-    if (issue['state'] != 'open' or not request
-            or request.get('upstream') != POLICY['upstream']
-            or request['sha'] != candidate['upstream_sha']
-            or not any(approved(c, request['tag']) for c in pages(f'{CNB}/issues/{number}/comments'))):
-        print('Candidate approval was withdrawn or changed; refresh refused')
-        return
-    if upstream_commit(request['tag']) != request['sha']:
-        print('Upstream tag moved; refresh refused')
-        return
-    git('fetch', 'origin', 'main')
-    if git('rev-parse', 'origin/main') != main:
-        print('Main advanced again; retry next controller pass')
-        return
-    if git('merge-base', '--is-ancestor', candidate['base'], main, check=False).returncode:
-        print('Main history was rewritten; manual review required')
-        return
-    prepare_candidate(request, number, branch, previous=sha)
-
-
-def commit_candidate(branch, base, previous=None):
-    git('commit', '-m', 'feat(upstream): prepare approved upstream candidate')
-    if previous:
-        sha = git('commit-tree', git('rev-parse', 'HEAD^{tree}'), '-p', previous, '-p', base,
-                  '-m', 'chore(upstream): refresh approved candidate on latest main')
-        git('checkout', '-B', branch, sha)
+        prepare_upgrade(request, number, branch)
 
 
 def listed(paths, limit=10):
@@ -320,24 +220,27 @@ def listed(paths, limit=10):
     return rows + (f'\n- 另有 {len(paths) - limit} 个未列出' if len(paths) > limit else '')
 
 
-def ask_owner_merge(request, number, branch, url, conflicts, protected):
-    """Hand a conflicting upgrade to the owner, once per approved upstream commit; no NPC can merge it."""
-    stamp = '<!-- flclash-owner-merge ' + json.dumps(sign({'issue': str(number), 'upstream_sha': request['sha']})) + ' -->'
-    if any(stamp in c.get('body', '') for c in pages(f'{CNB}/issues/{number}/comments')):
-        return
+def conflict_stamp(request):
+    return f'<!-- flclash-owner-merge {request["sha"]} -->'
+
+
+def report_conflict(request, number, conflicts, protected):
+    """Hand a conflicting upgrade to the owner, once per approved upstream commit. Nothing is pushed."""
     conflicts = sorted(set(conflicts))
     protected = sorted(set(protected) - set(conflicts))
-    comment(number, f'上游 {request["tag"]} 自动合并已停止：有 {len(conflicts)} 个冲突文件和 {len(protected)} 个受保护文件，'
-            '需要 owner 人工合并上游。\n\n冲突文件：' + (listed(conflicts) or '无') + '\n\n受保护文件：' + (listed(protected) or '无')
-            + f'\n\n请把上游提交 `{request["sha"]}` 合进 main，`.automation/policy.json` 和 `.github/release.json` 留给控制器写入，'
-            f'步骤见 AUTOMATION.md 的 Conflicting upstream upgrades 一节。合进 main 后在本 Issue 回复 OK，控制器会在升级分支 `{branch}` 上'
-            f'准备版本号改动，记录冲突的草稿 PR {url} 继续沿用，由你合并后发版。\n\n' + stamp)
+    comment_once(number, conflict_stamp(request),
+                 f'上游 {request["tag"]} 没有自动合并：有 {len(conflicts)} 个冲突文件和 {len(protected)} 个受保护文件，需要人工处理。\n\n'
+                 '冲突文件：' + (listed(conflicts) or '无') + '\n\n受保护文件：' + (listed(protected) or '无')
+                 + f'\n\n要合并的上游提交：`{request["sha"]}`。步骤见 AUTOMATION.md 的 Conflicting upstream upgrades 一节，'
+                 f'开出的 PR 正文写上 `Closes #{number}`。这条报告只发一次，之后不再自动重试。')
 
 
-def prepare_candidate(request, number, branch, previous=None):
+def prepare_upgrade(request, number, branch):
+    """Merge the approved upstream on a new branch and open a PR. A reported conflict is not retried."""
+    if stamped(number, conflict_stamp(request)):
+        return
     git('fetch', 'origin', 'main')
     git('checkout', '-B', branch, 'origin/main')
-    base = git('rev-parse', 'HEAD')
     git('fetch', '--no-tags', f'https://github.com/{POLICY["upstream"]}.git', request['sha'])
     result = git('merge', '--no-ff', '--no-commit', request['sha'], check=False)
     conflicts = git('diff', '--name-only', '--diff-filter=U').splitlines()
@@ -345,47 +248,28 @@ def prepare_candidate(request, number, branch, previous=None):
     protected = [p for p in touched if any(p == x or p.startswith(x) for x in POLICY['protected_paths'])]
     if result.returncode or conflicts or protected:
         git('merge', '--abort', check=False)
-        if previous:
-            message = f'候选刷新暂停：main `{base}` 与已批准上游存在冲突或受保护文件改动，原分支未覆盖。'
-            if not any(c['body'] == message for c in pages(f'{CNB}/issues/{number}/comments')):
-                comment(number, message)
-            return
-        report = ROOT / 'UPSTREAM_REVIEW.md'
-        report.write_text(f'# Upstream {request["tag"]} needs review\n\n'
-                          f'Upstream commit: {request["sha"]}\n\n'
-                          + '\n'.join('- ' + p for p in sorted(set(conflicts + protected)))
-                          + '\n\nNo upstream changes have been merged into this branch yet.\n', encoding='utf-8')
-        git('add', 'UPSTREAM_REVIEW.md')
-        git('commit', '-m', f'docs(upstream): record conflicts for {request["tag"]}')
-        git('push', 'origin', branch)
-        pr = api(f'{GH}/pulls', 'POST', {'head': branch, 'base': 'main', 'draft': True,
-                 'title': f'跟进上游 {request["tag"]}：需要处理合并冲突',
-                 'body': f'Owner approved CNB Issue #{number}. No automatic merge: inspect UPSTREAM_REVIEW.md.'})
-        sync_branch(branch)
-        ask_owner_merge(request, number, branch, pr['html_url'], conflicts, protected)
+        report_conflict(request, number, conflicts, protected)
         return
-    release = next_release(json.loads((ROOT / '.github/release.json').read_text()),
-                          upstream=request['tag'].removeprefix('v'))
-    (ROOT / '.github/release.json').write_text(json.dumps(release, indent=2) + '\n')
+    # The version number and release notes are a later PR of their own (D3): merging this one publishes nothing.
     policy = dict(POLICY, upstream_tag=request['tag'], upstream_sha=request['sha'])
     (ROOT / '.automation/policy.json').write_text(json.dumps(policy, indent=2) + '\n')
-    (ROOT / '.github/release-notes.md').write_text(
-        f'跟随上游 {request["tag"]}，保留滚动日志、双渠道更新和固定个人签名。\n', encoding='utf-8')
-    git('add', '-A')
-    git('update-index', '--force-remove', '.automation/candidate.json')
-    tree = git('write-tree')
-    payload = {'issue': str(number), 'base': base, 'tree': tree, 'upstream_sha': request['sha']}
-    (ROOT / '.automation/candidate.json').write_text(json.dumps(sign(payload), indent=2) + '\n')
-    git('add', '.automation/candidate.json')
-    commit_candidate(branch, base, previous)
+    git('add', '.automation/policy.json')
+    git('commit', '-m', f'feat(upstream): follow {request["tag"]}')
     git('push', 'origin', branch)
-    sync_branch(branch)
-    pulls = api(f'{GH}/pulls?state=open&head={POLICY["github"].split("/")[0]}:{branch}')
-    pr = pulls[0] if pulls else api(f'{GH}/pulls', 'POST', {'head': branch, 'base': 'main', 'draft': True,
-             'title': f'跟进上游 {request["tag"]}，保留个人增强功能',
-             'body': f'Approved in CNB Issue #{number}. Preserve personal logging and update features; merging this PR publishes the release.'})
-    comment(number, f'已按本次 OK 批准准备升级分支：{pr["html_url"]}。这个 PR 由机器人开，CI 不会自动跑；'
-            '转为 ready 后关闭再重新打开它，等 `ci-ok` 通过，由你合并，合并后 main 发版。')
+    open_pull_request(request, number, branch)
+
+
+def open_pull_request(request, number, branch):
+    """Open the one PR of this branch. A closed PR stays closed: the owner decided, and deleting the branch starts over."""
+    if api(f'{GH}/pulls?state=all&head={OWNER}:{branch}'):
+        return
+    approve = ('这个 PR 由机器人开，CI 要 owner 放行：在 PR 的合并框点 **Approve workflows to run**'
+               '（也可以关闭再重开），然后等 `ci-ok` 和 `Dependency vulnerability scan`。')
+    pr = api(f'{GH}/pulls', 'POST', {
+        'head': branch, 'base': 'main', 'title': f'跟进上游 {request["tag"]}，保留个人增强功能',
+        'body': f'Closes #{number}.\n\n{approve}\n\n合并后不发版，发版另开改 `.github/release.json` 和 '
+                '`.github/release-notes.md` 的 PR。有用户可见的界面变化时，合并前先发截图给 owner。'})
+    comment(number, f'已按本次 OK 开出升级 PR：{pr["html_url"]}。{approve}')
 
 
 def sync_branch(branch, source='HEAD'):
@@ -416,29 +300,22 @@ def sync_main():
 
 
 def close_published_failures():
-    for issue in pages(f'{CNB}/issues?state=open'):
+    for issue in bot_issues('open'):
         match = re.fullmatch(r'\[构建待处理\] GitHub #(\d+)', issue['title'])
-        author = issue.get('author') or {}
-        if not match or author.get('username') != POLICY['approver'] or author.get('is_npc') is not False:
+        if not match:
             continue
         run = api(f'{GH}/actions/runs/{match[1]}')
         source = re.fullmatch(r'Android ([0-9a-f]{40})(?: recovery)?', run['display_title'])
         if source and git('merge-base', '--is-ancestor', source[1], 'HEAD', check=False).returncode == 0:
-            comment(issue['number'], '包含该候选历史的后继版本已通过验证并成功发布，关闭旧构建失败记录。')
-            api(f'{CNB}/issues/{issue["number"]}', 'PATCH', {'state': 'closed', 'state_reason': 'completed'})
+            comment(issue['number'], '包含这次构建历史的后继版本已通过验证并成功发布，关闭旧的构建失败记录。')
+            api(f'{GH}/issues/{issue["number"]}', 'PATCH', {'state': 'closed', 'state_reason': 'completed'})
 
 
 def notify_release():
-    # The release just went out, so only a closed issue marks this candidate as finished here.
-    candidate = active_candidate(released=True)
-    if candidate:
-        issue = api(f'{CNB}/issues/{candidate["issue"]}')
-        if issue['state'] == 'open':
-            comment(candidate['issue'], '测试、构建和固定签名检查通过，新版已发布到 GitHub，CNB 正在同步。手机更新请自行确认安装。')
-            api(f'{CNB}/issues/{candidate["issue"]}', 'PATCH', {'state': 'closed', 'state_reason': 'completed'})
+    # The release is already public: tidying old Issues must never stop the mirror from being told.
     try:
         close_published_failures()
-    except (RuntimeError, KeyError) as error:
+    except (RuntimeError, KeyError, OSError) as error:
         print(f'Published successfully; old failure Issue cleanup needs retry: {error}')
     api(f'{CNB}/build/start', 'POST', {'branch': 'main', 'event': 'api_trigger', 'sync': 'false',
                                      'title': 'Mirror newly published signed release'})

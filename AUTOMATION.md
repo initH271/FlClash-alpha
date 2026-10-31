@@ -1,79 +1,46 @@
 # FlClash-alpha automation
 
 The controller was removed from this repository: paired reviews, requirements, the CNB wake pipelines, the security
-repair queue and the CNB build fallback no longer exist, so sections describing them are history until this file is
-rewritten. An upgrade now ends in a draft PR the owner merges; merging publishes the release.
+repair queue and the CNB build fallback no longer exist, so sections below this one describing them are history until
+this file is rewritten.
 
 ## Owner decision and upstream tracking
 
-GitHub's `Upstream decisions and build scheduling` workflow checks official stable
-upstream Releases every six hours. It ignores prereleases and versions at or below
-`.automation/policy.json`. Each upstream version creates one CNB Issue assigned to
-Aharon, including a fixed upstream commit and a signed authorization record.
-Closed upgrade Issues are not recreated. The upstream NPC writes an analysis.
+`.github/workflows/upstream.yaml` checks official stable upstream releases every six hours. It ignores prereleases and
+versions at or below `.automation/policy.json`. Each new version opens one GitHub Issue assigned to the repository
+owner, with the fixed upstream commit in a marker the bot wrote. Closed Issues are not recreated. The release text is
+linked, not copied, so its mentions cannot notify anyone.
 
-Every 15 minutes the controller checks pending decisions. An exact standalone
-`OK` or `OK vX.Y.Z` comment by the real Aharon account approves only that Issue's
-fixed version. NPC comments, other users, quoted/longer messages, and modified
-signed records cannot approve. Closing the Issue withdraws pending approval.
+`.github/workflows/npc-upstream.yml` then asks the CNB NPC for a read-only analysis and posts it as one comment. It is
+advice: a failure only means no comment. Run the workflow by hand on main to retry.
 
-CNB issue.comment also wakes the GitHub controller after an owner OK or a final
-report from a known reviewer. The bridge only dispatches upstream.yaml on main;
-GitHub independently rechecks signed approval and review records. Ordinary comments
-do not dispatch. The 15-minute schedule remains a fallback for delayed/lost events.
-The CNB KeyStore `507space/FlClash-alpha-secrets/github-dispatch.yml` must contain
-CNB_GITHUB_DISPATCH_TOKEN: a fine-grained GitHub token limited to this repository
-with Actions read/write. Follow `.cnb/github-dispatch.example.yml` for import
-restrictions. Never place the actual token in the public repository or NPC stages.
+An approval is a comment on that Issue that says exactly `OK` or `OK vX.Y.Z`, from the repository owner, on an Issue the
+bot opened. `.github/workflows/upstream-approval.yml` reacts to the comment within a minute or so, and the hourly pass
+covers a lost event. Closing the Issue withdraws the upgrade.
 
-A clean merge creates an upgrade branch and draft PR. The candidate source tree
-is signed, then waits for both independent PR reviews before testing and compiling once.
-All Flutter tests run for candidates.
-Publication rechecks the source tree, owner approval, unchanged main and PR reviews. Only then
-is main fast-forwarded, synchronized to CNB, and the fixed-key APK released.
-Conflicts and upstream changes to automation/CI stop for the owner's manual merge
-(see Conflicting upstream upgrades); no NPC merges them. Failed tests stop publication and
-create an Issue for the review NPC. No phone installation is automated.
+A clean merge goes on `agent/upstream-vX.Y.Z` with the new `upstream_tag` and `upstream_sha`, and opens an ordinary PR
+that closes the Issue when merged. A PR opened with `GITHUB_TOKEN` only starts its workflows after approval: select
+**Approve workflows to run** in the merge box, or close and reopen the PR. A `workflow_dispatch` run does not help here,
+because GitHub does not count its checks towards a required check. A change to `.automation/policy.json` runs every CI
+job. Merging publishes nothing: `.github/release.json` and `.github/release-notes.md` change in a later PR of their own,
+and merging that one releases. To start over after closing the PR unmerged, delete the branch.
 
-If main advances before publication, the controller refreshes an unchanged signed
-candidate using the latest main and the same approved upstream SHA. It rechecks
-owner approval, tag identity and main ancestry, regenerates version metadata and
-the signed tree, and updates the existing PR using a normal fast-forward push.
-The new commit retains the previous candidate and current main as parents; the
-tree is freshly prepared from current main, not copied from the stale branch.
-Unsigned edits, withdrawn approvals, rewritten main history, conflicts or protected
-upstream changes stop refresh. Active builds finish before refresh is attempted.
-New commits require new reviews and new builds; previous reports/artifacts cannot
-authorize the refreshed source. Already-started runs for an unchanged SHA are not
-duplicated. A concurrent branch update makes the normal push fail safely.
+There is no candidate build, signing record or release lock any more: what guards an upgrade is the CI of its PR and
+the owner reading it.
 
 ### Conflicting upstream upgrades
 
-When the approved upstream commit conflicts with main, or touches a protected path,
-the controller merges nothing. It pushes `automation/upstream-vX.Y.Z` with only an
-`UPSTREAM_REVIEW.md` listing those files, opens a draft PR, and comments once on the
-Issue with the files and the upstream commit. No developer NPC is summoned.
+When the approved upstream commit conflicts with main, or touches a protected path, nothing is merged or pushed. The
+Issue gets one comment listing the files and the upstream commit, and it is not retried. The owner then:
 
-The owner then:
-
-1. Merges that upstream commit into main by hand, resolving the conflicts. Leave
-   `.automation/policy.json` and `.github/release.json` to the controller, and do
-   not merge the draft PR or edit its branch.
-2. Replies `OK` on the Issue. The hourly controller pass picks it up.
-
-Once the commit is in main, the controller prepares a fresh candidate from main on
-the same branch and draft PR, without `UPSTREAM_REVIEW.md`, and the owner merges
-that PR, which publishes the release. It takes over only a branch carrying
-`UPSTREAM_REVIEW.md` and no candidate of this Issue. If main still carries an earlier
-upgrade's unfinished candidate, it waits until that one's Issue closes or its release
-is published. A branch that lost `UPSTREAM_REVIEW.md` is left alone: delete it and
-the next pass starts over from main. Closing the Issue withdraws the upgrade.
+1. Merges that upstream commit on a branch of their own, resolving the conflicts by `FORK_PATCHES.md`.
+2. Sets `upstream_tag` and `upstream_sha` in `.automation/policy.json` to that version.
+3. Opens an ordinary PR whose body says `Closes #<Issue>`. Its CI starts by itself, since the owner opened it.
 
 ## NPC roles and permissions
 
-`.cnb/settings.yml` defines 上游更新助手, 开发助手, 审查助手 and GLM复核助手.
-DeepSeek roles explicitly use deepseek-v4.1-flash; the independent reviewer uses
-glm-5.3-flash. NPC tasks use 2 CPUs, with a maximum of 60 turns per reviewer.
+`.cnb/settings.yml` defines no NPC role any more. The two NPC jobs, the PR review and the upstream analysis, carry their
+prompts in `.cnb.yml`, start from GitHub through `api_trigger`, and use deepseek-v4.1-flash.
 Main is protected on CNB: ordinary developers/NPCs cannot push directly;
 PRs require administrator approval and passing checks. The owner account's scoped
 automation token may synchronize main. Personal signing stays on GitHub.
@@ -123,7 +90,6 @@ the compatible com.follow.clash.dev package ID.
 
 GitHub Actions Secrets:
 - ANDROID_DEBUG_KEYSTORE: existing personal signing key.
-- UPSTREAM_APPROVAL_KEY: authorization-record integrity key; generated once.
 - CNB_AUTOMATION_TOKEN: scoped to 507space/FlClash-alpha, with code/Issue/comment
   read/write, PR read/comment write, build trigger/history and Release read permissions. Quota inspection
   additionally needs group-resource:r. It is never committed or printed.
