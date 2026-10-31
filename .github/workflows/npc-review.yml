@@ -1,0 +1,40 @@
+# Advisory only: never a required check and never part of ci-ok. Every failure path leaves the PR green.
+name: NPC review
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+permissions:
+  contents: read
+  pull-requests: write
+concurrency:
+  group: npc-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  npc-review:
+    name: NPC review (advisory)
+    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      # The base commit, not the PR: nothing the PR changes runs here with these credentials.
+      - uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+      - name: Run the NPC and update the PR comment
+        continue-on-error: true
+        env:
+          CNB_AUTOMATION_TOKEN: ${{ secrets.CNB_AUTOMATION_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: test ! -f .github/scripts/npc_review.py || python3 .github/scripts/npc_review.py run
+      # A newer push cancels this run; do not leave its CNB build spending quota.
+      - name: Stop the CNB build of a cancelled run
+        if: cancelled()
+        continue-on-error: true
+        env:
+          CNB_AUTOMATION_TOKEN: ${{ secrets.CNB_AUTOMATION_TOKEN }}
+        run: test ! -f .github/scripts/npc_review.py || python3 .github/scripts/npc_review.py stop
