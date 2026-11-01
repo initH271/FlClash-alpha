@@ -574,14 +574,26 @@ void main() {
       await pumpEventQueue();
     }
 
+    Future<void> expectCacheCleared() async {
+      final files = [File(await saved.path), File(await saved.compiledPath)];
+      final waited = Stopwatch()..start();
+      while (files.any((file) => file.existsSync())) {
+        if (waited.elapsed > const Duration(seconds: 10)) {
+          fail('still cached after ${waited.elapsed}: ${files.first.path}');
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+    }
+
     test('stays deleted, its cache too', () async {
       action().delProvider(saved);
       await pumpEventQueue();
+      await expectCacheCleared();
 
       await download();
 
       expect(await testDatabase.clashProvidersDao.query().get(), isEmpty);
-      expect(File(await saved.path).existsSync(), isFalse);
+      await expectCacheCleared();
       expect(setup.forced, [true]);
     });
 
@@ -605,7 +617,7 @@ void main() {
       await download();
 
       expect((await stored(remote.id)).url, moved.url);
-      expect(File(await saved.path).existsSync(), isFalse);
+      await expectCacheCleared();
     });
   });
 
