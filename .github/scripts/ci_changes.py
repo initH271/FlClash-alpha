@@ -22,7 +22,7 @@ RULES = (
     (('core/Clash.Meta', 'core/protocol.go', 'core/service_check.go'),
      ('go', 'android_unit', 'android_build', 'flutter')),
     (('core/', 'build_config.yaml', '.gitmodules'), ('go', 'android_unit', 'android_build')),
-    (('services/helper/src/service/peer.rs',), ('rust', 'flutter')),
+    (('services/helper/src/service/peer.rs', 'services/helper/src/service/windows.rs'), ('rust', 'flutter')),
     (('services/',), ('rust',)),
     (('android/',), ('flutter', 'android_unit', 'android_build')),
     (('lib/', 'arb/', 'assets/', 'shaders/'), ('flutter', 'android_build')),

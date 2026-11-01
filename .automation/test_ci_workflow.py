@@ -202,6 +202,7 @@ class CiChangesTests(unittest.TestCase):
             'core/protocol.go': {'automation', 'go', 'android_unit', 'android_build', 'flutter'},
             'core/service_check.go': {'automation', 'go', 'android_unit', 'android_build', 'flutter'},
             'services/helper/src/service/peer.rs': {'automation', 'rust', 'flutter'},
+            'services/helper/src/service/windows.rs': {'automation', 'rust', 'flutter'},
             'AUTOMATION.md': {'automation'},
             'services/helper/src/main.rs': {'automation', 'rust'},
             'android/app/build.gradle.kts': {'automation', 'flutter', 'android_unit', 'android_build'},
