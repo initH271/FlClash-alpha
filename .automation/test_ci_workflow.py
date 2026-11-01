@@ -155,6 +155,19 @@ class CiWorkflowTests(unittest.TestCase):
         self.assertEqual(sorted((job, job) for job in changes.JOBS), sorted(declared))
 
 
+    def test_the_plugin_job_reaches_every_plugin_test(self):
+        block = self.jobs['plugins']
+        self.assertIn('for tests in plugins/*/test; do', block)
+        self.assertIn('working-directory: plugins/setup/setup_hooks', block)
+        # A test directory here would run the Core build hook.
+        self.assertFalse((ROOT / 'plugins/setup/test').exists())
+        hooks = ROOT / 'plugins/setup/setup_hooks'
+        for path in (ROOT / 'plugins').rglob('*_test.dart'):
+            if 'test' not in path.parts:
+                continue
+            with self.subTest(path=str(path.relative_to(ROOT))):
+                self.assertTrue(path.is_relative_to(hooks / 'test') or path.relative_to(ROOT).parts[2] == 'test')
+
     def test_only_the_flutter_job_turns_the_android_tools_off(self):
         users = {name: block for name, block in self.jobs.items() if 'setup-android-toolchain' in block}
         self.assertEqual({'flutter', 'android-unit-tests', 'android-build'}, set(users))
@@ -246,6 +259,20 @@ class CiChangesTests(unittest.TestCase):
             for read in re.findall(r"(?:ROOT|root) / '([^']+)'", path.read_text(encoding='utf-8')):
                 with self.subTest(path=path.name, read=read):
                     self.assertIn('automation', changes.needed_jobs([read]))
+
+    def test_everything_the_plugin_tests_read_runs_the_plugin_job(self):
+        # They read native sources as text, and no other job looks at those files.
+        reads = []
+        for path in (ROOT / 'plugins').glob('*/test/*_test.dart'):
+            package = path.relative_to(ROOT).parts[:2]
+            for read in re.findall(r"_resolveSource\(\s*'([^']+)'", path.read_text(encoding='utf-8')):
+                reads.append('/'.join((*package, read)))
+        self.assertTrue(reads)
+        lockfile = 'plugins/setup/setup_hooks/pubspec.lock'
+        for read in (*reads, lockfile, 'plugins/tray/pubspec.yaml', '.github/workflows/ci.yml'):
+            with self.subTest(read=read):
+                self.assertIn('plugins', changes.needed_jobs([read]))
+                self.assertTrue((ROOT / read).exists())
 
     def test_an_all_neutral_pull_request_writes_false_for_every_job(self):
         with tempfile.TemporaryDirectory() as root:

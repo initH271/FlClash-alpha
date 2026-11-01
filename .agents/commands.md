@@ -183,8 +183,10 @@ and tests the Dart side.
 
 Root `flutter test` only discovers the root package's `test/` directory by default. Include bundled plugin Dart tests by passing paths explicitly, or run `flutter test` from that plugin package directory, or run `bash tool/check_plugins.sh` to analyze and test every plugin package. Native plugin tests under platform folders are not run by `flutter test`.
 
-CI does not run `tool/check_plugins.sh`, the `setup_hooks` tests, the hook tests, `dart format` or a coverage gate. Those
-mostly guard desktop plugins and appearance. Run them by hand when you change that code.
+The `plugins` job in `.github/workflows/ci.yml` runs the plugin tests and the `setup_hooks` tests, each from its own
+package directory. CI does not run `tool/check_plugins.sh`, so it analyzes no plugin from its own directory, and it does not
+run the hook tests, `dart format` or a coverage gate. Those mostly guard desktop plugins and appearance. Run them by hand
+when you change that code.
 
 For the current Core/service architecture, useful focused checks are:
 
