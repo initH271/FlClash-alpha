@@ -7,6 +7,8 @@ import subprocess
 import sys
 
 JOBS = ('automation', 'go', 'rust', 'flutter', 'android_unit', 'android_build')
+# The one root *.md a test reads, so it is not neutral.
+TESTED_DOC = 'AUTOMATION.md'
 # Nothing compiles or tests these. A trailing '/' names a directory; *.md counts only at the root.
 NEUTRAL = ('docs/', 'snapshots/', 'LICENSE', '.agents/', '.github/ISSUE_TEMPLATE/', '.github/pull_request_template.md')
 # First match wins. Every path that is not neutral also runs the automation tests: they take
@@ -14,9 +16,13 @@ NEUTRAL = ('docs/', 'snapshots/', 'LICENSE', '.agents/', '.github/ISSUE_TEMPLATE
 RULES = (
     # An upstream upgrade always changes the followed version, and it must run everything.
     (('.github/workflows/ci.yml', '.automation/policy.json'), JOBS),
-    (('.automation/', '.cnb/', '.cnb.yml', '.github/workflows/', '.github/scripts/', '.github/dependabot.yml',
-      'macos/'), ()),
+    (('.automation/', '.cnb/', '.cnb.yml', TESTED_DOC, '.github/workflows/', '.github/scripts/',
+      '.github/dependabot.yml', 'macos/'), ()),
+    # Dart tests read these. core/Clash.Meta is a submodule, so a diff names only that path, never its files.
+    (('core/Clash.Meta', 'core/protocol.go', 'core/service_check.go'),
+     ('go', 'android_unit', 'android_build', 'flutter')),
     (('core/', 'build_config.yaml', '.gitmodules'), ('go', 'android_unit', 'android_build')),
+    (('services/helper/src/service/peer.rs', 'services/helper/src/service/windows.rs'), ('rust', 'flutter')),
     (('services/',), ('rust',)),
     (('android/',), ('flutter', 'android_unit', 'android_build')),
     (('lib/', 'arb/', 'assets/', 'shaders/'), ('flutter', 'android_build')),
@@ -33,7 +39,7 @@ def needed_jobs(paths):
     """Return the set of JOBS these changed paths need."""
     jobs = set()
     for path in paths:
-        if _match(path, NEUTRAL) or ('/' not in path and path.endswith('.md')):
+        if _match(path, NEUTRAL) or ('/' not in path and path.endswith('.md') and path != TESTED_DOC):
             continue
         jobs.add('automation')
         rule = next((targets for entries, targets in RULES if _match(path, entries)), JOBS)
