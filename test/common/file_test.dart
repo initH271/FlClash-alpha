@@ -17,6 +17,77 @@ void main() {
     }
   });
 
+  group('safeDelete', () {
+    test('accepts a file that is already gone', () async {
+      await expectLater(
+        File(join(root.path, 'missing')).safeDelete(),
+        completes,
+      );
+    });
+
+    test('removes a file', () async {
+      final file = File(join(root.path, 'a'))..writeAsStringSync('x');
+
+      await file.safeDelete();
+
+      expect(file.existsSync(), isFalse);
+    });
+
+    test('lets overlapping deletes of the same file both succeed', () async {
+      for (var i = 0; i < 300; i++) {
+        final file = File(join(root.path, 'race$i'))..writeAsStringSync('x');
+
+        await Future.wait([file.safeDelete(), file.safeDelete()]);
+
+        expect(file.existsSync(), isFalse);
+      }
+    });
+
+    test('lets overlapping recursive deletes of a directory succeed', () async {
+      for (var i = 0; i < 100; i++) {
+        final dir = Directory(join(root.path, 'dir$i'));
+        for (var j = 0; j < 20; j++) {
+          File(join(dir.path, 'sub', 'f$j')).createSync(recursive: true);
+        }
+
+        await Future.wait([
+          dir.safeDelete(recursive: true),
+          dir.safeDelete(recursive: true),
+        ]);
+
+        expect(dir.existsSync(), isFalse);
+      }
+    });
+
+    test('does nothing when the path is of the other type', () async {
+      final dir = Directory(join(root.path, 'd'))..createSync();
+      final file = File(join(root.path, 'f'))..writeAsStringSync('x');
+
+      await File(dir.path).safeDelete();
+      await Directory(file.path).safeDelete();
+
+      expect(dir.existsSync(), isTrue);
+      expect(file.existsSync(), isTrue);
+    });
+
+    test('still throws other failures', () async {
+      final dir = Directory(join(root.path, 'full'));
+      File(join(dir.path, 'f')).createSync(recursive: true);
+
+      await expectLater(
+        dir.safeDelete(),
+        throwsA(
+          isA<FileSystemException>().having(
+            (e) => e is PathNotFoundException,
+            'is PathNotFoundException',
+            isFalse,
+          ),
+        ),
+      );
+      expect(dir.existsSync(), isTrue);
+    });
+  });
+
   group('safeDeletePath', () {
     test('removes a file', () async {
       final path = join(root.path, 'config.yaml');

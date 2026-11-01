@@ -149,6 +149,86 @@ void main() {
       expect(iconSet.name, 'Renamed');
       expect(iconSet.icons, hasLength(2));
     });
+
+    test('gives way to a url moved meanwhile', () async {
+      container
+          .read(iconSetsProvider.notifier)
+          .put(saved.copyWith(url: urlOf('moved.json')));
+      await pumpEventQueue();
+
+      await download();
+
+      final iconSet = (await stored()).single;
+      expect(iconSet.url, urlOf('moved.json'));
+      expect(iconSet.icons, hasLength(1));
+    });
+  });
+
+  group('a sync that edits a set', () {
+    late IconSet saved;
+
+    setUp(() async {
+      body = _iconSetJson('Qure', ['Proxy']);
+      await action().importUrl(urlOf('qure.json'));
+      saved = (await stored()).single;
+      body = _iconSetJson('Qure', ['Proxy', 'Direct']);
+    });
+
+    test('keeps a name changed meanwhile when it edits only the url', () async {
+      held = Completer();
+      final syncing = action().sync(saved, url: urlOf('moved.json'));
+      await pumpEventQueue();
+      container
+          .read(iconSetsProvider.notifier)
+          .put(saved.copyWith(name: 'Renamed'));
+      await pumpEventQueue();
+
+      held!.complete();
+      await syncing;
+
+      final iconSet = (await stored()).single;
+      expect(iconSet.name, 'Renamed');
+      expect(iconSet.url, urlOf('moved.json'));
+      expect(iconSet.icons, hasLength(2));
+    });
+
+    test('puts its own name over one made meanwhile', () async {
+      held = Completer();
+      final syncing = action().sync(
+        saved,
+        name: 'Mine',
+        url: urlOf('moved.json'),
+      );
+      await pumpEventQueue();
+      container
+          .read(iconSetsProvider.notifier)
+          .put(saved.copyWith(name: 'Renamed'));
+      await pumpEventQueue();
+
+      held!.complete();
+      await syncing;
+
+      expect((await stored()).single.name, 'Mine');
+    });
+
+    test('a url import under a new name renames the set it finds', () async {
+      await action().importUrl(urlOf('qure.json'), name: 'Mine');
+
+      final iconSet = (await stored()).single;
+      expect(iconSet.name, 'Mine');
+      expect(iconSet.icons, hasLength(2));
+    });
+
+    test('changes nothing when the new url fails', () async {
+      await expectLater(
+        action().sync(saved, name: 'Mine', url: urlOf('missing')),
+        throwsA(anything),
+      );
+
+      final iconSet = (await stored()).single;
+      expect(iconSet.name, 'Qure');
+      expect(iconSet.url, urlOf('qure.json'));
+    });
   });
 
   test(

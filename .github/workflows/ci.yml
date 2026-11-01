@@ -19,6 +19,7 @@ jobs:
       go: ${{ steps.paths.outputs.go }}
       rust: ${{ steps.paths.outputs.rust }}
       flutter: ${{ steps.paths.outputs.flutter }}
+      plugins: ${{ steps.paths.outputs.plugins }}
       android_unit: ${{ steps.paths.outputs.android_unit }}
       android_build: ${{ steps.paths.outputs.android_build }}
     steps:
@@ -135,6 +136,31 @@ jobs:
           (cd plugins/rust_api/rust && cargo build --locked)
           export FRB_DART_LOAD_EXTERNAL_LIBRARY_NATIVE_LIB_DIR="$PWD/plugins/rust_api/rust/target/debug"
           flutter test --reporter expanded
+  plugins:
+    name: Plugin tests
+    needs: [changes]
+    if: needs.changes.outputs.plugins == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.6'
+          cache: true
+      - name: Test Flutter plugin packages
+        run: |
+          for tests in plugins/*/test; do
+            (cd "$(dirname "$tests")" && flutter pub get && flutter test --reporter expanded)
+          done
+      - name: Test the build hook package
+        working-directory: plugins/setup/setup_hooks
+        run: |
+          dart pub get --enforce-lockfile
+          dart test --reporter expanded
   android-unit-tests:
     name: Android unit tests
     needs: [changes]
@@ -185,7 +211,7 @@ jobs:
           test -f build/app/outputs/flutter-apk/app-release.apk
   ci-ok:
     name: ci-ok
-    needs: [changes, automation, go, rust, flutter, android-unit-tests, android-build]
+    needs: [changes, automation, go, rust, flutter, plugins, android-unit-tests, android-build]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5

@@ -72,7 +72,11 @@ extension FileSystemEntityExt on FileSystemEntity {
     if (!await exists()) {
       return;
     }
-    await delete(recursive: recursive);
+    try {
+      await delete(recursive: recursive);
+    } on PathNotFoundException {
+      // A concurrent delete can remove the path between exists and delete.
+    }
   }
 }
 

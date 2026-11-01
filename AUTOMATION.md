@@ -18,10 +18,22 @@ rule is in the PR template, and no check enforces it.
 
 | Check | Workflow | What it does |
 |---|---|---|
-| `ci-ok` | `.github/workflows/ci.yml` | Runs on every PR and passes when every job passed or was skipped. `.github/scripts/ci_changes.py` picks the jobs from the changed paths: automation tests, Go, Rust, Flutter, Android unit tests, Android release compile. A path no rule names runs every job. A change to `ci.yml` or `.automation/policy.json` runs every job. Documents and templates (`docs/`, `.agents/`, root `*.md` except `AUTOMATION.md`, the PR and Issue templates) run none. `AUTOMATION.md` runs only the automation tests, because one of them reads it. Other workflows, `.github/scripts/`, `.github/dependabot.yml` and `macos/` run only the automation tests. `linux/`, `windows/` and `.github/release-notes.md` also run the Flutter job, and so do `core/Clash.Meta`, `core/protocol.go`, `core/service_check.go`, `services/helper/src/service/peer.rs` and `services/helper/src/service/windows.rs` on top of their own jobs, because Dart tests read them. No job compiles a desktop platform |
+| `ci-ok` | `.github/workflows/ci.yml` | Runs on every PR and passes when every job passed or was skipped. `.github/scripts/ci_changes.py` picks the jobs from the changed paths: automation tests, Go, Rust, Flutter, plugin tests, Android unit tests, Android release compile. A path no rule names runs every job. A change to `ci.yml` or `.automation/policy.json` runs every job. Documents and templates (`docs/`, `.agents/`, root `*.md` except `AUTOMATION.md`, the PR and Issue templates) run none. `AUTOMATION.md` runs only the automation tests, because one of them reads it. Other workflows, `.github/scripts/`, `.github/dependabot.yml` and `macos/` run only the automation tests. `linux/`, `windows/` and `.github/release-notes.md` also run the Flutter job, and so do `core/Clash.Meta`, `core/protocol.go`, `core/service_check.go`, `services/helper/src/service/peer.rs` and `services/helper/src/service/windows.rs` on top of their own jobs, because Dart tests read them. No job compiles a desktop platform |
 | `Dependency vulnerability scan` | `.github/workflows/security.yaml` | See [SECURITY_AUTOMATION.md](SECURITY_AUTOMATION.md) |
 | `NPC review (advisory)` | `.github/workflows/npc-review.yml` | Not required, and not part of `ci-ok` |
 | `Windows build`, `Windows helper test` | `.github/workflows/windows.yaml` | Not required, and not part of `ci-ok`. Runs when a PR changes `windows/`, `services/helper/`, `plugins/`, `core/`, `setup.dart`, `pubspec.yaml`, `pubspec.lock`, `build_config.yaml`, `distribute_options.yaml`, `.gitmodules`, the workflow, its scripts or `lib/common/app_update.dart`. It leaves `lib/` to analyze and test on Linux, since the Windows risk sits in native code and build scripts. The packages stay on the run as an artifact for 3 days |
+
+### Plugin tests
+
+The `plugins` job runs the Dart tests under `plugins/*/test` and `plugins/setup/setup_hooks/test`. Root `flutter test` does
+not reach them. It runs in parallel with the other jobs, and only for the paths that run every job, such as `plugins/`, the
+root `pubspec.yaml` and `pubspec.lock`, `tool/` and `ci.yml`. `lib/`, `test/`, `core/`, `android/` and `services/` do not start
+it, since these tests read only files inside `plugins/`. Some read the macOS and Windows sources as text and hold on
+any runner, so this job checks that native code on Linux without compiling it.
+
+Each package runs from its own directory, so the job needs no submodule, Rust or Go, and no build hook runs. Only
+`setup_hooks` has a committed lockfile, which the job enforces. The others ignore theirs and resolve from their pubspecs on
+each run, so a new release of a direct dependency can turn the job red with no change in the PR.
 
 ### Go cache
 

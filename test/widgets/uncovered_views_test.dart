@@ -68,7 +68,7 @@ class _RecordingScriptsAction extends ScriptsAction {
   final updated = <Script>[];
 
   @override
-  Future<void> updateScript(Script script) async {
+  Future<void> updateScript(Script script, {String? url}) async {
     updated.add(script);
   }
 }
