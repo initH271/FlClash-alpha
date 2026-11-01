@@ -366,14 +366,21 @@
 - **为什么**：手机上显示全部服务。
 - **核对**：上游改 `ServiceStatusCard.build`、`_syncShown`、`shownServiceCountProvider`、`_ServiceGrid` 时重看。兜底："a phone card scrolls sideways through every service"、"a vertical drag on the phone card scrolls the page"。
 
-### I14. Windows 独立身份
+### I14. 代理页底部测速按钮
+
+- **文件**：上游文件 `lib/views/proxies/proxies.dart`；fork 文件 `lib/views/proxies/fork/delay_test_fab.dart`、`lib/ui/fork/foot_action.dart`、`test/views/proxies/fork/delay_test_fab_test.dart`。
+- **改了什么**：tab 模式的代理页在右下角加一个只有图标的浮动测速按钮（文字在 tooltip 里），和顶部按钮并存，共用 `delayTestCurrentGroup()` 和 `currentGroupDelayTestingProvider`；页面主体多留出按钮的高度。列表模式、仪表盘弹窗（`picker`）和没有代理组时不显示。测速中是闪电充能动画，顶部按钮仍是上游的转圈。
+- **为什么**：上游 `8378c70` 去掉了底部按钮，手机上单手够不到顶部。
+- **核对**：上游改 `ProxiesView` 的 `primaryAction`、`_tabView` 的接入方式，或改 `BottomInsetScope` / `context.bottomInset` / `NavigationDock.insetOf` 时重看；上游若恢复自己的底部按钮，这个补丁可以去掉。兜底：`test/views/proxies/fork/delay_test_fab_test.dart`、`test/widgets/proxies_tab_test.dart` 的 "the bar following the current group leaves the page built"。
+
+### I16. Windows 独立身份
 
 - **文件**：上游文件 `windows/packaging/exe/make_config.yaml`、`windows/packaging/exe/inno_setup.iss`、`windows/runner/Runner.rc`（`CompanyName`）、`services/helper/src/service/windows.rs`（`SERVICE_NAME`）、`services/helper/src/service/peer.rs`（`PORT_KEY`）、`lib/common/constant.dart`、`lib/common/launch.dart`、`test/core/desktop/helper_client_test.dart`；fork 文件 `test/tool/packaging_config_test.dart` 的 Windows 分组。
 - **改了什么**：换成自己的 `AppId`、发布者、安装目录、数据目录、服务名、开机启动值名、快捷方式和卸载项名字。安装和卸载只结束 `{app}` 下的进程。`/RELAUNCH` 让静默安装结束后重新启动应用。上游写的 `publisher` 键 flutter_distributor 不读，改成 `publisher_name`。
 - **为什么**：和官方版能同时安装，官方的文件、服务、快捷方式和数据都不被碰。对照表见 `RELEASE_CHANNELS.md`。
 - **核对**：上游改 Inno 模板或 helper 服务时，确认这些值没被冲掉，也没有新增按进程名结束进程、写死 `com.follow` 或 `FlClashHelperService` 服务名的地方。`hub.rs` 的 host 白名单和 helper 的 exe 文件名不用改：Windows 客户端走 127.0.0.1，那个名字是 Linux 的。`_readHelperPort` 读不到注册表时回退到固定端口 47890，这时可能连到官方的旧 helper，靠 `readiness` 的 Core 哈希拦下。兜底：`test/tool/packaging_config_test.dart`、`test/core/desktop/helper_client_test.dart`、`windows.yaml` 的冒烟。
 
-### I15. Windows 应用内更新
+### I16. Windows 应用内更新
 
 - **文件**：上游文件 `lib/common/request.dart`、`lib/common/system.dart`、`lib/providers/actions/common.dart`、`pubspec.yaml`、`pubspec.lock`（`pointycastle`）；fork 文件 `lib/common/app_update.dart`、`lib/common/update_download.dart`、`lib/widgets/app_update_dialog.dart`、`test/common/windows_update_test.dart`、`test/widgets/windows_update_dialog_test.dart`。
 - **改了什么**：Windows 走和 Android 同一套选源、弹窗和下载，但读带签名的 `update-windows.json`，用提权方式启动安装包。Android 的 `updateSources`、校验和流程不变。
