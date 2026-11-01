@@ -23,6 +23,19 @@ void main() {
     expect(peer, contains('const PORT_VALUE: &str = "$helperPortValue";'));
   });
 
+  test('the Windows service registers under the name the port key uses', () {
+    final service = File(
+      'services/helper/src/service/windows.rs',
+    ).readAsStringSync();
+
+    expect(
+      service,
+      contains('const SERVICE_NAME: &str = "$windowsHelperService";'),
+    );
+    expect(helperPortKey, contains('\\$windowsHelperService\\'));
+    expect(windowsHelperService, isNot(appHelperService));
+  });
+
   test(
     'start returns a Helper lease identity with matching session and PID',
     () async {

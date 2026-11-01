@@ -3,6 +3,10 @@ use crate::service::hub::{
 };
 use crate::service::owner::{client_pid, same_sid, TcpConnection};
 
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::server::conn::auto::Builder;
+use hyper_util::server::graceful::GracefulShutdown;
+use hyper_util::service::TowerToHyperService;
 use std::ffi::c_void;
 use std::future::Future;
 use std::io::{Error, Result as IoResult};
@@ -14,7 +18,7 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::Sleep;
-use tokio_stream::Stream;
+use tokio_stream::{Stream, StreamExt};
 use windows_sys::Win32::Foundation::{
     CloseHandle, LocalFree, ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS, HANDLE, NO_ERROR,
 };
@@ -34,7 +38,7 @@ use windows_sys::Win32::System::Threading::{
 const AF_INET: u32 = 2;
 /// Hyper-V and WinNAT reserve ranges that can cover any fixed port; only admins
 /// write this volatile key under the service's own, and a reboot clears it.
-const PORT_KEY: &str = r"SYSTEM\CurrentControlSet\Services\FlClashHelperService\Runtime";
+const PORT_KEY: &str = r"SYSTEM\CurrentControlSet\Services\FlClashAlphaHelperService\Runtime";
 const PORT_VALUE: &str = "Port";
 const TABLE_ATTEMPTS: usize = 5;
 const ACCEPT_RETRY_DELAY: Duration = Duration::from_secs(1);
@@ -287,13 +291,46 @@ where
         owner_sid,
         retry: None,
     };
-    warp::serve(routes())
-        .serve_incoming_with_graceful_shutdown(incoming, shutdown)
-        .await;
+    serve_incoming_until(incoming, shutdown).await;
     drop(published);
     release_managed_core_on_shutdown();
 
     Ok(())
+}
+
+/// warp 0.4 only accepts its own sealed listeners, which would skip the owner check.
+async fn serve_incoming_until<F>(mut incoming: AuthorizedIncoming, shutdown: F)
+where
+    F: Future<Output = ()> + Send + 'static,
+{
+    let graceful = GracefulShutdown::new();
+    tokio::pin!(shutdown);
+    loop {
+        tokio::select! {
+            biased;
+            _ = &mut shutdown => break,
+            accepted = incoming.next() => {
+                match accepted {
+                    Some(Ok(stream)) => {
+                        let service = TowerToHyperService::new(warp::service(routes()));
+                        let connection = Builder::new(TokioExecutor::new())
+                            .serve_connection_with_upgrades(TokioIo::new(stream), service)
+                            .into_owned();
+                        let watched = graceful.watch(connection);
+                        tokio::spawn(async move {
+                            if let Err(error) = watched.await {
+                                log_message(format!("Helper connection failed: {error}"));
+                            }
+                        });
+                    }
+                    Some(Err(error)) => log_message(format!("Helper accept failed: {error}")),
+                    None => break,
+                }
+            }
+        }
+    }
+    drop(incoming);
+    graceful.shutdown().await;
 }
 
 #[cfg(test)]

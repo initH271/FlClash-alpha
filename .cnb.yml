@@ -10,7 +10,7 @@
   stages:
     - name: Verify and publish identical APK
       script: python3 .cnb/mirror-release.py
-      timeout: 10m
+      timeout: 20m
 
 main:
   push:
