@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.parse
 import zipfile
 
@@ -15,15 +16,26 @@ from control import GH, OWNER, POLICY, ROOT, api, bot_issues, comment, comment_o
 
 SETUP = 'FlClash-alpha-windows-amd64-setup.exe'
 ARCHIVE = 'FlClash-alpha-windows-amd64.zip'
+MANIFEST = 'update-windows.json'
 CHECKSUMS = 'SHA256SUMS.txt'
 OUTPUT = 'dist-windows'
+APPLICATION_ID = '94491F5A-A742-4DFF-B144-119A92A2FFD1'
+# lib/common/app_update.dart holds the other side: windowsManifestSignaturePrefix and updateSigningCertificate.
+SIGNATURE_PREFIX = b'FlClash-alpha-windows-update-v1\n'
+CLIENT_SOURCE = 'lib/common/app_update.dart'
+# Copied unchanged from update.json. The update dialog shows these, and the notes are the same text Android users read.
+COPIED_FIELDS = ('tag', 'build', 'displayVersion', 'sourceSha', 'version', 'upstreamVersion', 'revision',
+                 'notes', 'notesBaseTag', 'notesBaseSha', 'notesSourceSha')
+# The Android debug store format: .github/scripts/sign-apk.sh uses the same alias and password.
+KEY_ALIAS = 'androiddebugkey'
+KEY_PASSWORD = 'android'
 # What a running installation cannot do without, at the paths windows/CMakeLists.txt installs them to.
 BUNDLE = ('FlClash.exe', 'FlClashCore.exe', 'FlClashHelperService.exe', 'flutter_windows.dll', 'data/app.so')
 SKIP = {'mode': 'skip', 'source': '', 'tag': ''}
 
 
 def has_windows(release):
-    return {SETUP, ARCHIVE} <= {asset['name'] for asset in release['assets']}
+    return {SETUP, ARCHIVE, MANIFEST} <= {asset['name'] for asset in release['assets']}
 
 
 def identity_at(sha):
@@ -168,6 +180,70 @@ def merge_checksums(existing, digests):
     return '\n'.join(kept + [f'{digest}  {name}' for name, digest in digests.items()]) + '\n'
 
 
+def manifest_payload(update, setup, published_at):
+    """What the app learns about this release, as bytes that get signed."""
+    payload = {field: update[field] for field in COPIED_FIELDS if field in update}
+    payload.update(applicationId=APPLICATION_ID, installer=SETUP, sha256=sha256(setup), size=setup.stat().st_size,
+                   publishedAt=published_at)
+    return json.dumps(payload, ensure_ascii=False, separators=(',', ':')).encode()
+
+
+def run_quietly(*command, stdin=None):
+    """Keeps tool output, which could quote key material, out of the job log."""
+    result = subprocess.run(command, input=stdin, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+    if result.returncode != 0:
+        raise ValueError(f'{command[0]} {command[1]} failed with {result.returncode}')
+
+
+def private_key(keystore, directory):
+    """keytool reads JKS and PKCS12 alike, and openssl only PKCS12, so this does not depend on the store's format."""
+    store = directory / 'signing.keystore'
+    store.write_bytes(keystore)
+    pkcs12, key = directory / 'signing.p12', directory / 'signing.pem'
+    run_quietly('keytool', '-importkeystore', '-noprompt', '-srckeystore', str(store), '-srcstorepass', KEY_PASSWORD,
+                '-srcalias', KEY_ALIAS, '-srckeypass', KEY_PASSWORD, '-destkeystore', str(pkcs12),
+                '-deststoretype', 'PKCS12', '-deststorepass', KEY_PASSWORD, '-destkeypass', KEY_PASSWORD)
+    run_quietly('openssl', 'pkcs12', '-in', str(pkcs12), '-passin', f'pass:{KEY_PASSWORD}', '-nocerts', '-nodes',
+                '-out', str(key))
+    return key
+
+
+def signature_matches(payload, signature, certificate, directory):
+    der, public, signature_file = directory / 'signing.der', directory / 'signing.pub', directory / 'manifest.sig'
+    der.write_bytes(certificate)
+    signature_file.write_bytes(signature)
+    run_quietly('openssl', 'x509', '-inform', 'DER', '-in', str(der), '-pubkey', '-noout', '-out', str(public))
+    try:
+        run_quietly('openssl', 'dgst', '-sha256', '-verify', str(public), '-signature', str(signature_file),
+                    stdin=SIGNATURE_PREFIX + payload)
+    except ValueError:
+        return False
+    return True
+
+
+def client_certificate(root=ROOT):
+    source = (root / CLIENT_SOURCE).read_text(encoding='utf-8')
+    literal = re.search(r"updateSigningCertificate =\s*((?:'[^']*'\s*)+);", source)
+    if not literal:
+        raise ValueError(f'{CLIENT_SOURCE} has no updateSigningCertificate')
+    return base64.b64decode(''.join(re.findall(r"'([^']*)'", literal[1])))
+
+
+def signed_manifest(payload, keystore, certificate):
+    """The manifest as served. The key lives only for this call, and what it signed must verify as the app will verify it."""
+    encoded = base64.b64encode(payload)
+    with tempfile.TemporaryDirectory() as work:
+        directory = pathlib.Path(work)
+        key = private_key(keystore, directory)
+        output = directory / 'manifest.sig'
+        run_quietly('openssl', 'dgst', '-sha256', '-sign', str(key), '-out', str(output),
+                    stdin=SIGNATURE_PREFIX + encoded)
+        signature = output.read_bytes()
+        if not signature_matches(encoded, signature, certificate, directory):
+            raise ValueError('The signing key does not match the certificate the app carries')
+    return json.dumps({'payload': encoded.decode(), 'signature': base64.b64encode(signature).decode()}) + '\n'
+
+
 def gh(*args):
     return subprocess.run(['gh', *args, '--repo', POLICY['github']], check=True, stdout=subprocess.PIPE).stdout
 
@@ -195,13 +271,26 @@ def publish(root=ROOT):
         raise ValueError(f'{tag} is not the published release of {source}')
     out = root / OUTPUT
     verify(out, identity)
-    files = (out / SETUP, out / ARCHIVE)
+    update = json.loads(gh('release', 'download', tag, '--pattern', 'update.json', '--output', '-'))
+    certificate = client_certificate(root)
+    if update['tag'] != tag or update['build'] != identity['build']:
+        raise ValueError(f'update.json of {tag} describes {update["tag"]}')
+    if hashlib.sha256(certificate).hexdigest() != update['certificateSha256']:
+        raise ValueError(f'{CLIENT_SOURCE} carries another certificate than the APK of {tag}')
+    manifest = out / MANIFEST
+    # Before any upload, so a key that cannot sign leaves the Release as it was.
+    manifest.write_text(signed_manifest(manifest_payload(update, out / SETUP, release['published_at']),
+                                        base64.b64decode(os.environ['KEYSTORE_BASE64'], validate=True), certificate),
+                        encoding='utf-8')
+    packages = (out / SETUP, out / ARCHIVE)
     merged = merge_checksums(gh('release', 'download', tag, '--pattern', CHECKSUMS, '--output', '-').decode(),
-                             {path.name: sha256(path) for path in files})
+                             {path.name: sha256(path) for path in (*packages, manifest)})
     checksums = root / CHECKSUMS
     checksums.write_text(merged, encoding='utf-8')
-    gh('release', 'upload', tag, *map(str, files), '--clobber')
-    # Last, so whoever sees a Windows line in the checksums also finds both files.
+    gh('release', 'upload', tag, *map(str, packages), '--clobber')
+    # After the packages, because the app starts downloading as soon as it reads this.
+    gh('release', 'upload', tag, str(manifest), '--clobber')
+    # Last, so whoever sees a Windows line in the checksums also finds its file.
     gh('release', 'upload', tag, str(checksums), '--clobber')
     print(f'Published the Windows files on {tag}')
     close_report(tag)

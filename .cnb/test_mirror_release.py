@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import importlib.util
 import json
@@ -33,12 +34,24 @@ class MirrorTests(unittest.TestCase):
 
     def add_windows(self, setup=b'setup', archive=b'archive'):
         """Give the GitHub release what windows_release.py adds."""
-        self.published = {mirror.WINDOWS[0]: setup, mirror.WINDOWS[1]: archive}
+        self.published = {mirror.SETUP: setup, mirror.WINDOWS[1]: archive, mirror.MANIFEST: self.manifest(setup)}
         self.files.update(self.published)
         self.files['SHA256SUMS.txt'] += b''.join(
             f'\n{hashlib.sha256(data).hexdigest()}  {name}'.encode() for name, data in self.published.items())
         self.release['assets'] += [dict(name=n, browser_download_url=
             f'https://github.com/initH271/FlClash-alpha/releases/download/alpha-42/{n}') for n in self.published]
+        self.resize()
+
+    def manifest(self, setup, tag='alpha-42'):
+        payload = dict(sha256=hashlib.sha256(setup).hexdigest(), tag=tag)
+        return json.dumps(dict(payload=base64.b64encode(json.dumps(payload).encode()).decode(), signature='')).encode()
+
+    def replace_manifest(self, data):
+        """A manifest whose own checksum line is right, so only its content can stop it."""
+        old = hashlib.sha256(self.files[mirror.MANIFEST]).hexdigest()
+        self.files[mirror.MANIFEST] = data
+        self.files['SHA256SUMS.txt'] = self.files['SHA256SUMS.txt'].replace(
+            old.encode(), hashlib.sha256(data).hexdigest().encode())
         self.resize()
 
     def resize(self):
@@ -157,6 +170,34 @@ class MirrorTests(unittest.TestCase):
             self.run_mirror()
         self.assertEqual([mirror.APK, 'SHA256SUMS.txt', 'update.json'], self.uploaded())
         self.assertFalse(self.cnb['draft'])
+
+    def test_a_manifest_for_another_installer_uploads_nothing_of_windows(self):
+        self.add_windows()
+        self.replace_manifest(self.manifest(b'another installer'))
+        with self.assertRaises(ValueError):
+            self.run_mirror()
+        self.assertEqual([mirror.APK, 'SHA256SUMS.txt', 'update.json'], self.uploaded())
+
+    def test_a_manifest_of_another_release_uploads_nothing_of_windows(self):
+        self.add_windows()
+        self.replace_manifest(self.manifest(b'setup', tag='alpha-41'))
+        with self.assertRaises(ValueError):
+            self.run_mirror()
+        self.assertEqual([mirror.APK, 'SHA256SUMS.txt', 'update.json'], self.uploaded())
+
+    def test_a_manifest_with_a_wrong_checksum_uploads_nothing_of_windows(self):
+        self.add_windows()
+        self.files[mirror.MANIFEST] = self.manifest(b'setup') + b' '
+        self.resize()
+        with self.assertRaises(ValueError):
+            self.run_mirror()
+        self.assertEqual([mirror.APK, 'SHA256SUMS.txt', 'update.json'], self.uploaded())
+
+    def test_a_release_without_the_manifest_waits(self):
+        self.add_windows()
+        self.release['assets'] = [a for a in self.release['assets'] if a['name'] != mirror.MANIFEST]
+        self.run_mirror()
+        self.assertEqual([mirror.APK, 'SHA256SUMS.txt', 'update.json'], self.uploaded())
 
     def test_files_without_their_checksum_lines_wait(self):
         self.add_windows()

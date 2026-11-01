@@ -1,7 +1,11 @@
+import base64
+import hashlib
 import json
 import os
 import pathlib
 import re
+import shutil
+import subprocess
 import tempfile
 import unittest
 import zipfile
@@ -24,6 +28,7 @@ def android_run(**changes):
 def release(*names, **changes):
     assets = [{'name': name} for name in ('FlClash-alpha-arm64-v8a.apk', w.CHECKSUMS, 'update.json', *names)]
     return {'tag_name': IDENTITY['tag'], 'draft': False, 'prerelease': False, 'target_commitish': SHA,
+            'published_at': '2026-11-01T00:00:00Z',
             'assets': assets, **changes}
 
 
@@ -69,8 +74,9 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(w.SKIP, self.plan_after_android(android_run(), release(draft=True)))
 
     def test_a_release_with_both_windows_files_skips_and_with_one_rebuilds(self):
-        self.assertEqual(w.SKIP, self.plan_after_android(android_run(), release(w.SETUP, w.ARCHIVE)))
+        self.assertEqual(w.SKIP, self.plan_after_android(android_run(), release(w.SETUP, w.ARCHIVE, w.MANIFEST)))
         self.assertEqual('publish', self.plan_after_android(android_run(), release(w.SETUP))['mode'])
+        self.assertEqual('publish', self.plan_after_android(android_run(), release(w.SETUP, w.ARCHIVE))['mode'])
 
     def retry(self, found, ref='refs/heads/main', identity=IDENTITY):
         with patch.object(w, 'identity_at', return_value=identity), patch.object(w, 'release_by_tag', return_value=found):
@@ -88,7 +94,7 @@ class PlanTests(unittest.TestCase):
                 self.retry(found, ref, identity)
 
     def test_a_manual_retry_of_a_finished_release_does_nothing(self):
-        self.assertEqual(w.SKIP, self.retry(release(w.SETUP, w.ARCHIVE)))
+        self.assertEqual(w.SKIP, self.retry(release(w.SETUP, w.ARCHIVE, w.MANIFEST)))
 
     def test_pull_requests_and_plain_dispatches_only_compile(self):
         for event in ('pull_request', 'workflow_dispatch'):
@@ -175,22 +181,59 @@ class PublishTests(unittest.TestCase):
         self.commands.append(args)
         if args[1] == 'upload' and args[-2].endswith(w.CHECKSUMS):
             self.sums = pathlib.Path(args[-2]).read_text()
+        if args[1] == 'upload' and args[-2].endswith(w.MANIFEST):
+            self.manifest = pathlib.Path(args[-2]).read_text()
+        if 'update.json' in args:
+            return json.dumps(self.update).encode()
         return b'abc  FlClash-alpha-arm64-v8a.apk\n'
 
-    def publish(self, found):
-        env = {'TAG': IDENTITY['tag'], 'SOURCE': SHA}
+    update = dict(tag=IDENTITY['tag'], build=IDENTITY['build'], displayVersion=IDENTITY['displayVersion'], sourceSha=SHA,
+                  notes='说明', apk='ignored', certificateSha256=hashlib.sha256(b'certificate').hexdigest())
+
+    def publish(self, found, sign=lambda payload, keystore, certificate: json.dumps({'payload': payload.decode()})):
+        env = {'TAG': IDENTITY['tag'], 'SOURCE': SHA, 'KEYSTORE_BASE64': base64.b64encode(b'store').decode()}
         with patch.dict(os.environ, env), patch.object(w, 'gh', self.gh), patch.object(w, 'close_report'), \
-                patch.object(w, 'identity_at', return_value=IDENTITY), patch.object(w, 'release_by_tag', return_value=found):
+                patch.object(w, 'identity_at', return_value=IDENTITY), patch.object(w, 'release_by_tag', return_value=found), \
+                patch.object(w, 'client_certificate', return_value=b'certificate'), patch.object(w, 'signed_manifest', sign):
             w.publish(self.dir)
 
-    def test_the_checksums_go_up_after_both_files(self):
+    def test_packages_then_manifest_then_checksums_go_up(self):
         self.publish(release())
         uploads = [c for c in self.commands if c[1] == 'upload']
-        self.assertEqual(2, len(uploads))
+        self.assertEqual(3, len(uploads))
         self.assertTrue(uploads[0][3].endswith(w.SETUP) and uploads[0][4].endswith(w.ARCHIVE))
-        self.assertTrue(uploads[1][3].endswith(w.CHECKSUMS))
+        self.assertTrue(uploads[1][3].endswith(w.MANIFEST))
+        self.assertTrue(uploads[2][3].endswith(w.CHECKSUMS))
         self.assertEqual('abc  FlClash-alpha-arm64-v8a.apk', self.sums.splitlines()[0])
-        self.assertEqual([w.SETUP, w.ARCHIVE], [line.split()[-1] for line in self.sums.splitlines()[1:]])
+        self.assertEqual([w.SETUP, w.ARCHIVE, w.MANIFEST], [line.split()[-1] for line in self.sums.splitlines()[1:]])
+
+    def test_the_manifest_copies_the_release_and_describes_the_installer(self):
+        self.publish(release(published_at='2026-11-01T00:00:00Z'))
+        setup = self.dir / w.OUTPUT / w.SETUP
+        payload = json.loads(json.loads(self.manifest)['payload'])
+        self.assertEqual({'tag': IDENTITY['tag'], 'build': IDENTITY['build'], 'displayVersion': IDENTITY['displayVersion'],
+                          'sourceSha': SHA, 'notes': '说明', 'applicationId': w.APPLICATION_ID, 'installer': w.SETUP,
+                          'sha256': w.sha256(setup), 'size': setup.stat().st_size,
+                          'publishedAt': '2026-11-01T00:00:00Z'}, payload)
+
+    def test_a_key_that_cannot_sign_uploads_nothing(self):
+        def fail(*_):
+            raise ValueError('no key')
+        with self.assertRaises(ValueError):
+            self.publish(release(), sign=fail)
+        self.assertEqual([], [c for c in self.commands if c[1] == 'upload'])
+
+    def test_another_certificate_than_the_apk_uploads_nothing(self):
+        self.update = dict(self.update, certificateSha256='0' * 64)
+        with self.assertRaises(ValueError):
+            self.publish(release())
+        self.assertEqual([], [c for c in self.commands if c[1] == 'upload'])
+
+    def test_an_update_json_of_another_release_uploads_nothing(self):
+        self.update = dict(self.update, tag='v0.0.1')
+        with self.assertRaises(ValueError):
+            self.publish(release())
+        self.assertEqual([], [c for c in self.commands if c[1] == 'upload'])
 
     def test_only_uploads_ever_touch_the_release(self):
         self.publish(release())
@@ -207,6 +250,63 @@ class PublishTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.publish(release())
         self.assertEqual([], self.commands)
+
+
+def keytool_works():
+    return shutil.which('keytool') and subprocess.run(['keytool', '-help'], capture_output=True, check=False).returncode == 0
+
+
+@unittest.skipUnless(keytool_works(), 'needs a JDK')
+class SigningTests(unittest.TestCase):
+    PAYLOAD = '{"build":1,"notes":"说明"}'.encode()
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.dir = pathlib.Path(directory.name)
+
+    def keystore(self, store_type):
+        path = self.dir / f'{store_type}.keystore'
+        subprocess.run(['keytool', '-genkeypair', '-alias', w.KEY_ALIAS, '-keyalg', 'RSA', '-keysize', '2048',
+                        '-dname', 'CN=Test', '-validity', '2', '-keystore', str(path), '-storetype', store_type,
+                        '-storepass', w.KEY_PASSWORD, '-keypass', w.KEY_PASSWORD], capture_output=True, check=True)
+        certificate = subprocess.run(['keytool', '-exportcert', '-alias', w.KEY_ALIAS, '-keystore', str(path),
+                                      '-storepass', w.KEY_PASSWORD], capture_output=True, check=True).stdout
+        return path.read_bytes(), certificate
+
+    def test_each_store_format_signs_what_the_certificate_verifies(self):
+        for store_type in ('PKCS12', 'JKS'):
+            with self.subTest(store_type):
+                store, certificate = self.keystore(store_type)
+                manifest = json.loads(w.signed_manifest(self.PAYLOAD, store, certificate))
+                self.assertEqual(self.PAYLOAD, base64.b64decode(manifest['payload']))
+                signature = base64.b64decode(manifest['signature'])
+                self.assertTrue(w.signature_matches(manifest['payload'].encode(), signature, certificate, self.dir))
+                self.assertFalse(w.signature_matches(b'other', signature, certificate, self.dir))
+
+    def test_a_key_of_another_certificate_is_refused(self):
+        store, _ = self.keystore('PKCS12')
+        (self.dir / 'PKCS12.keystore').unlink()
+        _, other = self.keystore('PKCS12')
+        with self.assertRaises(ValueError):
+            w.signed_manifest(self.PAYLOAD, store, other)
+
+    def test_a_wrong_store_fails_without_quoting_it(self):
+        with self.assertRaises(ValueError) as caught:
+            w.signed_manifest(self.PAYLOAD, b'not a keystore', b'')
+        self.assertNotIn('not a keystore', str(caught.exception))
+
+
+class ClientCertificateTests(unittest.TestCase):
+    def test_the_app_carries_the_certificate_the_release_pins(self):
+        pinned = json.loads((ROOT / '.github/release.json').read_text(encoding='utf-8'))['certificateSha256']
+        self.assertEqual(pinned, hashlib.sha256(w.client_certificate()).hexdigest())
+
+    def test_the_signing_prefix_is_the_one_the_app_checks(self):
+        source = (ROOT / w.CLIENT_SOURCE).read_text(encoding='utf-8')
+        self.assertIn(repr(w.SIGNATURE_PREFIX.decode()).replace('\\\\', '\\'), source)
+        self.assertIn(f"windowsApplicationId = '{w.APPLICATION_ID}'", source)
+        self.assertIn(f"updateInstallerName = '{w.SETUP}'", source)
 
 
 class ReportTests(unittest.TestCase):
@@ -268,7 +368,18 @@ class WorkflowTests(unittest.TestCase):
                 self.assertNotIn('secrets.', job(name))
                 self.assertNotIn('permissions:', job(name))
                 self.assertIn('persist-credentials: false', job(name))
-        self.assertEqual(['CNB_AUTOMATION_TOKEN'], re.findall(r'(\w+): \$\{\{ secrets\.', WORKFLOW))
+        self.assertEqual(['KEYSTORE_BASE64', 'CNB_AUTOMATION_TOKEN'], re.findall(r'(\w+): \$\{\{ secrets\.', WORKFLOW))
+
+    def test_the_signing_key_reaches_only_the_step_that_signs(self):
+        self.assertEqual(1, WORKFLOW.count('secrets.ANDROID_DEBUG_KEYSTORE'))
+        step = job('publish').split('Sign the update manifest')[1].split('- name:')[0]
+        self.assertIn('secrets.ANDROID_DEBUG_KEYSTORE', step)
+        self.assertIn('windows_release.py publish', step)
+
+    def test_the_package_is_installed_before_it_is_kept(self):
+        build = job('build')
+        self.assertLess(build.index('windows_release.py package'), build.index('windows_smoke.ps1'))
+        self.assertLess(build.index('windows_smoke.ps1'), build.index('upload-artifact'))
 
     def test_the_mirror_start_cannot_fail_a_finished_publish(self):
         step = job('publish').split('Start the CNB mirror')[1]
@@ -308,6 +419,7 @@ class WorkflowTests(unittest.TestCase):
         mirror = (ROOT / '.cnb/mirror-release.py').read_text(encoding='utf-8')
         self.assertIn(w.SETUP, mirror)
         self.assertIn(w.ARCHIVE, mirror)
+        self.assertIn(w.MANIFEST, mirror)
 
 
 if __name__ == '__main__':

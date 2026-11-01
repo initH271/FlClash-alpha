@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import json
 import os
@@ -12,7 +13,9 @@ TOKEN = os.environ['CNB_TOKEN']
 APK = 'FlClash-alpha-arm64-v8a.apk'
 CERT = '4cc5094e24f4a4cfde3a37d6c839ae376bd74c50075d8ee6bc73e25682e9afad'
 CHECKSUMS = 'SHA256SUMS.txt'
-WINDOWS = ('FlClash-alpha-windows-amd64-setup.exe', 'FlClash-alpha-windows-amd64.zip')
+SETUP = 'FlClash-alpha-windows-amd64-setup.exe'
+MANIFEST = 'update-windows.json'
+WINDOWS = (SETUP, 'FlClash-alpha-windows-amd64.zip', MANIFEST)
 
 
 def request(url, method='GET', data=None, authenticated=False, binary=False):
@@ -47,6 +50,13 @@ def upload(release_url, name, data):
     request(verify_url + separator + 'ttl=0', 'POST', authenticated=True)
 
 
+def check_windows_manifest(data, digest, tag):
+    """The app verifies the signature. This only stops a manifest that would send it to a file CNB does not have."""
+    payload = json.loads(base64.b64decode(json.loads(data)['payload']))
+    if payload['sha256'] != digest or payload['tag'] != tag:
+        raise ValueError(f'{MANIFEST} does not describe this {SETUP}')
+
+
 def mirror_windows(release):
     """Add what GitHub has and the published CNB release lacks. It runs after the APK is safely out, so it can only fail itself."""
     assets = {asset['name']: asset for asset in release['assets']}
@@ -64,10 +74,14 @@ def mirror_windows(release):
     if not all(name in assets and name in digests for name in WINDOWS):
         print('GitHub release has no complete set of Windows files yet')
         return
+    manifest = download(assets[MANIFEST])
+    if hashlib.sha256(manifest).hexdigest() != digests[MANIFEST]:
+        raise ValueError(f'{MANIFEST} checksum mismatch')
+    check_windows_manifest(manifest, digests[SETUP], release['tag_name'])
     release_url = f"{CNB}/{published['id']}"
     for name in WINDOWS:
         if name in stale:
-            data = download(assets[name])
+            data = manifest if name == MANIFEST else download(assets[name])
             if hashlib.sha256(data).hexdigest() != digests[name]:
                 raise ValueError(f'{name} checksum mismatch')
             upload(release_url, name, data)

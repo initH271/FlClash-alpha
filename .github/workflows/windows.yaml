@@ -15,6 +15,8 @@ on:
       - .gitmodules
       - .github/workflows/windows.yaml
       - .automation/windows_release.py
+      - .automation/windows_smoke.ps1
+      - lib/common/app_update.dart
   workflow_dispatch:
     inputs:
       release_tag:
@@ -119,6 +121,9 @@ jobs:
         run: dart setup.dart windows --env stable -v
       - name: Check and name the packages
         run: python .automation/windows_release.py package
+      - name: Install, run and remove the package
+        shell: pwsh
+        run: ./.automation/windows_smoke.ps1 -Setup dist-windows/FlClash-alpha-windows-amd64-setup.exe
       - uses: actions/upload-artifact@v4
         with:
           name: FlClash-alpha-windows-amd64
@@ -149,7 +154,14 @@ jobs:
         with:
           name: FlClash-alpha-windows-amd64
           path: dist-windows
-      - name: Upload the Windows files
+      # keytool converts the signing key, which build.yaml also gets from this JDK.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Sign the update manifest and upload the Windows files
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE }}
         run: python3 .automation/windows_release.py publish
       # The hourly mirror run picks the files up if this start fails, so it does not count as a failed publish.
       - name: Start the CNB mirror
