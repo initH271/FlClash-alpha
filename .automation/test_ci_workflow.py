@@ -198,7 +198,11 @@ class CiChangesTests(unittest.TestCase):
             '.automation/control.py': {'automation'},
             '.cnb.yml': {'automation'},
             'core/main.go': {'automation', 'go', 'android_unit', 'android_build'},
-            'core/Clash.Meta': {'automation', 'go', 'android_unit', 'android_build'},
+            'core/Clash.Meta': {'automation', 'go', 'android_unit', 'android_build', 'flutter'},
+            'core/protocol.go': {'automation', 'go', 'android_unit', 'android_build', 'flutter'},
+            'core/service_check.go': {'automation', 'go', 'android_unit', 'android_build', 'flutter'},
+            'services/helper/src/service/peer.rs': {'automation', 'rust', 'flutter'},
+            'AUTOMATION.md': {'automation'},
             'services/helper/src/main.rs': {'automation', 'rust'},
             'android/app/build.gradle.kts': {'automation', 'flutter', 'android_unit', 'android_build'},
             'lib/main.dart': {'automation', 'flutter', 'android_build'},
@@ -232,13 +236,15 @@ class CiChangesTests(unittest.TestCase):
     def test_the_narrowest_rules_cover_nothing_a_test_reads(self):
         # Those rules are safe only while the tests they skip read none of their files.
         for path in (ROOT / 'test').rglob('*.dart'):
-            for read in re.findall(r"(?:File|Directory)\(\s*'([^'$]+)'", path.read_text(encoding='utf-8')):
+            for read in re.findall(r"'([\w.-]+/[^'$\s]*)", path.read_text(encoding='utf-8')):
+                if read.startswith('core/Clash.Meta/'):
+                    read = 'core/Clash.Meta'
                 with self.subTest(path=path.name, read=read):
-                    self.assertTrue(changes.needed_jobs([read]) - {'automation'})
+                    self.assertIn('flutter', changes.needed_jobs([read]))
         for path in [*(ROOT / '.automation').glob('test_*.py'), ROOT / '.cnb/test_mirror_release.py']:
             for read in re.findall(r"(?:ROOT|root) / '([^']+)'", path.read_text(encoding='utf-8')):
                 with self.subTest(path=path.name, read=read):
-                    self.assertFalse(changes._match(read, changes.NEUTRAL))
+                    self.assertIn('automation', changes.needed_jobs([read]))
 
     def test_an_all_neutral_pull_request_writes_false_for_every_job(self):
         with tempfile.TemporaryDirectory() as root:
