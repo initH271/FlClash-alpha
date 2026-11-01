@@ -13,15 +13,16 @@ bool _updateDialogOpen = false;
 
 Future<void> showAppUpdateDialog(
   BuildContext context,
-  Map<String, dynamic> release,
-) async {
+  Map<String, dynamic> release, {
+  bool autoDownload = true,
+}) async {
   if (_updateDialogOpen) return;
   _updateDialogOpen = true;
   try {
     await dialogs.showCommonDialog<void>(
       context: context,
       dismissible: false,
-      child: AppUpdateDialog(release: release),
+      child: AppUpdateDialog(release: release, autoDownload: autoDownload),
     );
   } finally {
     _updateDialogOpen = false;
@@ -33,6 +34,7 @@ class AppUpdateDialog extends StatefulWidget {
   final UpdateDownload? downloader;
   final UpdateInstaller installer;
   final Future<DateTime?> Function()? releaseDateLoader;
+  final bool autoDownload;
 
   const AppUpdateDialog({
     super.key,
@@ -40,6 +42,7 @@ class AppUpdateDialog extends StatefulWidget {
     this.downloader,
     this.installer = const UpdateInstaller(),
     this.releaseDateLoader,
+    this.autoDownload = true,
   });
 
   @override
@@ -51,6 +54,7 @@ class _AppUpdateDialogState extends State<AppUpdateDialog>
   CancelToken? _token;
   File? _file;
   double? _progress;
+  late bool _started = widget.autoDownload;
   bool _verifying = false;
   bool _failed = false;
   bool _installing = false;
@@ -73,13 +77,14 @@ class _AppUpdateDialogState extends State<AppUpdateDialog>
                 widget.release['tag_name'] as String?,
                 _dateToken,
               ));
-    _download();
+    if (_started) _download();
   }
 
   Future<void> _download() async {
     final token = CancelToken();
     _token = token;
     setState(() {
+      _started = true;
       _file = null;
       _failed = false;
       _verifying = false;
@@ -184,7 +189,9 @@ class _AppUpdateDialogState extends State<AppUpdateDialog>
             onPressed: _installing ? null : () => Navigator.of(context).pop(),
             child: Text(l10n.close),
           ),
-          if (_failed)
+          if (!_started)
+            FilledButton(onPressed: _download, child: Text(l10n.download))
+          else if (_failed)
             TextButton(onPressed: _download, child: Text(l10n.updateRetry))
           else if (ready)
             FilledButton(
@@ -205,9 +212,11 @@ class _AppUpdateDialogState extends State<AppUpdateDialog>
                 '${l10n.releaseDate}: ${snapshot.data == null ? l10n.unknown : formatReleaseDate(snapshot.data!)}',
               ),
             ),
-            const SizedBox(height: 12),
-            Text(status),
-            if (!ready && !_failed) ...[
+            if (_started) ...[
+              const SizedBox(height: 12),
+              Text(status),
+            ],
+            if (_started && !ready && !_failed) ...[
               const SizedBox(height: 12),
               LinearProgressIndicator(value: _verifying ? null : _progress),
               if (!_verifying && _progress != null)

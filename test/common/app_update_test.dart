@@ -119,4 +119,50 @@ void main() {
     );
     expect(await checker.check(1), isNull);
   });
+
+  test('every channel failing throws instead of reporting no update', () async {
+    final checker = AppUpdateChecker(
+      load: (_) async => throw StateError('offline'),
+      probe: (_) async {},
+    );
+    await expectLater(checker.check(19), throwsStateError);
+  });
+
+  test('every channel timing out throws', () async {
+    final checker = AppUpdateChecker(
+      timeout: const Duration(milliseconds: 20),
+      load: (_) => Completer<Map<String, dynamic>>().future,
+      probe: (_) async {},
+    );
+    await expectLater(checker.check(19), throwsStateError);
+  });
+
+  test('every APK probe failing throws', () async {
+    final checker = AppUpdateChecker(
+      load: (_) async => release(20),
+      probe: (_) async => throw StateError('missing APK'),
+    );
+    await expectLater(checker.check(19), throwsStateError);
+  });
+
+  test('one channel answering no update beats a failing channel', () async {
+    final checker = AppUpdateChecker(
+      load: (source) async {
+        if (source.name == 'CNB') throw StateError('unreachable');
+        return release(19);
+      },
+      probe: (_) async => fail('No probe expected'),
+    );
+    expect(await checker.check(19), isNull);
+  });
+
+  test('rejected releases count as answers, not failures', () async {
+    final checker = AppUpdateChecker(
+      load: (source) async => source.name == 'GitHub'
+          ? {'tag_name': 'v99', 'body': 'no marker'}
+          : {'tag_name': 'v99', 'body': '<!-- flclash-update {bad} -->'},
+      probe: (_) async => fail('No probe expected'),
+    );
+    expect(await checker.check(1), isNull);
+  });
 }

@@ -160,11 +160,16 @@ class CommonAction extends _$CommonAction {
     bool isUser = false,
   }) async {
     if (data != null) {
-      final context = globalState.navigatorKey.currentContext!;
       if (Platform.isAndroid) {
-        await showAppUpdateDialog(context, data);
+        final autoDownload = isUser || await canAutoDownloadUpdate();
+        await showAppUpdateDialog(
+          globalState.navigatorKey.currentContext!,
+          data,
+          autoDownload: autoDownload,
+        );
         return;
       }
+      final context = globalState.navigatorKey.currentContext!;
       final res = await dialogs.showMessage(
         title: currentAppLocalizations.discoverNewVersion,
         message: _releaseSpan(

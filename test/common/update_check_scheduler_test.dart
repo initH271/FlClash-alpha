@@ -27,13 +27,13 @@ void main() {
       expect(calls, 1);
       expect(notified, [20]);
       await scheduler.check();
-      await tester.pump(const Duration(hours: 5, minutes: 59));
+      await tester.pump(const Duration(minutes: 59));
       expect(calls, 1);
       await tester.pump(const Duration(minutes: 1));
       expect(calls, 2);
       expect(notified, [20]);
       build = 21;
-      await tester.pump(const Duration(hours: 6));
+      await tester.pump(const Duration(hours: 1));
       expect(calls, 3);
       expect(notified, [20, 21]);
     } finally {
@@ -173,31 +173,32 @@ void main() {
     }
   });
 
-  testWidgets('synchronous failures release the guard and retry on schedule', (
-    tester,
-  ) async {
-    var calls = 0;
-    final errors = <Object>[];
-    final scheduler = UpdateCheckScheduler(
-      load: () {
-        calls++;
-        if (calls == 1) throw StateError('offline');
-        return Future.value(null);
-      },
-      notify: (_) async => fail('no release'),
-      now: tester.binding.clock.now,
-      onError: errors.add,
-    );
-    try {
-      scheduler.setEnabled(true);
-      await tester.pump();
-      expect(errors, hasLength(1));
-      await tester.pump(const Duration(hours: 6));
-      expect(calls, 2);
-    } finally {
-      scheduler.dispose();
-    }
-  });
+  testWidgets(
+    'synchronous failures release the guard and retry after the delay',
+    (tester) async {
+      var calls = 0;
+      final errors = <Object>[];
+      final scheduler = UpdateCheckScheduler(
+        load: () {
+          calls++;
+          if (calls == 1) throw StateError('offline');
+          return Future.value(null);
+        },
+        notify: (_) async => fail('no release'),
+        now: tester.binding.clock.now,
+        onError: errors.add,
+      );
+      try {
+        scheduler.setEnabled(true);
+        await tester.pump();
+        expect(errors, hasLength(1));
+        await tester.pump(const Duration(minutes: 5));
+        expect(calls, 2);
+      } finally {
+        scheduler.dispose();
+      }
+    },
+  );
 
   testWidgets('disposal ignores late results and never arms another timer', (
     tester,
@@ -243,8 +244,115 @@ void main() {
       expect(traces.single, startsWith('skipped: last check at'));
       traces.clear();
       release = {'build': 21, 'tag_name': 'v21'};
-      await tester.pump(const Duration(hours: 6));
+      await tester.pump(const Duration(hours: 1));
       expect(traces, ['started', 'found v21']);
+    } finally {
+      scheduler.dispose();
+    }
+  });
+
+  testWidgets('resume within the hour is skipped, after an hour checks', (
+    tester,
+  ) async {
+    var calls = 0;
+    final scheduler = UpdateCheckScheduler(
+      load: () async {
+        calls++;
+        return null;
+      },
+      notify: (_) async => fail('no release'),
+      now: tester.binding.clock.now,
+      onError: (_) => fail('unexpected error'),
+    );
+    try {
+      scheduler.setEnabled(true);
+      await tester.pump();
+      expect(calls, 1);
+      scheduler.setForeground(false);
+      await tester.pump(const Duration(minutes: 59));
+      scheduler.setForeground(true);
+      await tester.pump();
+      expect(calls, 1);
+      scheduler.setForeground(false);
+      await tester.pump(const Duration(minutes: 2));
+      scheduler.setForeground(true);
+      await tester.pump();
+      expect(calls, 2);
+    } finally {
+      scheduler.dispose();
+    }
+  });
+
+  testWidgets('a failed check does not count: the next resume retries', (
+    tester,
+  ) async {
+    var calls = 0;
+    final errors = <Object>[];
+    final scheduler = UpdateCheckScheduler(
+      load: () async {
+        calls++;
+        if (calls == 1) throw StateError('offline');
+        return null;
+      },
+      notify: (_) async => fail('no release'),
+      now: tester.binding.clock.now,
+      onError: errors.add,
+    );
+    try {
+      scheduler.setEnabled(true);
+      await tester.pump();
+      expect(calls, 1);
+      expect(errors, hasLength(1));
+      scheduler.setForeground(false);
+      await tester.pump(const Duration(minutes: 1));
+      scheduler.setForeground(true);
+      await tester.pump();
+      expect(calls, 2);
+      expect(errors, hasLength(1));
+      scheduler.setForeground(false);
+      await tester.pump(const Duration(minutes: 1));
+      scheduler.setForeground(true);
+      await tester.pump();
+      expect(calls, 2, reason: 'the success counts as checked');
+    } finally {
+      scheduler.dispose();
+    }
+  });
+
+  testWidgets('failures while foregrounded retry after the delay, no spin', (
+    tester,
+  ) async {
+    var calls = 0;
+    final errors = <Object>[];
+    final scheduler = UpdateCheckScheduler(
+      load: () async {
+        calls++;
+        if (calls <= 2) throw StateError('offline');
+        return null;
+      },
+      notify: (_) async => fail('no release'),
+      now: tester.binding.clock.now,
+      onError: errors.add,
+      retryDelay: const Duration(minutes: 5),
+    );
+    try {
+      scheduler.setEnabled(true);
+      await tester.pump();
+      await tester.pump();
+      expect(calls, 1);
+      await tester.pump(const Duration(minutes: 4, seconds: 59));
+      expect(calls, 1);
+      await tester.pump(const Duration(seconds: 1));
+      expect(calls, 2);
+      await tester.pump(const Duration(minutes: 4, seconds: 59));
+      expect(calls, 2);
+      await tester.pump(const Duration(seconds: 1));
+      expect(calls, 3);
+      expect(errors, hasLength(2));
+      await tester.pump(const Duration(minutes: 59));
+      expect(calls, 3, reason: 'success returns to the regular interval');
+      await tester.pump(const Duration(minutes: 1));
+      expect(calls, 4);
     } finally {
       scheduler.dispose();
     }

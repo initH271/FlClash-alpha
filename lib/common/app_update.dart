@@ -74,17 +74,36 @@ class AppUpdateChecker {
     },
   );
 
+  /// Null when no channel offers a newer build; throws when no channel answered.
   Future<Map<String, dynamic>?> check(int installedBuild) async {
+    final failures = <String>[];
     final releases = await Future.wait(
-      updateSources.map((source) => _candidate(source, installedBuild)),
+      updateSources.map((source) async {
+        try {
+          return (
+            answered: true,
+            release: await _candidate(source, installedBuild),
+          );
+        } catch (error) {
+          failures.add('${source.name}: $error');
+          return (answered: false, release: null);
+        }
+      }),
     );
-    final available = releases.whereType<Map<String, dynamic>>().toList()
-      ..sort((a, b) {
-        final version = (b['build'] as int).compareTo(a['build'] as int);
-        return version != 0
-            ? version
-            : (a['latency'] as int).compareTo(b['latency'] as int);
-      });
+    if (releases.every((item) => !item.answered)) {
+      throw StateError('No update channel answered (${failures.join('; ')})');
+    }
+    final available =
+        releases
+            .map((item) => item.release)
+            .whereType<Map<String, dynamic>>()
+            .toList()
+          ..sort((a, b) {
+            final version = (b['build'] as int).compareTo(a['build'] as int);
+            return version != 0
+                ? version
+                : (a['latency'] as int).compareTo(b['latency'] as int);
+          });
     if (available.isEmpty) return null;
     final selected = available.first;
     return {
@@ -102,48 +121,53 @@ class AppUpdateChecker {
     UpdateSource source,
     int installedBuild,
   ) async {
+    final watch = Stopwatch()..start();
+    final release = await load(source).timeout(timeout);
+    final Map<String, dynamic> metadata;
+    final String body;
+    final RegExpMatch marker;
     try {
-      final watch = Stopwatch()..start();
-      final release = await load(source).timeout(timeout);
       if (release['draft'] == true || release['prerelease'] == true) {
         return null;
       }
-      final body = release['body'] as String? ?? '';
-      final marker = RegExp(
+      body = release['body'] as String? ?? '';
+      final found = RegExp(
         r'<!-- flclash-update (\{[^\r\n]*\}) -->',
       ).firstMatch(body);
-      if (marker == null) return null;
-      final metadata = jsonDecode(marker.group(1)!) as Map<String, dynamic>;
-      final build = metadata['build'];
-      if (build is! int ||
-          build <= installedBuild ||
-          metadata['applicationId'] != 'com.follow.clash.dev' ||
-          metadata['apk'] != updateApkName ||
-          metadata['certificateSha256'] != updateCertificate ||
-          metadata['sha256'] is! String ||
-          !RegExp(r'^[0-9a-f]{64}$').hasMatch(metadata['sha256'] as String)) {
-        return null;
-      }
-      final tag = release['tag_name'];
-      if (tag is! String || tag.isEmpty) return null;
-      final url =
-          '${source.download}/${Uri.encodeComponent(tag)}/$updateApkName';
-      await probe(url).timeout(timeout);
-      return {
-        'tag_name': tag,
-        'body': body.replaceFirst(marker.group(0)!, '').trim(),
-        'build': build,
-        'source': source.name,
-        'download_url': url,
-        'latency': watch.elapsedMicroseconds,
-        'sha256': metadata['sha256'],
-        'displayVersion': metadata['displayVersion'],
-        'upstreamVersion': metadata['upstreamVersion'] ?? metadata['version'],
-        'revision': metadata['revision'],
-        'publishedAt': metadata['publishedAt'] ?? release['published_at'],
-      };
-    } catch (_) {
+      if (found == null) return null;
+      marker = found;
+      metadata = jsonDecode(marker.group(1)!) as Map<String, dynamic>;
+    } on FormatException {
+      return null;
+    } on TypeError {
       return null;
     }
+    final build = metadata['build'];
+    if (build is! int ||
+        build <= installedBuild ||
+        metadata['applicationId'] != 'com.follow.clash.dev' ||
+        metadata['apk'] != updateApkName ||
+        metadata['certificateSha256'] != updateCertificate ||
+        metadata['sha256'] is! String ||
+        !RegExp(r'^[0-9a-f]{64}$').hasMatch(metadata['sha256'] as String)) {
+      return null;
+    }
+    final tag = release['tag_name'];
+    if (tag is! String || tag.isEmpty) return null;
+    final url = '${source.download}/${Uri.encodeComponent(tag)}/$updateApkName';
+    await probe(url).timeout(timeout);
+    return {
+      'tag_name': tag,
+      'body': body.replaceFirst(marker.group(0)!, '').trim(),
+      'build': build,
+      'source': source.name,
+      'download_url': url,
+      'latency': watch.elapsedMicroseconds,
+      'sha256': metadata['sha256'],
+      'displayVersion': metadata['displayVersion'],
+      'upstreamVersion': metadata['upstreamVersion'] ?? metadata['version'],
+      'revision': metadata['revision'],
+      'publishedAt': metadata['publishedAt'] ?? release['published_at'],
+    };
   }
 }

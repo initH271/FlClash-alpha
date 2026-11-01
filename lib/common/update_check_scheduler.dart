@@ -7,6 +7,7 @@ class UpdateCheckScheduler {
   final void Function(Object) onError;
   final void Function(String) trace;
   final Duration interval;
+  final Duration retryDelay;
 
   UpdateCheckScheduler({
     required this.load,
@@ -14,7 +15,8 @@ class UpdateCheckScheduler {
     required this.onError,
     this.now = DateTime.now,
     this.trace = _ignore,
-    this.interval = const Duration(hours: 6),
+    this.interval = const Duration(hours: 1),
+    this.retryDelay = const Duration(minutes: 5),
   });
 
   Timer? _timer;
@@ -22,6 +24,7 @@ class UpdateCheckScheduler {
   DateTime? _lastChecked;
   Map<String, dynamic>? _pending;
   final Set<String> _notified = {};
+  bool _loadFailed = false;
   bool _enabled = false;
   bool _foreground = true;
   bool _disposed = false;
@@ -34,6 +37,7 @@ class UpdateCheckScheduler {
       _revision++;
       _pending = null;
       _lastChecked = null;
+      _loadFailed = false;
       _timer?.cancel();
     } else {
       unawaited(check());
@@ -56,6 +60,7 @@ class UpdateCheckScheduler {
     if (_checking != null) return _checking!;
     final fetch = _pending == null;
     if (fetch &&
+        !_loadFailed &&
         _lastChecked != null &&
         now().difference(_lastChecked!) < interval) {
       trace('skipped: last check at $_lastChecked');
@@ -72,10 +77,19 @@ class UpdateCheckScheduler {
     _timer?.cancel();
     try {
       if (fetch) {
-        _lastChecked = now();
         trace('started');
-        final release = await load();
+        final Map<String, dynamic>? release;
+        try {
+          release = await load();
+        } catch (_) {
+          if (!_disposed && _enabled && revision == _revision) {
+            _loadFailed = true;
+          }
+          rethrow;
+        }
         if (_disposed || !_enabled || revision != _revision) return false;
+        _lastChecked = now();
+        _loadFailed = false;
         trace(
           release == null ? 'no newer build' : 'found ${release['tag_name']}',
         );
@@ -112,7 +126,9 @@ class UpdateCheckScheduler {
   void _arm() {
     _timer?.cancel();
     if (_disposed || !_enabled || !_foreground || _checking != null) return;
-    final remaining = _lastChecked == null
+    final remaining = _loadFailed
+        ? retryDelay
+        : _lastChecked == null
         ? Duration.zero
         : interval - now().difference(_lastChecked!);
     _timer = Timer(remaining.isNegative ? Duration.zero : remaining, () {

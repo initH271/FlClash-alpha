@@ -67,7 +67,14 @@ class _AboutViewState extends ConsumerState<AboutView> {
     if (ref.read(loadingProvider(LoadingTag.checkUpdate))) return;
     final commonAction = ref.read(commonActionProvider.notifier);
     final result = await globalState.loadingRun(
-      () async => (release: await request.checkForUpdate()),
+      () async {
+        try {
+          return (release: await request.checkForUpdate());
+        } catch (error) {
+          commonPrint.log('Update check failed: ${compactError(error)}');
+          return (release: null);
+        }
+      },
       title: context.appLocalizations.checkUpdate,
       tag: LoadingTag.checkUpdate,
     );
