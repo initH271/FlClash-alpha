@@ -101,6 +101,15 @@ jobs:
           (cd plugins/rust_api/rust && cargo build --locked)
           export FRB_DART_LOAD_EXTERNAL_LIBRARY_NATIVE_LIB_DIR="$PWD/plugins/rust_api/rust/target/debug"
           flutter test --reporter expanded
+      - name: Fetch CA certificates
+        if: steps.plan.outputs.compile == 'true'
+        env:
+          CA_BUNDLE: cacert-2026-09-25.pem
+          CA_BUNDLE_SHA256: a41b5d356aea97a529fe27e0f7316d2f9d946d75927476cf9cf1b90637d00505
+        run: |
+          bundle=core/Clash.Meta/component/ca/ca-certificates.crt
+          curl -fsSL --retry 3 -o "$bundle" "https://curl.se/ca/$CA_BUNDLE"
+          echo "$CA_BUNDLE_SHA256  $bundle" | sha256sum -c -
       - name: Build ARM64 APK
         if: steps.plan.outputs.compile == 'true'
         env:

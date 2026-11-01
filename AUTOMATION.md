@@ -42,6 +42,10 @@ with that artifact on its hourly pass, without compiling again. A branch `automa
 keep those branches. A failure it cannot reuse opens a `[构建待处理]` Issue, and a later release that contains the commit
 closes it.
 
+Before compiling, `build.yaml` and the `Android release compile` job of `ci.yml` fetch the CA bundle upstream pins, which
+the core and `FlClashHttpOverrides.trustCoreRoots` embed and the submodule keeps empty. Bump `CA_BUNDLE` and
+`CA_BUNDLE_SHA256` with upstream.
+
 `control.py status` also writes the commit status `FlClash/approved-build`. Nothing reads it.
 
 [RELEASE_CHANNELS.md](RELEASE_CHANNELS.md) covers the channels and the app's updater, and
