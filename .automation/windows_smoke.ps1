@@ -10,6 +10,7 @@ $App = Join-Path $env:ProgramFiles 'FlClash-alpha'
 $Exe = Join-Path $App 'FlClash.exe'
 $Helper = Join-Path $App 'FlClashHelperService.exe'
 $Uninstall = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\${AppId}_is1"
+$Shortcut = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\FlClash-alpha.lnk'
 $Logs = Join-Path $env:RUNNER_TEMP 'windows-smoke'
 New-Item -ItemType Directory -Force -Path $Logs | Out-Null
 $Client = Get-Content -Raw (Join-Path $PSScriptRoot '..\lib\common\app_update.dart')
@@ -45,6 +46,7 @@ function Run-Setup([string] $Log) {
 Step "1. Install with the updater's arguments: $Arguments"
 Run-Setup 'install.log'
 Check (Test-Path $Exe) "$Exe exists"
+Check (Test-Path $Shortcut) "$Shortcut exists"
 $Entry = Get-ItemProperty $Uninstall
 Check ($Entry.Publisher -eq $Publisher) "publisher is $Publisher, found '$($Entry.Publisher)'"
 Check ($Entry.InstallLocation.TrimEnd('\') -eq $App) "install location is $App, found '$($Entry.InstallLocation)'"
@@ -89,4 +91,5 @@ Check ($Removal.WaitForExit(120000)) 'the uninstaller finished'
 Wait-Until { -not (Test-Path $App) } 60 "$App to disappear"
 Wait-Until { -not (Test-Path $Uninstall) } 30 'the uninstall entry to disappear'
 Check ((Our-Process).Count -eq 0) 'the app is not running any more'
+Check (-not (Test-Path $Shortcut)) 'the shortcut is gone'
 Pass 'the directory and the uninstall entry are gone'
