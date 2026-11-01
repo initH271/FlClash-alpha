@@ -8,18 +8,20 @@ import sys
 
 JOBS = ('automation', 'go', 'rust', 'flutter', 'android_unit', 'android_build')
 # Nothing compiles or tests these. A trailing '/' names a directory; *.md counts only at the root.
-NEUTRAL = ('docs/', 'snapshots/', 'LICENSE')
+NEUTRAL = ('docs/', 'snapshots/', 'LICENSE', '.agents/', '.github/ISSUE_TEMPLATE/', '.github/pull_request_template.md')
 # First match wins. Every path that is not neutral also runs the automation tests: they take
 # seconds and read files from all over the repository.
 RULES = (
     # An upstream upgrade always changes the followed version, and it must run everything.
     (('.github/workflows/ci.yml', '.automation/policy.json'), JOBS),
-    (('.automation/', '.cnb/', '.cnb.yml', '.github/workflows/'), ()),
+    (('.automation/', '.cnb/', '.cnb.yml', '.github/workflows/', '.github/scripts/', '.github/dependabot.yml',
+      'macos/'), ()),
     (('core/', 'build_config.yaml', '.gitmodules'), ('go', 'android_unit', 'android_build')),
     (('services/',), ('rust',)),
     (('android/',), ('flutter', 'android_unit', 'android_build')),
     (('lib/', 'arb/', 'assets/', 'shaders/'), ('flutter', 'android_build')),
-    (('test/',), ('flutter',)),
+    # No job compiles linux/ or windows/, but Dart tests read their packaging files and the release notes.
+    (('test/', 'linux/', 'windows/', '.github/release-notes.md'), ('flutter',)),
 )
 
 
