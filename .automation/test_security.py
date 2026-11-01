@@ -258,6 +258,9 @@ class SecurityWorkflowTests(unittest.TestCase):
         self.assertRegex(self.source, r"cron: '")
         self.assertIn('branches: [main]', self.source)
 
+    def test_the_scan_writes_no_go_cache_for_the_compiling_jobs_to_hit(self):
+        self.assertRegex(self.source, r"actions/setup-go@\S+\n(?:\s+.*\n)*?\s+cache: false\n")
+
     def test_the_tracking_issues_are_gone(self):
         for name in ('security_watch.py', 'security_groups.py'):
             self.assertFalse((ROOT / '.automation' / name).exists())

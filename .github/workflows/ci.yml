@@ -122,6 +122,8 @@ jobs:
           submodules: recursive
           persist-credentials: false
       - uses: ./.github/actions/setup-android-toolchain
+        with:
+          android: 'false'
       - name: Install Flutter dependencies
         run: flutter pub get
       - name: Analyze and test

@@ -1,9 +1,11 @@
 import importlib.util
 import json
+import os
 import pathlib
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -153,9 +155,24 @@ class CiWorkflowTests(unittest.TestCase):
         self.assertEqual(sorted((job, job) for job in changes.JOBS), sorted(declared))
 
 
+    def test_only_the_flutter_job_turns_the_android_tools_off(self):
+        users = {name: block for name, block in self.jobs.items() if 'setup-android-toolchain' in block}
+        self.assertEqual({'flutter', 'android-unit-tests', 'android-build'}, set(users))
+        for name, block in users.items():
+            with self.subTest(job=name):
+                self.assertEqual(name == 'flutter', "android: 'false'" in block)
+
+    def test_the_action_always_installs_flutter_and_rust_and_gates_the_rest(self):
+        steps = re.split(r'^    - ', self.action.split('steps:\n')[1], flags=re.M)[1:]
+        always = [step.split('\n')[0].split('@')[0] for step in steps if "if: inputs.android == 'true'" not in step]
+        self.assertEqual(['uses: subosito/flutter-action', 'name: Setup Rust', 'uses: Swatinem/rust-cache'], always)
+
+
 class CiChangesTests(unittest.TestCase):
     def test_documentation_needs_no_job(self):
-        self.assertEqual(set(), changes.needed_jobs(['docs/a.png', 'README.md', 'LICENSE', 'snapshots/x']))
+        self.assertEqual(set(), changes.needed_jobs(['docs/a.png', 'README.md', 'LICENSE', 'snapshots/x', '.agents/rules.md',
+                                                     '.github/pull_request_template.md',
+                                                     '.github/ISSUE_TEMPLATE/bug_report.yml']))
 
     def test_markdown_counts_as_documentation_only_at_the_root(self):
         self.assertEqual(set(changes.JOBS), changes.needed_jobs(['plugins/x/README.md']))
@@ -167,7 +184,7 @@ class CiChangesTests(unittest.TestCase):
 
     def test_unknown_paths_run_every_job(self):
         for path in ('pubspec.yaml', 'plugins/rust_api/rust/src/lib.rs', 'tool/changelog.dart', '.github/release.json',
-                     '.github/actions/setup-android-toolchain/action.yml', '.github/scripts/ci_changes.py',
+                     '.github/actions/setup-android-toolchain/action.yml', '.github/release_template.md',
                      'something/new', '"quoted'):
             with self.subTest(path=path):
                 self.assertEqual(set(changes.JOBS), changes.needed_jobs([path]))
@@ -186,10 +203,60 @@ class CiChangesTests(unittest.TestCase):
             'android/app/build.gradle.kts': {'automation', 'flutter', 'android_unit', 'android_build'},
             'lib/main.dart': {'automation', 'flutter', 'android_build'},
             'test/a_test.dart': {'automation', 'flutter'},
+            '.github/dependabot.yml': {'automation'},
+            '.github/scripts/ci_changes.py': {'automation'},
+            '.github/scripts/sign-apk.sh': {'automation'},
+            '.github/release-notes.md': {'automation', 'flutter'},
+            'linux/packaging/deb/make_config.yaml': {'automation', 'flutter'},
+            'windows/runner/Runner.rc': {'automation', 'flutter'},
+            'macos/Runner/Info.plist': {'automation'},
         }
         for path, expected in cases.items():
             with self.subTest(path=path):
                 self.assertEqual(expected, changes.needed_jobs([path]))
+
+    def test_pull_requests_that_only_touched_automation_and_documents_run_only_automation(self):
+        pull_requests = {
+            131: ['.automation/test_cnb_pipelines.py', '.automation/test_npc_review.py', '.cnb.yml',
+                  '.github/scripts/npc_review.py', '.github/workflows/npc-review.yml'],
+            132: ['.agents/rules.md', '.automation/test_ci_paths.py', '.automation/test_ci_workflow.py',
+                  '.automation/test_cnb_pipelines.py', '.automation/test_security.py', '.cnb.yml',
+                  '.github/pull_request_template.md', 'AGENTS.md', 'FORK_PATCHES.md'],
+            143: ['.agents/commands.md', '.automation/test_security.py', '.github/dependabot.yml'],
+            150: ['.automation/test_security.py', '.github/dependabot.yml', 'AUTOMATION.md', 'SECURITY_AUTOMATION.md'],
+        }
+        for number, paths in pull_requests.items():
+            with self.subTest(number=number):
+                self.assertEqual({'automation'}, changes.needed_jobs(paths))
+
+    def test_the_narrowest_rules_cover_nothing_a_test_reads(self):
+        # Those rules are safe only while the tests they skip read none of their files.
+        for path in (ROOT / 'test').rglob('*.dart'):
+            for read in re.findall(r"(?:File|Directory)\(\s*'([^'$]+)'", path.read_text(encoding='utf-8')):
+                with self.subTest(path=path.name, read=read):
+                    self.assertTrue(changes.needed_jobs([read]) - {'automation'})
+        for path in [*(ROOT / '.automation').glob('test_*.py'), ROOT / '.cnb/test_mirror_release.py']:
+            for read in re.findall(r"(?:ROOT|root) / '([^']+)'", path.read_text(encoding='utf-8')):
+                with self.subTest(path=path.name, read=read):
+                    self.assertFalse(changes._match(read, changes.NEUTRAL))
+
+    def test_an_all_neutral_pull_request_writes_false_for_every_job(self):
+        with tempfile.TemporaryDirectory() as root:
+            def git(*args):
+                command = ['git', '-c', 'user.name=t', '-c', 'user.email=t@example.com', *args]
+                subprocess.run(command, cwd=root, check=True, capture_output=True)
+            git('init', '-q')
+            pathlib.Path(root, '.agents').mkdir()
+            pathlib.Path(root, '.agents/rules.md').write_text('one\n', encoding='utf-8')
+            git('add', '.agents')
+            git('commit', '-qm', 'one')
+            pathlib.Path(root, '.agents/rules.md').write_text('two\n', encoding='utf-8')
+            git('commit', '-qam', 'two')
+            output = pathlib.Path(root, 'github-output')
+            env = {**os.environ, 'GITHUB_EVENT_NAME': 'pull_request', 'GITHUB_OUTPUT': str(output)}
+            subprocess.run([sys.executable, str(ROOT / '.github/scripts/ci_changes.py')], cwd=root, env=env, check=True,
+                           capture_output=True)
+            self.assertEqual({f'{job}=false' for job in changes.JOBS}, set(output.read_text(encoding='utf-8').split()))
 
     def test_an_upstream_upgrade_runs_every_job_however_small_it_is(self):
         self.assertEqual(set(changes.JOBS), changes.needed_jobs(['.automation/policy.json', 'lib/main.dart']))
