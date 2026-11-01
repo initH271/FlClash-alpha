@@ -100,7 +100,7 @@ class CommonAction extends _$CommonAction {
   }
 
   Future<bool> autoCheckUpdate() async {
-    if (!system.isAndroid) return false;
+    if (!system.supportsAppUpdate) return false;
     _updatesStarted = true;
     _updates.setEnabled(ref.read(appSettingProvider).autoCheckUpdate);
     return _updates.check();
@@ -160,7 +160,7 @@ class CommonAction extends _$CommonAction {
     bool isUser = false,
   }) async {
     if (data != null) {
-      if (Platform.isAndroid) {
+      if (system.supportsAppUpdate) {
         final autoDownload = isUser || await canAutoDownloadUpdate();
         await showAppUpdateDialog(
           globalState.navigatorKey.currentContext!,

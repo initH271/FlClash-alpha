@@ -22,7 +22,13 @@ Future<void> showAppUpdateDialog(
     await dialogs.showCommonDialog<void>(
       context: context,
       dismissible: false,
-      child: AppUpdateDialog(release: release, autoDownload: autoDownload),
+      child: AppUpdateDialog(
+        release: release,
+        autoDownload: autoDownload,
+        installer: system.isWindows
+            ? const WindowsUpdateInstaller()
+            : const UpdateInstaller(),
+      ),
     );
   } finally {
     _updateDialogOpen = false;
@@ -212,10 +218,7 @@ class _AppUpdateDialogState extends State<AppUpdateDialog>
                 '${l10n.releaseDate}: ${snapshot.data == null ? l10n.unknown : formatReleaseDate(snapshot.data!)}',
               ),
             ),
-            if (_started) ...[
-              const SizedBox(height: 12),
-              Text(status),
-            ],
+            if (_started) ...[const SizedBox(height: 12), Text(status)],
             if (_started && !ready && !_failed) ...[
               const SizedBox(height: 12),
               LinearProgressIndicator(value: _verifying ? null : _progress),

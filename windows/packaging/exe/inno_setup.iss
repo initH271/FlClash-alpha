@@ -6,6 +6,7 @@ AppPublisher={{PUBLISHER_NAME}}
 AppPublisherURL={{PUBLISHER_URL}}
 AppSupportURL={{PUBLISHER_URL}}
 AppUpdatesURL={{PUBLISHER_URL}}
+UninstallDisplayName=FlClash-alpha
 DefaultDirName={{INSTALL_DIR_NAME}}
 DisableProgramGroupPage=yes
 OutputDir=.
@@ -19,18 +20,23 @@ ArchitecturesAllowed={{ARCH}}
 ArchitecturesInstallIn64BitMode={{ARCH}}
 
 [Code]
+// By path, because an official FlClash installed next to this one has the same
+// process names. PowerShell is 64-bit here: 64-bit install mode runs {sys} natively,
+// and a 32-bit process cannot read the Path of a 64-bit one.
 procedure KillProcesses;
 var
-  Processes: TArrayOfString;
-  i: Integer;
+  Directory: String;
   ResultCode: Integer;
 begin
-  Processes := ['FlClash.exe', 'FlClashCore.exe', 'FlClashHelperService.exe'];
-
-  for i := 0 to GetArrayLength(Processes)-1 do
-  begin
-    Exec('taskkill', '/f /im ' + Processes[i], '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  end;
+  Directory := AddBackslash(ExpandConstant('{app}'));
+  StringChangeEx(Directory, '''', '''''', True);
+  Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    '-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "' +
+    '$d=''' + Directory + ''';' +
+    'Get-Process -Name FlClash,FlClashCore,FlClashHelperService -ErrorAction SilentlyContinue | ' +
+    'Where-Object { $_.Path -and $_.Path.StartsWith($d, [StringComparison]::OrdinalIgnoreCase) } | ' +
+    'ForEach-Object { Stop-Process -Id $_.Id -Force; $_.WaitForExit(5000) | Out-Null }"',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
 procedure UnregisterHelperService;
@@ -62,18 +68,18 @@ begin
   Result := Pos(Lowercase(AddBackslash(ExpandConstant('{app}'))), Lowercase(Value)) > 0;
 end;
 
-// The value name is appName and the schemes are protocolSchemes, both in
-// lib/common.
+// The value name is windowsAutoLaunchName and the schemes are protocolSchemes,
+// both in lib/common.
 procedure RemoveUserRegistrations;
 var
   Schemes: TArrayOfString;
   Value: String;
   i: Integer;
 begin
-  if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', '{{APP_NAME}}', Value) and PointsIntoApp(Value) then
+  if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'FlClash-alpha', Value) and PointsIntoApp(Value) then
   begin
-    RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', '{{APP_NAME}}');
-    RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run', '{{APP_NAME}}');
+    RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'FlClash-alpha');
+    RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run', 'FlClash-alpha');
   end;
 
   Schemes := ['clash', 'clashmeta', 'flclash'];
@@ -93,11 +99,34 @@ begin
   Result := '';
 end;
 
+// The in-app updater asks for this: a silent install skips the [Run] entry, and
+// the installer has just closed the app. windowsInstallerArguments in
+// lib/common/app_update.dart.
+function RelaunchRequested: Boolean;
+var
+  i: Integer;
+begin
+  Result := False;
+  for i := 1 to ParamCount do
+  begin
+    if CompareText(ParamStr(i), '/RELAUNCH') = 0 then
+    begin
+      Result := True;
+    end;
+  end;
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ResultCode: Integer;
 begin
   if CurStep = ssPostInstall then
   begin
     ClearStaleProxy;
+    if RelaunchRequested then
+    begin
+      Exec(ExpandConstant('{app}\{{EXECUTABLE_NAME}}'), '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
+    end;
   end;
 end;
 
@@ -113,10 +142,10 @@ end;
 // windows/runner/Runner.rc.
 procedure RemoveUserData;
 begin
-  DelTree(ExpandConstant('{userappdata}\com.follow\clash'), True, True, True);
-  DelTree(ExpandConstant('{localappdata}\com.follow\clash'), True, True, True);
-  RemoveDir(ExpandConstant('{userappdata}\com.follow'));
-  RemoveDir(ExpandConstant('{localappdata}\com.follow'));
+  DelTree(ExpandConstant('{userappdata}\com.follow.dev\clash'), True, True, True);
+  DelTree(ExpandConstant('{localappdata}\com.follow.dev\clash'), True, True, True);
+  RemoveDir(ExpandConstant('{userappdata}\com.follow.dev'));
+  RemoveDir(ExpandConstant('{localappdata}\com.follow.dev'));
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
