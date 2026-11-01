@@ -1,0 +1,191 @@
+name: Windows build
+run-name: Windows ${{ inputs.release_tag || github.event.workflow_run.head_sha || github.sha }}
+on:
+  pull_request:
+    paths:
+      - windows/**
+      - services/helper/**
+      - plugins/**
+      - core/**
+      - setup.dart
+      - pubspec.yaml
+      - pubspec.lock
+      - build_config.yaml
+      - distribute_options.yaml
+      - .gitmodules
+      - .github/workflows/windows.yaml
+      - .automation/windows_release.py
+      - .automation/windows_smoke.ps1
+      - lib/common/app_update.dart
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Published release to build and add the Windows files to (empty only compiles the selected ref)
+        type: string
+  workflow_run:
+    workflows: ['Android release']
+    types: [completed]
+permissions:
+  contents: read
+concurrency:
+  group: windows-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+env:
+  RUSTUP_TOOLCHAIN: '1.99.0'
+jobs:
+  plan:
+    name: Windows plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      mode: ${{ steps.plan.outputs.mode }}
+      source: ${{ steps.plan.outputs.source }}
+      tag: ${{ steps.plan.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: python3 .automation/windows_release.py plan
+  helper-test:
+    name: Windows helper test
+    needs: plan
+    if: needs.plan.outputs.mode == 'compile'
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.source }}
+          persist-credentials: false
+      - name: Setup Rust
+        run: rustup toolchain install 1.99.0 --profile minimal
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-helper-test
+          workspaces: services/helper
+      - name: Run Windows service tests
+        run: cargo test --locked --manifest-path services/helper/Cargo.toml --features windows-service
+  build:
+    name: Windows build
+    needs: plan
+    if: needs.plan.outputs.mode == 'compile' || needs.plan.outputs.mode == 'publish'
+    runs-on: windows-2022
+    timeout-minutes: 60
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - name: Enable git long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.source }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache-dependency-path: core/go.sum
+      - name: Setup Rust
+        run: rustup toolchain install 1.99.0 --profile minimal
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-build
+          workspaces: |
+            services/helper
+            plugins/rust_api/rust
+          cache-directories: .dart_tool/hooks_runner
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.6'
+          cache: true
+      - name: Set the release version
+        run: python .automation/windows_release.py stamp
+      - name: Install Flutter dependencies
+        run: flutter pub get
+      # The submodule's bundle is empty: the core embeds this file and FlClashHttpOverrides.trustCoreRoots loads it.
+      - name: Fetch CA certificates
+        shell: bash
+        env:
+          CA_BUNDLE: cacert-2026-09-25.pem
+          CA_BUNDLE_SHA256: a41b5d356aea97a529fe27e0f7316d2f9d946d75927476cf9cf1b90637d00505
+        run: |
+          bundle=core/Clash.Meta/component/ca/ca-certificates.crt
+          curl -fsSL --retry 3 -o "$bundle" "https://curl.se/ca/$CA_BUNDLE"
+          echo "$CA_BUNDLE_SHA256  $bundle" | sha256sum -c -
+      - name: Build installer and archive
+        run: dart setup.dart windows --env stable -v
+      - name: Check and name the packages
+        run: python .automation/windows_release.py package
+      - name: Install, run and remove the package
+        shell: pwsh
+        run: ./.automation/windows_smoke.ps1 -Setup dist-windows/FlClash-alpha-windows-amd64-setup.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FlClash-alpha-windows-amd64
+          path: dist-windows/
+          retention-days: ${{ needs.plan.outputs.mode == 'publish' && 14 || 3 }}
+          if-no-files-found: error
+  publish:
+    name: Windows publish
+    needs: [plan, build]
+    if: needs.plan.outputs.mode == 'publish'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      issues: write
+    concurrency:
+      group: windows-publish
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.plan.outputs.tag }}
+      SOURCE: ${{ needs.plan.outputs.source }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: FlClash-alpha-windows-amd64
+          path: dist-windows
+      # keytool converts the signing key, which build.yaml also gets from this JDK.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Sign the update manifest and upload the Windows files
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE }}
+        run: python3 .automation/windows_release.py publish
+      # The hourly mirror run picks the files up if this start fails, so it does not count as a failed publish.
+      - name: Start the CNB mirror
+        continue-on-error: true
+        env:
+          CNB_AUTOMATION_TOKEN: ${{ secrets.CNB_AUTOMATION_TOKEN }}
+        run: python3 .automation/control.py mirror
+  report:
+    name: Windows failure report
+    needs: [plan, build, publish]
+    if: >-
+      always() && github.event_name != 'pull_request' &&
+      ((needs.plan.outputs.mode == 'publish' && (needs.build.result != 'success' || needs.publish.result != 'success'))
+      || (needs.plan.result != 'success' && github.event_name == 'workflow_run'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: python3 .automation/windows_release.py report

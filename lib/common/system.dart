@@ -39,6 +39,8 @@ class System {
 
   bool get isLinux => Platform.isLinux;
 
+  bool get supportsAppUpdate => isAndroid || isWindows;
+
   bool get isTV => _isTV;
 
   Future<int> init() async {

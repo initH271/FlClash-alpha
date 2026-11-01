@@ -3,6 +3,7 @@ import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/ui/icons/icons.dart';
+import 'package:fl_clash/views/proxies/fork/delay_test_fab.dart';
 import 'package:fl_clash/views/proxies/list.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:material_ui/material_ui.dart';
@@ -120,12 +121,14 @@ class _ProxiesViewState extends ConsumerState<ProxiesView> {
     final isDelayTesting = ref.watch(currentGroupDelayTestingProvider);
     return IconButtonData(
       glyph: AppGlyphs.bolt,
-      onPressed: () {
-        _proxiesTabKey.currentState?.delayTestCurrentGroup();
-      },
+      onPressed: _delayTestCurrentGroup,
       tooltip: context.appLocalizations.delayTest,
       isLoading: isDelayTesting,
     );
+  }
+
+  void _delayTestCurrentGroup() {
+    _proxiesTabKey.currentState?.delayTestCurrentGroup();
   }
 
   void _onSearch(String value) {
@@ -175,7 +178,13 @@ class _ProxiesViewState extends ConsumerState<ProxiesView> {
       title: context.appLocalizations.proxies,
       searchState: AppBarSearchState(onSearch: _onSearch),
       body: switch (style.type) {
-        ProxiesType.tab => _tabView,
+        ProxiesType.tab =>
+          picker
+              ? _tabView
+              : ProxiesDelayTestFab(
+                  onPressed: _delayTestCurrentGroup,
+                  child: _tabView,
+                ),
         ProxiesType.list => const ProxiesListView(),
       },
     );

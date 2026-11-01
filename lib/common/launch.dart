@@ -7,11 +7,18 @@ import 'package:launch_at_startup/launch_at_startup.dart';
 import 'constant.dart';
 import 'system.dart';
 
+// A Run value of its own so the official FlClash keeps its entry. The installer
+// removes it on uninstall: windows/packaging/exe/inno_setup.iss.
+const windowsAutoLaunchName = 'FlClash-alpha';
+
 class AutoLaunch {
   static AutoLaunch? _instance;
 
   AutoLaunch._internal() {
-    launcher.setup(appName: appName, appPath: Platform.resolvedExecutable);
+    launcher.setup(
+      appName: Platform.isWindows ? windowsAutoLaunchName : appName,
+      appPath: Platform.resolvedExecutable,
+    );
   }
 
   factory AutoLaunch() {
