@@ -5,6 +5,7 @@ import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/ui/icons/icons.dart';
 import 'package:fl_clash/views/proxies/card.dart';
+import 'package:fl_clash/views/proxies/fork/delay_test_fab.dart';
 import 'package:fl_clash/views/proxies/proxies.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -19,6 +20,7 @@ const _phone = Size(393, 852);
 const _safeBottom = 34.0;
 
 final _fab = find.byType(FloatingActionButton);
+final _charging = find.descendant(of: _fab, matching: find.byType(ShaderMask));
 
 class _SpyProxiesAction extends ProxiesAction {
   static final tested = <String>[];
@@ -118,6 +120,25 @@ Future<void> _pumpView(
   await tester.pump();
 }
 
+// Alone, since the top action's spinner never stops running animations.
+Future<void> _pumpButton(
+  WidgetTester tester,
+  ProviderContainer container,
+) async {
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: container,
+      child: TestApp(
+        child: ProxiesDelayTestFab(
+          onPressed: () {},
+          child: const SizedBox.shrink(),
+        ),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
 Future<void> _pumpHome(WidgetTester tester, ProviderContainer container) async {
   container.read(viewSizeProvider.notifier).value = _phone;
   container.read(currentPageLabelProvider.notifier).toPage(PageLabel.proxies);
@@ -191,7 +212,7 @@ void main() {
     expect(_SpyProxiesAction.tested, ['A', 'B']);
   });
 
-  testWidgets('while the current group tests it spins and ignores taps', (
+  testWidgets('while the current group tests it charges and ignores taps', (
     tester,
   ) async {
     final container = _container(tester);
@@ -199,20 +220,17 @@ void main() {
     final testing = container.read(delayTestingGroupsProvider.notifier);
     bool enabled() =>
         tester.widget<FloatingActionButton>(_fab).onPressed != null;
-    final spinner = find.descendant(
-      of: _fab,
-      matching: find.byType(CommonCircleLoading),
-    );
 
     testing.start('B');
     await tester.pump();
     expect(enabled(), isTrue);
-    expect(spinner, findsNothing);
+    expect(_charging, findsNothing);
 
     testing.start('A');
     await tester.pump();
     expect(enabled(), isFalse);
-    expect(spinner, findsOneWidget);
+    expect(_charging, findsOneWidget);
+    expect(tester.widget<FloatingActionButton>(_fab).tooltip, 'Delay test');
     await tester.tap(_fab, warnIfMissed: false);
     await tester.pump();
     expect(_SpyProxiesAction.tested, isEmpty);
@@ -220,8 +238,49 @@ void main() {
     testing.stop('A');
     await tester.pump();
     expect(enabled(), isTrue);
-    expect(spinner, findsNothing);
+    expect(_charging, findsNothing);
     await tester.pumpAndSettle();
+  });
+
+  testWidgets('the bolt charges in place and comes back when testing ends', (
+    tester,
+  ) async {
+    final container = _container(tester);
+    await _pumpButton(tester, container);
+    final testing = container.read(delayTestingGroupsProvider.notifier);
+    final bolt = find.descendant(
+      of: _fab,
+      matching: find.byGlyph(AppGlyphs.bolt),
+    );
+    final idle = tester.getRect(bolt);
+
+    testing.start('A');
+    await tester.pump();
+    expect(_charging, findsOneWidget);
+    expect(tester.getRect(bolt), idle);
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(tester.hasRunningAnimations, isTrue);
+
+    testing.stop('A');
+    await tester.pump();
+    expect(_charging, findsNothing);
+    expect(tester.getRect(bolt), idle);
+    await tester.pumpAndSettle();
+    expect(tester.hasRunningAnimations, isFalse);
+  });
+
+  testWidgets('with animations off the bolt holds still', (tester) async {
+    tester.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(disableAnimations: true);
+    addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+    final container = _container(tester);
+    await _pumpButton(tester, container);
+
+    container.read(delayTestingGroupsProvider.notifier).start('A');
+    await tester.pump();
+
+    expect(_charging, findsOneWidget);
+    expect(tester.hasRunningAnimations, isFalse);
   });
 
   testWidgets('the last row scrolls clear of it', (tester) async {

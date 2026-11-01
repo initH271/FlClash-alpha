@@ -48,8 +48,74 @@ class _DelayTestButton extends ConsumerWidget {
         tooltip: context.appLocalizations.delayTest,
         onPressed: isTesting ? null : onPressed,
         child: isTesting
-            ? const CommonCircleLoading()
+            ? const _ChargingBolt()
             : const GlyphIcon(AppGlyphs.bolt, fill: 1),
+      ),
+    );
+  }
+}
+
+/// The idle bolt filling from below and fading back, or held half full where
+/// animations are off.
+class _ChargingBolt extends StatefulWidget {
+  const _ChargingBolt();
+
+  @override
+  State<_ChargingBolt> createState() => _ChargingBoltState();
+}
+
+class _ChargingBoltState extends State<_ChargingBolt>
+    with SingleTickerProviderStateMixin {
+  static const _filling = Interval(0, 0.7, curve: Curves.easeInOut);
+  static const _fading = Interval(0.7, 1);
+
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1200),
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (context.disableAnimations) {
+      _controller.stop();
+    } else if (!_controller.isAnimating) {
+      _controller.repeat();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = IconTheme.of(context).color!;
+    final dim = color.withValues(alpha: 0.3);
+    final isStill = context.disableAnimations;
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (_, child) {
+          final progress = _controller.value;
+          final level = isStill ? 0.5 : _filling.transform(progress);
+          final lit = isStill
+              ? color
+              : Color.lerp(color, dim, _fading.transform(progress))!;
+          return ShaderMask(
+            blendMode: BlendMode.srcIn,
+            shaderCallback: (bounds) => LinearGradient(
+              begin: Alignment.bottomCenter,
+              end: Alignment.topCenter,
+              colors: [lit, lit, dim, dim],
+              stops: [0, level, level, 1],
+            ).createShader(bounds),
+            child: child,
+          );
+        },
+        child: const GlyphIcon(AppGlyphs.bolt, fill: 1),
       ),
     );
   }
