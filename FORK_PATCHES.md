@@ -366,6 +366,13 @@
 - **为什么**：手机上显示全部服务。
 - **核对**：上游改 `ServiceStatusCard.build`、`_syncShown`、`shownServiceCountProvider`、`_ServiceGrid` 时重看。兜底："a phone card scrolls sideways through every service"、"a vertical drag on the phone card scrolls the page"。
 
+### I14. 代理页底部测速按钮
+
+- **文件**：上游文件 `lib/views/proxies/proxies.dart`；fork 文件 `lib/views/proxies/fork/delay_test_fab.dart`、`lib/ui/fork/foot_action.dart`、`test/views/proxies/fork/delay_test_fab_test.dart`。
+- **改了什么**：tab 模式的代理页在右下角加一个带文字的浮动测速按钮，和顶部按钮并存，共用 `delayTestCurrentGroup()` 和 `currentGroupDelayTestingProvider`；页面主体多留出按钮的高度。列表模式、仪表盘弹窗（`picker`）和没有代理组时不显示。
+- **为什么**：上游 `8378c70` 去掉了底部按钮，手机上单手够不到顶部。
+- **核对**：上游改 `ProxiesView` 的 `primaryAction`、`_tabView` 的接入方式，或改 `BottomInsetScope` / `context.bottomInset` / `NavigationDock.insetOf` 时重看；上游若恢复自己的底部按钮，这个补丁可以去掉。兜底：`test/views/proxies/fork/delay_test_fab_test.dart`、`test/widgets/proxies_tab_test.dart` 的 "the bar following the current group leaves the page built"。
+
 ## J. 仪表盘磁贴
 
 ### J1. 磁贴扩展机制（#116）
