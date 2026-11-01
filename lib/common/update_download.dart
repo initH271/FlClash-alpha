@@ -7,15 +7,18 @@ import 'package:fl_clash/common/print.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
-bool isWifiOnly(List<ConnectivityResult> results) =>
-    results.length == 1 && results.single == ConnectivityResult.wifi;
+// A VPN also reports the transport it runs on, so [wifi, vpn] is a VPN over Wi-Fi.
+bool isOnWifi(List<ConnectivityResult> results) {
+  final transports = results.toSet()..remove(ConnectivityResult.vpn);
+  return transports.length == 1 && transports.single == ConnectivityResult.wifi;
+}
 
 Future<bool> canAutoDownloadUpdate({
   Future<List<ConnectivityResult>> Function()? check,
 }) async {
   try {
     final results = await (check ?? Connectivity().checkConnectivity)();
-    final allowed = isWifiOnly(results);
+    final allowed = isOnWifi(results);
     commonPrint.log('Update auto-download: $results -> $allowed');
     return allowed;
   } catch (error) {

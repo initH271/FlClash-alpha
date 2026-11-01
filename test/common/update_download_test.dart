@@ -128,18 +128,28 @@ void main() {
 
   group('auto download network policy', () {
     const w = ConnectivityResult.wifi;
-    test('only a lone wifi result allows it', () {
-      expect(isWifiOnly([w]), isTrue);
-      expect(isWifiOnly([w, ConnectivityResult.vpn]), isFalse);
-      expect(isWifiOnly([ConnectivityResult.vpn]), isFalse);
-      expect(isWifiOnly([ConnectivityResult.none]), isFalse);
-      expect(isWifiOnly([ConnectivityResult.mobile]), isFalse);
-      expect(isWifiOnly([ConnectivityResult.ethernet]), isFalse);
-      expect(isWifiOnly([]), isFalse);
+    const v = ConnectivityResult.vpn;
+    const m = ConnectivityResult.mobile;
+    test('wifi allows it, with or without a VPN on top', () {
+      expect(isOnWifi([w]), isTrue);
+      expect(isOnWifi([w, v]), isTrue);
+      expect(isOnWifi([v, w]), isTrue);
+    });
+
+    test('anything else does not', () {
+      expect(isOnWifi([v]), isFalse);
+      expect(isOnWifi([v, m]), isFalse);
+      expect(isOnWifi([w, m]), isFalse);
+      expect(isOnWifi([w, v, m]), isFalse);
+      expect(isOnWifi([ConnectivityResult.none]), isFalse);
+      expect(isOnWifi([m]), isFalse);
+      expect(isOnWifi([ConnectivityResult.ethernet]), isFalse);
+      expect(isOnWifi([]), isFalse);
     });
 
     test('canAutoDownloadUpdate uses the check result', () async {
       expect(await canAutoDownloadUpdate(check: () async => [w]), isTrue);
+      expect(await canAutoDownloadUpdate(check: () async => [w, v]), isTrue);
       expect(
         await canAutoDownloadUpdate(
           check: () async => [ConnectivityResult.mobile],
