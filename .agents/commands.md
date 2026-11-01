@@ -176,13 +176,14 @@ its own, lets that run decide, and names the files that only failed together. Se
 `tool/check_plugins.sh` does not descend into it. It must stay out of `flutter test`, because a test run of `plugins/setup`
 would execute the build hook itself.
 
-CI builds Android only, so nothing compiles the native plugin code under `plugins/*/{linux,macos,windows}`.
-`tool/check_plugins.sh` only analyzes and tests the Dart side.
+`ci-ok` builds Android only. `.github/workflows/windows.yaml` compiles `plugins/*/windows` on PRs that touch native or
+build files, as an advisory check, and nothing compiles `plugins/*/{linux,macos}`. `tool/check_plugins.sh` only analyzes
+and tests the Dart side.
 
 Root `flutter test` only discovers the root package's `test/` directory by default. Include bundled plugin Dart tests by passing paths explicitly, or run `flutter test` from that plugin package directory, or run `bash tool/check_plugins.sh` to analyze and test every plugin package. Native plugin tests under platform folders are not run by `flutter test`.
 
 CI does not run `tool/check_plugins.sh`, the `setup_hooks` tests, the hook tests, `dart format` or a coverage gate. Those
-mostly guard desktop plugins and appearance, and this fork ships Android. Run them by hand when you change that code.
+mostly guard desktop plugins and appearance. Run them by hand when you change that code.
 
 For the current Core/service architecture, useful focused checks are:
 
@@ -228,8 +229,8 @@ CGO_ENABLED=0 go vet . ./cmd/...
 GOOS=android GOARCH=arm64 CGO_ENABLED=0 go vet -tags=with_gvisor . ./mobile ./tun ./platform
 ```
 
-The Windows Helper's loopback/session protocol tests are host-independent by default. Windows CI additionally enables its
-service implementation:
+The Windows Helper's loopback/session protocol tests are host-independent by default. The `Windows helper test` job of
+`windows.yaml` additionally enables its service implementation:
 
 ```bash
 cargo fmt --manifest-path services/helper/Cargo.toml -- --check

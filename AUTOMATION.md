@@ -21,6 +21,7 @@ rule is in the PR template, and no check enforces it.
 | `ci-ok` | `.github/workflows/ci.yml` | Runs on every PR and passes when every job passed or was skipped. `.github/scripts/ci_changes.py` picks the jobs from the changed paths: automation tests, Go, Rust, Flutter, Android unit tests, Android release compile. A path no rule names runs every job. A change to `.automation/policy.json` runs every job |
 | `Dependency vulnerability scan` | `.github/workflows/security.yaml` | See [SECURITY_AUTOMATION.md](SECURITY_AUTOMATION.md) |
 | `NPC review (advisory)` | `.github/workflows/npc-review.yml` | Not required, and not part of `ci-ok` |
+| `Windows build`, `Windows helper test` | `.github/workflows/windows.yaml` | Not required, and not part of `ci-ok`. Runs when a PR changes `windows/`, `services/helper/`, `plugins/`, `core/`, `setup.dart`, `pubspec.yaml`, `pubspec.lock`, `build_config.yaml`, `distribute_options.yaml`, `.gitmodules`, the workflow or its script. It leaves `lib/` to analyze and test on Linux, since the Windows risk sits in native code and build scripts. The packages stay on the run as an artifact for 3 days |
 
 ### NPC review
 
@@ -37,12 +38,42 @@ If that tag is already published, the run stops there, so a merge without a vers
 the run tests, compiles, signs and verifies the APK, moves CNB main with `control.py promote`, publishes the GitHub
 Release, and `control.py notify` starts the CNB mirror.
 
+`.github/workflows/windows.yaml` then adds the Windows files, in a run of its own that `build.yaml` and
+`.automation/scheduler.py` never look at, so a Windows failure cannot turn the Android release red. See
+[Windows packages](#windows-packages).
+
 Only the current `main` builds. If a later step fails after the APK was built, `.automation/scheduler.py` reruns the build
 with that artifact on its hourly pass, without compiling again. A branch `automation/recovery-<run>` marks that attempt, so
 keep those branches. A failure it cannot reuse opens a `[构建待处理]` Issue, and a later release that contains the commit
 closes it.
 
 `control.py status` also writes the commit status `FlClash/approved-build`. Nothing reads it.
+
+### Windows packages
+
+`windows.yaml` starts when `Android release` completes. `.automation/windows_release.py plan` ends the run green, without
+compiling, unless that run succeeded on this repository's `main` from a `push` or `workflow_dispatch`, the `release.json`
+of its commit names a published Release whose target is that same commit, and the Release lacks a Windows file. So a merge
+without a version change builds nothing, and adding packages to an older Release takes a manual retry.
+
+`Windows build` compiles on `windows-2022` with no secret and a read-only token. `.automation/windows_release.py stamp`
+writes the release identity into `pubspec.yaml` on the runner, because `flutter_distributor` and the Windows runner read
+the version only from there, and `package` fails the build if `FlClash.exe` or the installer carries another version or
+the archive lacks a file the app needs. It also fetches the CA bundle upstream pins, which the core embeds and the
+submodule keeps empty; bump `CA_BUNDLE` and `CA_BUNDLE_SHA256` with upstream.
+
+`Windows publish` checks the artifact again, uploads `FlClash-alpha-windows-amd64-setup.exe` and
+`FlClash-alpha-windows-amd64.zip`, and only then replaces `SHA256SUMS.txt` with the APK line first and unchanged and the
+two Windows lines after it. Title, body, `update.json` and the latest flag stay as they were. Then `control.py mirror`
+starts the CNB mirror; if that start fails, the hourly mirror run picks the files up.
+
+A failed publish run opens the Issue `[Windows 构建待处理] <tag>`, assigned to the owner, with the way to retry: run
+`windows.yaml` on `main` with `release_tag`. A later success closes it. A Release that already has both files is left
+alone, so its bytes do not change after the mirror copied them.
+
+Measured on `windows-2022` for a PR: `Windows build` 11 to 14 minutes, of which the Flutter build is about 8, and `Windows
+helper test` about 1 minute. The installer is about 44 MB and the archive about 69 MB. A release spends the same on
+`Windows build`, on top of the Android run it follows.
 
 [RELEASE_CHANNELS.md](RELEASE_CHANNELS.md) covers the channels and the app's updater, and
 [CHANGELOG_STYLE.md](CHANGELOG_STYLE.md) covers the release text.
@@ -85,8 +116,8 @@ Dependabot and the scan, with what each one misses: [SECURITY_AUTOMATION.md](SEC
 
 `.cnb.yml` does these things, and CNB runs no CI:
 
-- **Download mirror**: `.cnb/mirror-release.py` on a push to CNB main, hourly at minute 7, and when `control.py notify` or
-  the web button starts it. See [RELEASE_CHANNELS.md](RELEASE_CHANNELS.md).
+- **Download mirror**: `.cnb/mirror-release.py` on a push to CNB main, hourly at minute 7, and when `control.py notify`,
+  `control.py mirror` or the web button starts it. See [RELEASE_CHANNELS.md](RELEASE_CHANNELS.md).
 - **NPC compute**: `api_trigger_npc_review` and `api_trigger_npc_upstream`. Both run `deepseek-v4.1-flash` with
   `sandbox: true` and 40 turns. GitHub starts them with `npc: {name: CodeBuddy}`, which counts against development quota.
   The prompts live in `.cnb.yml`, and each request carries only validated numbers and SHAs. Keep secrets out of them,
@@ -108,6 +139,7 @@ Automation writes no CNB Issues or comments, and nothing on CNB merges. Bug repo
 | `control.open_pull_request` | PR, and an Issue comment with the link | After OK |
 | `control.report_conflict` | Issue comment | After OK, on a conflict or protected path, once per upstream commit |
 | `scheduler.notify_once` | `[构建待处理]` Issue assigned to the owner | Build on `main` failed and cannot be reused, one per run |
+| `windows_release.report` | `[Windows 构建待处理]` Issue assigned to the owner | Windows build or upload of a release failed, one per tag, later runs comment on it |
 | `npc-review.yml` | PR comment | Each head of a non-Dependabot PR |
 | Dependabot | PRs, alert emails | Weekly, or when an advisory appears |
 | GitHub | Workflow failure email | Scheduled or release run failed |
@@ -119,7 +151,7 @@ GitHub Actions secrets, and these two are all there are:
 | Secret | Used by | Needs |
 |---|---|---|
 | `ANDROID_DEBUG_KEYSTORE` | `build.yaml`, `sign-existing.yaml` | The personal signing key. It stays on GitHub only |
-| `CNB_AUTOMATION_TOKEN` | `build.yaml`, `upstream.yaml`, `npc-review.yml`, `npc-upstream.yml` | On `507space/FlClash-alpha`: code push, build trigger, status, stop and stage logs, release read |
+| `CNB_AUTOMATION_TOKEN` | `build.yaml`, `windows.yaml` (the one step that starts the mirror), `upstream.yaml`, `npc-review.yml`, `npc-upstream.yml` | On `507space/FlClash-alpha`: code push, build trigger, status, stop and stage logs, release read |
 
 The CNB mirror uses CNB's own pipeline token. Everything else on GitHub uses `GITHUB_TOKEN`, with permissions declared in
 each workflow. The repository default is read-only, and Actions may create pull requests.
@@ -132,6 +164,8 @@ Run these from GitHub Actions on `main`:
 - `build.yaml`: `source_ref` must be the current `main`. `reuse_run` takes a run whose artifact to reuse.
 - `npc-upstream.yml`: `issue`, `tag`, `base`, `head`.
 - `sign-existing.yaml`: signs the artifact of an earlier run.
+- `windows.yaml`: `release_tag` empty compiles the selected ref and keeps the packages on the run. `release_tag` set, on
+  `main`, builds that Release's target commit and adds the Windows files, unless it already has both.
 
 ## Changing the process
 
@@ -161,3 +195,9 @@ Unit tests and read-only dry runs cover these. None has run for real:
 - `api_trigger_npc_upstream`, including whether a truncated diff of about 1 MB still yields a useful analysis.
 - A real release since this process replaced the old one: `control.py promote`, `notify`, and the mirror it starts.
 - Dependabot security updates on `/core`, and the Cargo patch-only rule.
+- `windows.yaml` beyond the PR compile: the `workflow_run` trigger, `release_tag`, `Windows publish`, the failure Issue,
+  and whether a recovery run of `build.yaml`, which `GITHUB_TOKEN` dispatches, fires `workflow_run` at all. If it does
+  not, run `windows.yaml` with `release_tag`.
+- The mirror adding files to a Release already published on CNB, and comparing the `size` CNB reports. The OpenAPI
+  schema documents `assets`, `size` and `overwrite`, and sets no such restriction, but no run has done it.
+- Installing or starting any Windows package: CI only compiles and inspects them.
