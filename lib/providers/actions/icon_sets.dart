@@ -10,7 +10,7 @@ class IconSetsAction extends _$IconSetsAction {
         .where((item) => item.url == url)
         .firstOrNull;
     if (existing != null) {
-      return sync(name.isEmpty ? existing : existing.copyWith(name: name));
+      return sync(existing, name: name.isEmpty ? null : name);
     }
     final content = await _download(url);
     return _put(
@@ -36,22 +36,24 @@ class IconSetsAction extends _$IconSetsAction {
     );
   }
 
-  Future<IconSet> sync(IconSet iconSet) async {
+  /// Only [iconSet]'s id is read; it may predate the downloads ahead of it.
+  Future<IconSet> sync(IconSet iconSet, {String? name, String? url}) async {
     final before = await _stored(iconSet.id);
-    final content = await _download(iconSet.url);
-    final latest = before == null ? null : await _stored(iconSet.id);
-    if (before != null && (latest == null || latest.url != before.url)) {
+    if (before == null) {
+      return iconSet;
+    }
+    final content = await _download(url ?? before.url);
+    final latest = await _stored(iconSet.id);
+    if (latest == null || latest.url != before.url) {
       return latest ?? iconSet;
     }
-    final base = switch ((before, latest)) {
-      (final before?, final latest?) => latest.copyWith(
-        name: iconSet.name == before.name ? latest.name : iconSet.name,
-        url: iconSet.url,
-      ),
-      _ => iconSet,
-    };
     return _put(
-      base.copyWith(icons: content.icons, lastUpdateTime: DateTime.now()),
+      latest.copyWith(
+        name: name ?? latest.name,
+        url: url ?? latest.url,
+        icons: content.icons,
+        lastUpdateTime: DateTime.now(),
+      ),
     );
   }
 

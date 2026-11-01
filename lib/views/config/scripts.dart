@@ -165,12 +165,12 @@ class _ScriptsViewState extends ConsumerState<ScriptsView> {
     if (url == null || url == script.url) {
       return;
     }
-    await _handleUpdate(script.copyWith(url: url));
+    await _handleUpdate(script, url: url);
   }
 
-  Future<void> _handleUpdate(Script script) async {
+  Future<void> _handleUpdate(Script script, {String? url}) async {
     await globalState.safeRun(
-      () => _scriptsAction.updateScript(script),
+      () => _scriptsAction.updateScript(script, url: url),
       title: script.label,
     );
   }

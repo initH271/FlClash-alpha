@@ -99,7 +99,14 @@ class _IconSetsViewState extends ConsumerState<IconSetsView> {
       ref.read(iconSetsProvider.notifier).put(next);
       return;
     }
-    await _run(() => _iconSetsAction.sync(next), title: next.name);
+    await _run(
+      () => _iconSetsAction.sync(
+        iconSet,
+        name: next.name == iconSet.name ? null : next.name,
+        url: next.url,
+      ),
+      title: next.name,
+    );
   }
 
   Future<void> _handleDelete(IconSet iconSet) async {
