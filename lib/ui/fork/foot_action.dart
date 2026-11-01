@@ -2,7 +2,7 @@ import 'package:fl_clash/ui/context.dart';
 import 'package:fl_clash/ui/inherited.dart';
 import 'package:material_ui/material_ui.dart';
 
-/// Floats an extended FAB at the end of [body]'s foot, clear of its content.
+/// Floats a FAB at the end of [body]'s foot, clear of its content.
 class FloatingFootAction extends StatelessWidget {
   const FloatingFootAction({
     super.key,
@@ -15,7 +15,7 @@ class FloatingFootAction extends StatelessWidget {
 
   static const _margin = BottomInsetScope.dockedSearchMargin;
 
-  // An extended FloatingActionButton's height in Material 3.
+  // A standard FloatingActionButton's side in Material 3.
   static const _actionHeight = 56.0;
 
   @override

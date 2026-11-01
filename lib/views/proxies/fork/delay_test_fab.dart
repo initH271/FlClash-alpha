@@ -42,14 +42,14 @@ class _DelayTestButton extends ConsumerWidget {
     final isTesting = ref.watch(currentGroupDelayTestingProvider);
     return ElasticPress(
       enabled: !isTesting,
-      child: FloatingActionButton.extended(
+      child: FloatingActionButton(
         heroTag: null,
         splashColor: Colors.transparent,
+        tooltip: context.appLocalizations.delayTest,
         onPressed: isTesting ? null : onPressed,
-        icon: isTesting
+        child: isTesting
             ? const CommonCircleLoading()
             : const GlyphIcon(AppGlyphs.bolt, fill: 1),
-        label: Text(context.appLocalizations.delayTest),
       ),
     );
   }

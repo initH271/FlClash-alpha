@@ -131,7 +131,7 @@ Future<void> _pumpHome(WidgetTester tester, ProviderContainer container) async {
 }
 
 void main() {
-  testWidgets('the tab page floats the delay test', (tester) async {
+  testWidgets('the tab page floats the delay test as an icon', (tester) async {
     await _pumpView(tester, _container(tester));
 
     expect(_fab, findsOneWidget);
@@ -140,9 +140,12 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.descendant(of: _fab, matching: find.text('Delay test')),
-      findsOneWidget,
+      find.descendant(of: _fab, matching: find.byType(Text)),
+      findsNothing,
     );
+    expect(find.text('Delay test'), findsNothing);
+    expect(tester.widget<FloatingActionButton>(_fab).tooltip, 'Delay test');
+    expect(tester.getSize(_fab), const Size.square(56));
   });
 
   testWidgets('the list page tests from its group headers instead', (
