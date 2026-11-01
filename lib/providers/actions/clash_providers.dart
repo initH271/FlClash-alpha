@@ -14,6 +14,8 @@ class ClashProvidersAction extends _$ClashProvidersAction {
     bool refresh = false,
   }) async {
     final before = await _stored(provider.id);
+    final deleted = before == null && previous != null;
+    if (deleted) return provider;
     final download =
         provider.isRemote &&
         (refresh || provider.fileName != previous?.fileName);
@@ -63,6 +65,14 @@ class ClashProvidersAction extends _$ClashProvidersAction {
         ref.read(clashProvidersProvider).value ??
         await database.clashProvidersDao.query().get();
     return rows.where((item) => item.id == id).firstOrNull;
+  }
+
+  /// Asks the database: a stale list would delete a live local set's source.
+  Future<bool> _clearedIfDeleted(ClashProvider compiled) async {
+    final rows = await database.clashProvidersDao.query().get();
+    if (rows.any((item) => item.id == compiled.id)) return false;
+    unawaited(_clearCache(compiled));
+    return true;
   }
 
   Future<ClashProvider> _compile(
@@ -120,13 +130,16 @@ class ClashProvidersAction extends _$ClashProvidersAction {
     return null;
   }
 
-  /// Returns false when the set changed shape, which only a reapply loads.
+  /// Returns false when only a reapply loads the set, or it was deleted.
   Future<bool> syncRemote(ClashProvider provider) async {
     final next = await _compile(provider, download: true);
+    if (await _clearedIfDeleted(next)) {
+      return false;
+    }
     if (next == provider) {
       return true;
     }
-    await database.clashProviders.put(next.toCompanion());
+    await database.clashProvidersDao.updateExisting(next);
     unawaited(applyIfReferenced(ProviderKind.rule, {next.label}, force: true));
     return false;
   }
@@ -142,8 +155,8 @@ class ClashProvidersAction extends _$ClashProvidersAction {
         download:
             provider.isRemote && !await File(await provider.path).exists(),
       );
-      if (next != provider) {
-        await database.clashProviders.put(next.toCompanion());
+      if (!await _clearedIfDeleted(next) && next != provider) {
+        await database.clashProvidersDao.updateExisting(next);
       }
       return next;
     } catch (e) {

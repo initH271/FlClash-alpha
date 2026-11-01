@@ -308,7 +308,11 @@ class ProfilesAction extends _$ProfilesAction {
                   .updateRuleProvider(provider)
             : () => ref
                   .read(clashProvidersActionProvider.notifier)
-                  .putProvider(provider, content: utf8.encode(content)),
+                  .putProvider(
+                    provider,
+                    previous: provider,
+                    content: utf8.encode(content),
+                  ),
       ));
     }
     final customProxies = ref.read(customProxiesProvider.notifier);

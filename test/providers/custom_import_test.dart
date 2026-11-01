@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -681,6 +682,7 @@ tun:
     late db.Database testDatabase;
     late ProviderContainer container;
     late List<String> compiledUrls;
+    late Completer<void>? compileGate;
 
     setUp(() async {
       await AppLocalizations.load(const Locale('en'));
@@ -711,11 +713,13 @@ tun:
         ).toCompanion(),
       );
       compiledUrls = [];
+      compileGate = null;
       final core = _MockCoreHandlerInterface();
       when(() => core.validateConfig(any())).thenAnswer((_) async => '');
       when(() => core.compileRuleSet(any(), url: any(named: 'url'))).thenAnswer(
         (invocation) async {
           compiledUrls.add(invocation.namedArguments[#url] as String);
+          await compileGate?.future;
           return (
             behavior: RuleProviderBehavior.classical,
             format: RuleProviderFormat.text,
@@ -809,6 +813,55 @@ dns:
         {DnsOverrideKey.enable},
       );
     });
+
+    test(
+      'a set deleted while it waits for a free load stays deleted',
+      () async {
+        final action = container.read(profilesActionProvider.notifier);
+        final config = await action.readCustomImport(
+          profileId,
+          utf8.encode('''
+rule-providers:
+  a: {type: http, url: https://example.com/a.txt}
+  b: {type: http, url: https://example.com/b.txt}
+  c: {type: http, url: https://example.com/c.txt}
+  d: {type: http, url: https://example.com/d.txt}
+  queuedRemote: {type: http, url: https://example.com/queued.txt}
+  queuedLocal: {type: inline, behavior: domain, payload: [+.example.com]}
+  kept: {type: inline, behavior: domain, payload: [+.example.org]}
+'''),
+        );
+        expect(maxConcurrentImports, 4);
+        compileGate = Completer();
+
+        final importing = action.importCustomProfile(profileId, config);
+        final stopwatch = Stopwatch()..start();
+        while (compiledUrls.length < maxConcurrentImports) {
+          if (stopwatch.elapsed > const Duration(seconds: 10)) {
+            fail('the first loads did not start: $compiledUrls');
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+        final providers = container.read(clashProvidersActionProvider.notifier);
+        for (final provider in container.read(clashProvidersProvider).value!) {
+          if (provider.label.startsWith('queued')) {
+            providers.delProvider(provider);
+          }
+        }
+        compileGate!.complete();
+        await importing;
+        await pumpEventQueue();
+
+        expect(
+          [
+            for (final provider
+                in await testDatabase.clashProvidersDao.query().get())
+              provider.label,
+          ],
+          ['a', 'b', 'c', 'd', 'kept'],
+        );
+      },
+    );
 
     test('takes an app proxy carrying a dialer for the same proxy and gives '
         'the dialer to the profile', () async {

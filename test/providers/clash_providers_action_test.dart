@@ -8,14 +8,19 @@ import 'package:fl_clash/core/interface.dart';
 import 'package:fl_clash/core/method.dart';
 import 'package:fl_clash/database/database.dart' as db;
 import 'package:fl_clash/enum/enum.dart';
+import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/action.dart';
+import 'package:fl_clash/providers/app.dart';
 import 'package:fl_clash/providers/config.dart';
 import 'package:fl_clash/providers/core.dart';
 import 'package:fl_clash/providers/database.dart';
 import 'package:fl_clash/providers/state.dart';
+import 'package:fl_clash/state.dart';
+import 'package:flutter/widgets.dart' show Locale;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:riverpod/riverpod.dart';
 
 import '../helpers/app_paths.dart';
@@ -55,6 +60,7 @@ void main() {
   late RuleSetInfo compiled;
   late Exception? compileError;
   late Completer<void>? compileGate;
+  late List<String> compileStarts;
   late List<({String name, String url})> compiles;
   late List<String> reloads;
   late Exception? reloadError;
@@ -98,12 +104,15 @@ void main() {
     );
     compileError = null;
     compileGate = null;
+    compileStarts = [];
     compiles = [];
     reloads = [];
     reloadError = null;
     final cacheRoot = Directory(await appPath.providerCacheRootPath);
     if (cacheRoot.existsSync()) cacheRoot.deleteSync(recursive: true);
     final core = _MockCoreHandlerInterface();
+    when(() => core.updateGeoData(any())).thenAnswer((_) async => '');
+    when(() => core.getExternalProvider(any())).thenAnswer((_) async => null);
     when(() => core.updateExternalProvider(any())).thenAnswer((
       invocation,
     ) async {
@@ -116,6 +125,7 @@ void main() {
     ) async {
       final name = invocation.positionalArguments.single as String;
       final url = invocation.namedArguments[#url] as String;
+      compileStarts.add(name);
       await compileGate?.future;
       compiles.add((name: name, url: url));
       if (compileError case final error?) throw error;
@@ -206,6 +216,8 @@ void main() {
 
   test('renaming a used rule set reapplies under its old name', () async {
     await ruleSetIn(profileId, 'Ad block', id: 30);
+    await testDatabase.clashProvidersDao.putAll([rules.toCompanion()]);
+    await pumpEventQueue();
 
     await action().putProvider(
       rules.copyWith(label: 'Renamed'),
@@ -442,6 +454,8 @@ void main() {
   });
 
   test('a set that turns classical drops the mrs it had', () async {
+    await testDatabase.clashProvidersDao.putAll([rules.toCompanion()]);
+    await pumpEventQueue();
     File(await rules.compiledPath)
       ..createSync(recursive: true)
       ..writeAsStringSync('old mrs');
@@ -621,6 +635,244 @@ void main() {
     });
   });
 
+  group('a set deleted around a download stays deleted', () {
+    const first = ClashProvider(
+      id: 51,
+      label: 'First',
+      url: 'https://example.com/first.list',
+      behavior: RuleProviderBehavior.domain,
+      format: RuleProviderFormat.text,
+    );
+    const second = ClashProvider(
+      id: 52,
+      label: 'Second',
+      url: 'https://example.com/second.list',
+      behavior: RuleProviderBehavior.domain,
+      format: RuleProviderFormat.text,
+    );
+    const classical = (
+      behavior: RuleProviderBehavior.classical,
+      format: RuleProviderFormat.text,
+    );
+
+    Future<void> until(
+      String reason,
+      FutureOr<bool> Function() condition,
+    ) async {
+      final stopwatch = Stopwatch()..start();
+      while (!await condition()) {
+        if (stopwatch.elapsed > const Duration(seconds: 10)) {
+          fail('$reason after ${stopwatch.elapsed}');
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+    }
+
+    Future<void> expectNoCache(ClashProvider provider) async {
+      final files = [
+        File(await provider.path),
+        File(await provider.compiledPath),
+      ];
+      await until('still cached', () => files.every((f) => !f.existsSync()));
+    }
+
+    /// A clear with nothing to delete has no visible end, and one still running
+    /// when the download lands would race the clear that download triggers.
+    Future<void> delete(ClashProvider provider) async {
+      File(await provider.compiledPath)
+        ..createSync(recursive: true)
+        ..writeAsStringSync('old mrs');
+      action().delProvider(provider);
+      await expectNoCache(provider);
+    }
+
+    Future<List<int>> storedIds() async => [
+      for (final provider in await testDatabase.clashProvidersDao.query().get())
+        provider.id,
+    ];
+
+    Future<void> downloadStarts(ClashProvider provider) => until(
+      'no download of ${provider.label}',
+      () => compileStarts.contains(provider.fileName),
+    );
+
+    Future<void> seedHeld() async {
+      await testDatabase.clashProvidersDao.putAll([
+        first.toCompanion(),
+        second.toCompanion(),
+      ]);
+      await until(
+        'rows not listed',
+        () => container.read(clashProvidersProvider).value?.length == 2,
+      );
+      compileGate = Completer();
+    }
+
+    test('when auto update reaches it after an earlier download', () async {
+      await seedHeld();
+      container
+          .read(patchClashConfigProvider.notifier)
+          .update((state) => state.copyWith(geoAutoUpdate: true));
+      container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
+
+      final updating = container
+          .read(resourcesActionProvider.notifier)
+          .autoUpdate();
+      await downloadStarts(first);
+      await delete(second);
+      compileGate!.complete();
+      await updating;
+      await pumpEventQueue();
+
+      expect(await storedIds(), [first.id]);
+      expect(compileStarts, [first.fileName]);
+      await expectNoCache(second);
+    });
+
+    test('when update all listed it just before the delete', () async {
+      await AppLocalizations.load(const Locale('en'));
+      await seedHeld();
+      compileGate!.complete();
+
+      final updating = container
+          .read(resourcesActionProvider.notifier)
+          .updateAll();
+      action().delProvider(second);
+      await updating;
+      await pumpEventQueue();
+
+      expect(await storedIds(), [first.id]);
+      expect(compileStarts, [first.fileName]);
+      await expectNoCache(second);
+    });
+
+    group('while the proxies page updates it', () {
+      Future<String> update() async => container
+          .read(proxiesActionProvider.notifier)
+          .updateProvider(
+            ExternalProvider(
+              name: first.label,
+              type: 'Rule',
+              path: await first.corePath,
+              count: 1,
+              vehicleType: 'File',
+              updateAt: DateTime(2026),
+            ),
+          );
+
+      test('and comes back a different shape', () async {
+        await seedHeld();
+        compiled = classical;
+
+        final updating = update();
+        await downloadStarts(first);
+        await delete(first);
+        compileGate!.complete();
+        expect(await updating, '');
+        await pumpEventQueue();
+
+        expect(await storedIds(), [second.id]);
+        expect(reloads, isEmpty);
+        expect(setup.applies, 0);
+        await expectNoCache(first);
+      });
+
+      test('and comes back the same shape', () async {
+        await seedHeld();
+
+        final updating = update();
+        await downloadStarts(first);
+        await delete(first);
+        compileGate!.complete();
+        expect(await updating, '');
+
+        expect(await storedIds(), [second.id]);
+        expect(reloads, isEmpty);
+        await expectNoCache(first);
+      });
+    });
+
+    group('while a config is built', () {
+      setUp(() async {
+        globalState.packageInfo = PackageInfo(
+          appName: 'test',
+          packageName: 'test',
+          version: '1.0.0',
+          buildNumber: '1',
+        );
+      });
+
+      Future<void> build() => container
+          .read(setupActionProvider.notifier)
+          .getProfile(
+            setupState: SetupState(
+              profileId: profileId,
+              profileLastUpdateDate: null,
+              profileType: ProfileType.custom,
+              extendType: ExtendType.standard,
+              rules: [
+                Rule.parse('RULE-SET,First,DIRECT', id: 2),
+                Rule.parse('RULE-SET,Second,DIRECT', id: 3),
+              ],
+              proxyGroups: const [],
+              addedRules: const [],
+              script: null,
+              overrides: const ProfileOverrides(),
+              clashProviders: const [first, second],
+            ),
+            patchConfig: const PatchClashConfig(),
+          );
+
+      for (final (name, shape) in [
+        ('a different shape', classical),
+        ('the same shape', null),
+      ]) {
+        test('during its download, coming back $name', () async {
+          await seedHeld();
+          compiled = shape ?? compiled;
+
+          final building = build();
+          await downloadStarts(first);
+          await delete(first);
+          compileGate!.complete();
+          await building;
+
+          expect(await storedIds(), [second.id]);
+          await expectNoCache(first);
+          expect(await read(second.path), 'downloaded');
+        });
+      }
+
+      test('after the build listed it, during an earlier download', () async {
+        await seedHeld();
+        compiled = classical;
+
+        final building = build();
+        await downloadStarts(first);
+        await delete(second);
+        compileGate!.complete();
+        await building;
+
+        expect(await storedIds(), [first.id]);
+        await expectNoCache(second);
+      });
+    });
+
+    test('when a write lands just after the delete', () async {
+      await testDatabase.clashProvidersDao.updateExisting(first);
+
+      expect(await storedIds(), isEmpty);
+    });
+
+    test('and a new set is still saved', () async {
+      await action().putProvider(first);
+      await pumpEventQueue();
+
+      expect(await storedIds(), [first.id]);
+      expect(await read(first.corePath), 'mrs of downloaded');
+    });
+  });
+
   test('prepare builds a missing mrs and keeps what the Core found', () async {
     await testDatabase.clashProvidersDao.putAll([rules.toCompanion()]);
     File(await rules.path)
@@ -650,6 +902,7 @@ void main() {
       behavior: RuleProviderBehavior.domain,
       format: RuleProviderFormat.text,
     );
+    await testDatabase.clashProvidersDao.putAll([remote.toCompanion()]);
 
     final prepared = await action().prepare(remote);
 
