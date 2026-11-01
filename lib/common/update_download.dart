@@ -1,9 +1,28 @@
 import 'dart:io';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
+import 'package:fl_clash/common/print.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
+
+bool isWifiOnly(List<ConnectivityResult> results) =>
+    results.length == 1 && results.single == ConnectivityResult.wifi;
+
+Future<bool> canAutoDownloadUpdate({
+  Future<List<ConnectivityResult>> Function()? check,
+}) async {
+  try {
+    final results = await (check ?? Connectivity().checkConnectivity)();
+    final allowed = isWifiOnly(results);
+    commonPrint.log('Update auto-download: $results -> $allowed');
+    return allowed;
+  } catch (error) {
+    commonPrint.log('Update auto-download check failed: $error');
+    return false;
+  }
+}
 
 class UpdateInstaller {
   static const channel = MethodChannel('com.follow.clash/update');

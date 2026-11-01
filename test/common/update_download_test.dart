@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:fl_clash/common/update_download.dart';
@@ -124,4 +125,35 @@ void main() {
       expect(await root.list().toList(), isEmpty);
     },
   );
+
+  group('auto download network policy', () {
+    const w = ConnectivityResult.wifi;
+    test('only a lone wifi result allows it', () {
+      expect(isWifiOnly([w]), isTrue);
+      expect(isWifiOnly([w, ConnectivityResult.vpn]), isFalse);
+      expect(isWifiOnly([ConnectivityResult.vpn]), isFalse);
+      expect(isWifiOnly([ConnectivityResult.none]), isFalse);
+      expect(isWifiOnly([ConnectivityResult.mobile]), isFalse);
+      expect(isWifiOnly([ConnectivityResult.ethernet]), isFalse);
+      expect(isWifiOnly([]), isFalse);
+    });
+
+    test('canAutoDownloadUpdate uses the check result', () async {
+      expect(await canAutoDownloadUpdate(check: () async => [w]), isTrue);
+      expect(
+        await canAutoDownloadUpdate(
+          check: () async => [ConnectivityResult.mobile],
+        ),
+        isFalse,
+      );
+      expect(await canAutoDownloadUpdate(check: () async => []), isFalse);
+    });
+
+    test('canAutoDownloadUpdate is false when the check throws', () async {
+      expect(
+        await canAutoDownloadUpdate(check: () async => throw StateError('x')),
+        isFalse,
+      );
+    });
+  });
 }

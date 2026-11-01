@@ -6,8 +6,8 @@ import 'package:dio/dio.dart';
 import 'package:fl_clash/common/update_download.dart';
 import 'package:fl_clash/providers/app.dart';
 import 'package:fl_clash/widgets/app_update_dialog.dart';
-import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../helpers/test_app.dart';
 
@@ -30,6 +30,8 @@ class _Download extends UpdateDownload {
   final Completer<File> result = Completer<File>();
   CancelToken? token;
 
+  int fetches = 0;
+
   _Download(UpdateInstaller installer)
     : super(installer: installer, transfer: (_, _, _, _) async {});
 
@@ -41,6 +43,7 @@ class _Download extends UpdateDownload {
     void Function() verifying, {
     void Function(String)? onSource,
   }) {
+    fetches++;
     this.token = token;
     return result.future;
   }
@@ -58,6 +61,7 @@ void main() {
     _Installer installer,
     _Download download, {
     String body = 'Changes',
+    bool autoDownload = true,
   }) async {
     await tester.pumpWidget(
       TestApp(
@@ -70,6 +74,7 @@ void main() {
           release: {...release, 'body': body},
           downloader: download,
           installer: installer,
+          autoDownload: autoDownload,
         ),
       ),
     );
@@ -244,5 +249,32 @@ void main() {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pump();
     expect(installer.installs, 2);
+  });
+
+  testWidgets('autoDownload false waits for the download button', (
+    tester,
+  ) async {
+    final installer = _Installer();
+    final download = _Download(installer);
+    await pump(tester, installer, download, autoDownload: false);
+    expect(download.fetches, 0);
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+    expect(find.text('Downloading update...'), findsNothing);
+    expect(find.text('Download'), findsOneWidget);
+    expect(find.text('Changes'), findsOneWidget);
+    await tester.tap(find.text('Download'));
+    await tester.pump();
+    expect(download.fetches, 1);
+    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    expect(find.text('Download'), findsNothing);
+  });
+
+  testWidgets('default autoDownload downloads immediately', (tester) async {
+    final installer = _Installer();
+    final download = _Download(installer);
+    await pump(tester, installer, download);
+    expect(download.fetches, 1);
+    expect(find.text('Download'), findsNothing);
+    expect(find.byType(LinearProgressIndicator), findsOneWidget);
   });
 }
