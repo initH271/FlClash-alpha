@@ -847,7 +847,7 @@ void main() {
     });
 
     test('when a write lands just after the delete', () async {
-      await testDatabase.clashProvidersDao.updateExisting(first);
+      await testDatabase.clashProvidersDao.updateInfo(first);
 
       expect(await storedIds(), isEmpty);
     });
@@ -858,6 +858,453 @@ void main() {
 
       expect(await storedIds(), [first.id]);
       expect(await read(first.corePath), 'mrs of downloaded');
+    });
+  });
+
+  group('a stale copy of a set leaves its edits alone', () {
+    const first = ClashProvider(
+      id: 61,
+      label: 'First',
+      url: 'https://example.com/first.list',
+      behavior: RuleProviderBehavior.domain,
+      format: RuleProviderFormat.text,
+    );
+    const second = ClashProvider(
+      id: 62,
+      label: 'Second',
+      url: 'https://example.com/second.list',
+      behavior: RuleProviderBehavior.domain,
+      format: RuleProviderFormat.text,
+    );
+    const movedUrl = 'https://example.com/moved.list';
+    const classical = (
+      behavior: RuleProviderBehavior.classical,
+      format: RuleProviderFormat.text,
+    );
+    final firstMoved = first.copyWith(url: movedUrl);
+    final secondMoved = second.copyWith(url: movedUrl);
+
+    Future<void> until(
+      String reason,
+      FutureOr<bool> Function() condition,
+    ) async {
+      final stopwatch = Stopwatch()..start();
+      while (!await condition()) {
+        if (stopwatch.elapsed > const Duration(seconds: 10)) {
+          fail('$reason after ${stopwatch.elapsed}');
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+    }
+
+    Future<void> expectNoCache(ClashProvider provider) async {
+      final files = [
+        File(await provider.path),
+        File(await provider.compiledPath),
+      ];
+      await until('still cached', () => files.every((f) => !f.existsSync()));
+    }
+
+    Future<void> seedHeld({required String usedBy}) async {
+      await ruleSetIn(profileId, usedBy, id: 30);
+      await testDatabase.clashProvidersDao.putAll([
+        first.toCompanion(),
+        second.toCompanion(),
+      ]);
+      await until(
+        'rows not listed',
+        () => container.read(clashProvidersProvider).value?.length == 2,
+      );
+      compileGate = Completer();
+    }
+
+    Future<void> downloadStarts(ClashProvider provider) => until(
+      'no download of ${provider.label}',
+      () => compileStarts.contains(provider.fileName),
+    );
+
+    Future<void> rename(ClashProvider provider, String label) async {
+      container
+          .read(clashProvidersProvider.notifier)
+          .put(provider.copyWith(label: label));
+      await until(
+        'name not saved',
+        () async => (await stored(provider.id)).label == label,
+      );
+    }
+
+    Future<void> move(ClashProvider provider) async {
+      container
+          .read(clashProvidersProvider.notifier)
+          .put(provider.copyWith(url: movedUrl));
+      await until(
+        'url not saved',
+        () async => (await stored(provider.id)).url == movedUrl,
+      );
+    }
+
+    Future<void> reorder() async {
+      container.read(clashProvidersProvider.notifier).order(1, 0);
+      await until(
+        'order not saved',
+        () async => (await stored(first.id)).order != null,
+      );
+    }
+
+    group('when auto update reaches it after an earlier download', () {
+      Future<void> autoUpdate() {
+        container
+            .read(patchClashConfigProvider.notifier)
+            .update((state) => state.copyWith(geoAutoUpdate: true));
+        container.read(coreStatusProvider.notifier).value =
+            CoreStatus.connected;
+        return container.read(resourcesActionProvider.notifier).autoUpdate();
+      }
+
+      test('and it was renamed', () async {
+        await seedHeld(usedBy: 'Second');
+
+        final updating = autoUpdate();
+        await downloadStarts(first);
+        await rename(second, 'Renamed');
+        compileGate!.complete();
+        await updating;
+        await pumpEventQueue();
+
+        expect((await stored(second.id)).label, 'Renamed');
+        expect(await ruleSetOf(profileId), 'Renamed');
+      });
+
+      test('and it moved, so the new url is the one downloaded', () async {
+        await seedHeld(usedBy: 'Second');
+
+        final updating = autoUpdate();
+        await downloadStarts(first);
+        await move(second);
+        compileGate!.complete();
+        await updating;
+        await pumpEventQueue();
+
+        expect((await stored(second.id)).url, movedUrl);
+        expect(compiles, contains((name: secondMoved.fileName, url: movedUrl)));
+        expect(compileStarts, isNot(contains(second.fileName)));
+        expect(await read(secondMoved.path), 'downloaded');
+        expect(File(await second.path).existsSync(), isFalse);
+      });
+
+      test('and the options form moved it', () async {
+        await seedHeld(usedBy: 'Second');
+
+        final updating = autoUpdate();
+        await downloadStarts(first);
+        final saving = action().putProvider(secondMoved, previous: second);
+        await downloadStarts(secondMoved);
+        compileGate!.complete();
+        await (updating, saving).wait;
+        await pumpEventQueue();
+
+        expect((await stored(second.id)).url, movedUrl);
+        expect(compileStarts, isNot(contains(second.fileName)));
+        expect(await read(secondMoved.path), 'downloaded');
+      });
+    });
+
+    group('when update all listed it just before the edit', () {
+      setUp(() async {
+        await AppLocalizations.load(const Locale('en'));
+        await seedHeld(usedBy: 'Second');
+        compileGate!.complete();
+      });
+
+      Future<List<UpdatingMessage>> updateAll() =>
+          container.read(resourcesActionProvider.notifier).updateAll();
+
+      test('and it was renamed', () async {
+        final updating = updateAll();
+        container
+            .read(clashProvidersProvider.notifier)
+            .put(second.copyWith(label: 'Renamed'));
+        await updating;
+        await pumpEventQueue();
+
+        expect((await stored(second.id)).label, 'Renamed');
+        expect(await ruleSetOf(profileId), 'Renamed');
+      });
+
+      test('and it moved', () async {
+        final updating = updateAll();
+        container.read(clashProvidersProvider.notifier).put(secondMoved);
+        await updating;
+        await pumpEventQueue();
+
+        expect((await stored(second.id)).url, movedUrl);
+        expect(compileStarts, isNot(contains(second.fileName)));
+      });
+    });
+
+    group('when a form saves over what changed since it opened', () {
+      setUp(() async {
+        await seedHeld(usedBy: 'First');
+        compileGate = null;
+      });
+
+      test('its new name lands on the shape a download found', () async {
+        container
+            .read(clashProvidersProvider.notifier)
+            .put(first.withInfo(classical));
+
+        await action().putProvider(
+          first.copyWith(label: 'Renamed'),
+          previous: first,
+        );
+        await pumpEventQueue();
+
+        final saved = await stored(first.id);
+        expect(saved.label, 'Renamed');
+        expect(saved.behavior, RuleProviderBehavior.classical);
+        expect(compileStarts, isEmpty);
+      });
+
+      test('its new url leaves a name it did not touch', () async {
+        await rename(first, 'Other');
+
+        await action().putProvider(firstMoved, previous: first);
+        await pumpEventQueue();
+
+        final saved = await stored(first.id);
+        expect(saved.label, 'Other');
+        expect(saved.url, movedUrl);
+        expect(compiles.single, (name: firstMoved.fileName, url: movedUrl));
+      });
+
+      test('its new name beats one made meanwhile', () async {
+        await rename(first, 'Other');
+
+        await action().putProvider(
+          first.copyWith(label: 'Renamed'),
+          previous: first,
+        );
+        await pumpEventQueue();
+
+        expect((await stored(first.id)).label, 'Renamed');
+      });
+
+      test('its new url beats one made meanwhile', () async {
+        await move(first);
+        const typed = 'https://example.com/typed.list';
+
+        await action().putProvider(first.copyWith(url: typed), previous: first);
+        await pumpEventQueue();
+
+        expect((await stored(first.id)).url, typed);
+        expect(compiles.single.url, typed);
+      });
+
+      test('the editor keeps its name and content', () async {
+        await rename(first, 'Other');
+
+        await action().putProvider(
+          first.copyWith(label: 'Renamed'),
+          previous: first,
+          content: 'example.com'.codeUnits,
+        );
+        await pumpEventQueue();
+
+        expect((await stored(first.id)).label, 'Renamed');
+        expect(await read(first.path), 'example.com');
+      });
+    });
+
+    group('while the proxies page updates it', () {
+      Future<String> update() async => container
+          .read(proxiesActionProvider.notifier)
+          .updateProvider(
+            ExternalProvider(
+              name: first.label,
+              type: 'Rule',
+              path: await first.corePath,
+              count: 1,
+              vehicleType: 'File',
+              updateAt: DateTime(2026),
+            ),
+          );
+
+      setUp(() => seedHeld(usedBy: 'First'));
+
+      test('and it was renamed, the new shape reapplies it', () async {
+        compiled = classical;
+
+        final updating = update();
+        await downloadStarts(first);
+        await rename(first, 'Renamed');
+        compileGate!.complete();
+        expect(await updating, '');
+        await pumpEventQueue();
+
+        final saved = await stored(first.id);
+        expect(saved.label, 'Renamed');
+        expect(saved.behavior, RuleProviderBehavior.classical);
+        expect(await ruleSetOf(profileId), 'Renamed');
+        expect(setup.forced, [true]);
+      });
+
+      test('and it was reordered', () async {
+        compiled = classical;
+
+        final updating = update();
+        await downloadStarts(first);
+        await reorder();
+        final order = (await stored(first.id)).order;
+        compileGate!.complete();
+        expect(await updating, '');
+
+        expect((await stored(first.id)).order, order);
+        expect((await stored(first.id)).behavior, classical.behavior);
+      });
+
+      for (final (name, shape) in [
+        ('a different shape', classical),
+        ('the same shape', null),
+      ]) {
+        test('and it moved, coming back $name', () async {
+          compiled = shape ?? compiled;
+
+          final updating = update();
+          await downloadStarts(first);
+          await move(first);
+          compileGate!.complete();
+          expect(await updating, '');
+          await pumpEventQueue();
+
+          final saved = await stored(first.id);
+          expect(saved.url, movedUrl);
+          expect(saved.behavior, RuleProviderBehavior.domain);
+          expect(reloads, isEmpty);
+          expect(setup.applies, 0);
+          await expectNoCache(first);
+        });
+      }
+    });
+
+    group('while a config is built', () {
+      setUp(() async {
+        globalState.packageInfo = PackageInfo(
+          appName: 'test',
+          packageName: 'test',
+          version: '1.0.0',
+          buildNumber: '1',
+        );
+        await seedHeld(usedBy: 'First');
+      });
+
+      Future<void> build() => container
+          .read(setupActionProvider.notifier)
+          .getProfile(
+            setupState: SetupState(
+              profileId: profileId,
+              profileLastUpdateDate: null,
+              profileType: ProfileType.custom,
+              extendType: ExtendType.standard,
+              rules: [
+                Rule.parse('RULE-SET,First,DIRECT', id: 2),
+                Rule.parse('RULE-SET,Second,DIRECT', id: 3),
+              ],
+              proxyGroups: const [],
+              addedRules: const [],
+              script: null,
+              overrides: const ProfileOverrides(),
+              clashProviders: const [first, second],
+            ),
+            patchConfig: const PatchClashConfig(),
+          );
+
+      test('and it was renamed', () async {
+        compiled = classical;
+
+        final building = build();
+        await downloadStarts(first);
+        await rename(first, 'Renamed');
+        compileGate!.complete();
+        await building;
+
+        final saved = await stored(first.id);
+        expect(saved.label, 'Renamed');
+        expect(saved.behavior, RuleProviderBehavior.classical);
+      });
+
+      test('and it was reordered', () async {
+        compiled = classical;
+
+        final building = build();
+        await downloadStarts(first);
+        await reorder();
+        final order = (await stored(first.id)).order;
+        compileGate!.complete();
+        await building;
+
+        expect((await stored(first.id)).order, order);
+      });
+
+      for (final (name, shape) in [
+        ('a different shape', classical),
+        ('the same shape', null),
+      ]) {
+        test('and it moved during its download, coming back $name', () async {
+          compiled = shape ?? compiled;
+
+          final building = build();
+          await downloadStarts(first);
+          await move(first);
+          compileGate!.complete();
+          await building;
+
+          final saved = await stored(first.id);
+          expect(saved.url, movedUrl);
+          expect(saved.behavior, RuleProviderBehavior.domain);
+          await expectNoCache(first);
+        });
+      }
+
+      test('and it moved after the build listed it', () async {
+        compiled = classical;
+
+        final building = build();
+        await downloadStarts(first);
+        await move(second);
+        compileGate!.complete();
+        await building;
+
+        final saved = await stored(second.id);
+        expect(saved.url, movedUrl);
+        expect(saved.behavior, RuleProviderBehavior.domain);
+        await expectNoCache(second);
+      });
+    });
+
+    group('when a shape is written', () {
+      setUp(() => seedHeld(usedBy: 'First'));
+
+      test('it is all that changes', () async {
+        await rename(first, 'Renamed');
+
+        await testDatabase.clashProvidersDao.updateInfo(
+          first.withInfo(classical),
+        );
+
+        final saved = await stored(first.id);
+        expect(saved.label, 'Renamed');
+        expect(saved.behavior, RuleProviderBehavior.classical);
+      });
+
+      test('it skips a row that moved just before', () async {
+        await move(first);
+
+        await testDatabase.clashProvidersDao.updateInfo(
+          first.withInfo(classical),
+        );
+
+        expect((await stored(first.id)).behavior, RuleProviderBehavior.domain);
+      });
     });
   });
 

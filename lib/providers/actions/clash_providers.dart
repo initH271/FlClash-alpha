@@ -16,13 +16,15 @@ class ClashProvidersAction extends _$ClashProvidersAction {
     final before = await _stored(provider.id);
     final deleted = before == null && previous != null;
     if (deleted) return provider;
+    final target = before != null && previous != null
+        ? _withEdits(before, provider, since: previous)
+        : provider;
     final download =
-        provider.isRemote &&
-        (refresh || provider.fileName != previous?.fileName);
+        target.isRemote && (refresh || target.fileName != previous?.fileName);
     final compiled = switch (content) {
-      final content? => await _compileContent(provider, content),
-      null when download => await _compile(provider, download: true),
-      null => provider,
+      final content? => await _compileContent(target, content),
+      null when download => await _compile(target, download: true),
+      null => target,
     };
     final latest = before == null ? null : await _stored(provider.id);
     if (before != null &&
@@ -59,6 +61,15 @@ class ClashProvidersAction extends _$ClashProvidersAction {
     return next;
   }
 
+  ClashProvider _withEdits(
+    ClashProvider current,
+    ClashProvider edited, {
+    required ClashProvider since,
+  }) => current.copyWith(
+    label: edited.label == since.label ? current.label : edited.label,
+    url: edited.url == since.url ? current.url : edited.url,
+  );
+
   /// Downloads outlast edits, so a result lands on the set as it is by then.
   Future<ClashProvider?> _stored(int id) async {
     final rows =
@@ -68,11 +79,12 @@ class ClashProvidersAction extends _$ClashProvidersAction {
   }
 
   /// Asks the database: a stale list would delete a live local set's source.
-  Future<bool> _clearedIfDeleted(ClashProvider compiled) async {
+  Future<ClashProvider?> _rowOwning(ClashProvider compiled) async {
     final rows = await database.clashProvidersDao.query().get();
-    if (rows.any((item) => item.id == compiled.id)) return false;
+    final row = rows.where((item) => item.id == compiled.id).firstOrNull;
+    if (row?.fileName == compiled.fileName) return row;
     unawaited(_clearCache(compiled));
-    return true;
+    return null;
   }
 
   Future<ClashProvider> _compile(
@@ -130,17 +142,18 @@ class ClashProvidersAction extends _$ClashProvidersAction {
     return null;
   }
 
-  /// Returns false when only a reapply loads the set, or it was deleted.
+  /// Returns false when only a reapply loads the set, or its download is moot.
   Future<bool> syncRemote(ClashProvider provider) async {
     final next = await _compile(provider, download: true);
-    if (await _clearedIfDeleted(next)) {
+    final row = await _rowOwning(next);
+    if (row == null) {
       return false;
     }
     if (next == provider) {
       return true;
     }
-    await database.clashProvidersDao.updateExisting(next);
-    unawaited(applyIfReferenced(ProviderKind.rule, {next.label}, force: true));
+    await database.clashProvidersDao.updateInfo(next);
+    unawaited(applyIfReferenced(ProviderKind.rule, {row.label}, force: true));
     return false;
   }
 
@@ -155,8 +168,8 @@ class ClashProvidersAction extends _$ClashProvidersAction {
         download:
             provider.isRemote && !await File(await provider.path).exists(),
       );
-      if (!await _clearedIfDeleted(next) && next != provider) {
-        await database.clashProvidersDao.updateExisting(next);
+      if (await _rowOwning(next) != null && next != provider) {
+        await database.clashProvidersDao.updateInfo(next);
       }
       return next;
     } catch (e) {
