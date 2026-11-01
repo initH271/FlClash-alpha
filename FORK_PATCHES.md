@@ -373,7 +373,7 @@
 - **为什么**：上游 `8378c70` 去掉了底部按钮，手机上单手够不到顶部。
 - **核对**：上游改 `ProxiesView` 的 `primaryAction`、`_tabView` 的接入方式，或改 `BottomInsetScope` / `context.bottomInset` / `NavigationDock.insetOf` 时重看；上游若恢复自己的底部按钮，这个补丁可以去掉。兜底：`test/views/proxies/fork/delay_test_fab_test.dart`、`test/widgets/proxies_tab_test.dart` 的 "the bar following the current group leaves the page built"。
 
-### I16. Windows 独立身份
+### I15. Windows 独立身份
 
 - **文件**：上游文件 `windows/packaging/exe/make_config.yaml`、`windows/packaging/exe/inno_setup.iss`、`windows/runner/Runner.rc`（`CompanyName`）、`services/helper/src/service/windows.rs`（`SERVICE_NAME`）、`services/helper/src/service/peer.rs`（`PORT_KEY`）、`lib/common/constant.dart`、`lib/common/launch.dart`、`test/core/desktop/helper_client_test.dart`；fork 文件 `test/tool/packaging_config_test.dart` 的 Windows 分组。
 - **改了什么**：换成自己的 `AppId`、发布者、安装目录、数据目录、服务名、开机启动值名、快捷方式和卸载项名字。安装和卸载只结束 `{app}` 下的进程。`/RELAUNCH` 让静默安装结束后重新启动应用。上游写的 `publisher` 键 flutter_distributor 不读，改成 `publisher_name`。
