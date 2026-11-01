@@ -310,7 +310,7 @@ class DependabotTests(unittest.TestCase):
     def test_it_cannot_flood(self):
         for ecosystem, block in self.blocks.items():
             with self.subTest(ecosystem=ecosystem):
-                self.assertIn('interval: weekly', block)
+                self.assertIn('interval: monthly', block)
                 self.assertLessEqual(int(re.search(r'open-pull-requests-limit: (\d+)', block).group(1)), 2)
                 self.assertIn('applies-to: security-updates', block)
                 if ecosystem != 'gomod':
