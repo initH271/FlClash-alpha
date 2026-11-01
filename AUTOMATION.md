@@ -71,8 +71,8 @@ A failed publish run opens the Issue `[Windows 构建待处理] <tag>`, assigned
 `windows.yaml` on `main` with `release_tag`. A later success closes it. A Release that already has both files is left
 alone, so its bytes do not change after the mirror copied them.
 
-Measured on `windows-2022` for a PR: `Windows build` 11 to 14 minutes, of which the Flutter build is about 8, and `Windows
-helper test` about 1 minute. The installer is about 44 MB and the archive about 69 MB. A release spends the same on
+Measured on `windows-2022` for a PR: `Windows build` 8 minutes with warm caches and up to 14 without, and `Windows helper
+test` about 1 minute. The installer is about 44 MB and the archive about 69 MB. A release spends the same on
 `Windows build`, on top of the Android run it follows.
 
 [RELEASE_CHANNELS.md](RELEASE_CHANNELS.md) covers the channels and the app's updater, and
