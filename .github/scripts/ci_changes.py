@@ -6,7 +6,7 @@ import os
 import subprocess
 import sys
 
-JOBS = ('automation', 'go', 'rust', 'flutter', 'android_unit', 'android_build')
+JOBS = ('automation', 'go', 'rust', 'flutter', 'plugins', 'android_unit', 'android_build')
 # The one root *.md a test reads, so it is not neutral.
 TESTED_DOC = 'AUTOMATION.md'
 # Nothing compiles or tests these. A trailing '/' names a directory; *.md counts only at the root.

@@ -47,6 +47,7 @@ class _RecordingIconSetsAction extends IconSetsAction {
   final Exception? failure;
   final imported = <({String url, String name})>[];
   final synced = <IconSet>[];
+  final edits = <({String? name, String? url})>[];
 
   @override
   Future<IconSet> importUrl(String url, {String name = ''}) async {
@@ -58,8 +59,9 @@ class _RecordingIconSetsAction extends IconSetsAction {
   }
 
   @override
-  Future<IconSet> sync(IconSet iconSet) async {
+  Future<IconSet> sync(IconSet iconSet, {String? name, String? url}) async {
     synced.add(iconSet);
+    edits.add((name: name, url: url));
     return iconSet;
   }
 }
@@ -215,6 +217,38 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(action.synced.single, _remote);
+    expect(action.edits.single, (name: null, url: null));
+  });
+
+  testWidgets('a new url syncs with only what the options changed', (
+    tester,
+  ) async {
+    final action = _RecordingIconSetsAction();
+    await _pumpView(
+      tester,
+      iconSets: _TestIconSets(const [_remote]),
+      action: action,
+    );
+
+    Future<void> submit({String? name}) async {
+      await _openMenu(tester, 'Qure');
+      await tester.tap(find.text('Options'));
+      await tester.pumpAndSettle();
+      await tester.enterText(_formField('URL'), 'https://example.com/new.json');
+      if (name != null) {
+        await tester.enterText(_formField('Name'), name);
+      }
+      await tester.tap(find.text('Submit'));
+      await tester.pumpAndSettle();
+    }
+
+    await submit();
+    await submit(name: 'Flags');
+
+    expect(action.edits, [
+      (name: null, url: 'https://example.com/new.json'),
+      (name: 'Flags', url: 'https://example.com/new.json'),
+    ]);
   });
 
   testWidgets('a local set is renamed from its options', (tester) async {
