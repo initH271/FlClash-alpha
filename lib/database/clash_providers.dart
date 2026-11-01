@@ -64,6 +64,13 @@ class ClashProvidersDao extends DatabaseAccessor<Database>
     });
   }
 
+  /// Unlike a put, this cannot bring back a row deleted in the meantime.
+  Future<void> updateExisting(ClashProvider provider) async {
+    await (update(
+      clashProviders,
+    )..where((t) => t.id.equals(provider.id))).write(provider.toCompanion());
+  }
+
   void putAllWithBatch(Batch batch, Iterable<ClashProvider> providers) {
     batch.insertAllOnConflictUpdate(
       clashProviders,
