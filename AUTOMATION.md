@@ -18,10 +18,18 @@ rule is in the PR template, and no check enforces it.
 
 | Check | Workflow | What it does |
 |---|---|---|
-| `ci-ok` | `.github/workflows/ci.yml` | Runs on every PR and passes when every job passed or was skipped. `.github/scripts/ci_changes.py` picks the jobs from the changed paths: automation tests, Go, Rust, Flutter, Android unit tests, Android release compile. A path no rule names runs every job. A change to `.automation/policy.json` runs every job |
+| `ci-ok` | `.github/workflows/ci.yml` | Runs on every PR and passes when every job passed or was skipped. `.github/scripts/ci_changes.py` picks the jobs from the changed paths: automation tests, Go, Rust, Flutter, Android unit tests, Android release compile. A path no rule names runs every job. A change to `ci.yml` or `.automation/policy.json` runs every job. Documents and templates (`docs/`, `.agents/`, root `*.md`, the PR and Issue templates) run none. Other workflows, `.github/scripts/`, `.github/dependabot.yml` and `macos/` run only the automation tests. `linux/`, `windows/` and `.github/release-notes.md` also run the Flutter job, because Dart tests read them. No job compiles a desktop platform |
 | `Dependency vulnerability scan` | `.github/workflows/security.yaml` | See [SECURITY_AUTOMATION.md](SECURITY_AUTOMATION.md) |
 | `NPC review (advisory)` | `.github/workflows/npc-review.yml` | Not required, and not part of `ci-ok` |
 | `Windows build`, `Windows helper test` | `.github/workflows/windows.yaml` | Not required, and not part of `ci-ok`. Runs when a PR changes `windows/`, `services/helper/`, `plugins/`, `core/`, `setup.dart`, `pubspec.yaml`, `pubspec.lock`, `build_config.yaml`, `distribute_options.yaml`, `.gitmodules`, the workflow, its scripts or `lib/common/app_update.dart`. It leaves `lib/` to analyze and test on Linux, since the Windows risk sits in native code and build scripts. The packages stay on the run as an artifact for 3 days |
+
+### Go cache
+
+Jobs that share a Go version and `core/go.sum` share one cache key, and the key cannot be overwritten, so the first save
+decides what everyone restores. PR saves stay with that PR. On `main` only a release compile in `build.yaml` saves it, and
+`security.yaml` sets `cache: false` because its scan compiles nothing. Until a release has saved the current key, each
+PR's first run misses and that PR saves its own copy. To replace a bad entry, delete it after the change that stopped it
+reaches `main`, and let the next release write it: a manual `ci.yml` run on `main` saves whichever job ends first.
 
 ### NPC review
 

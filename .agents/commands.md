@@ -51,7 +51,8 @@ hooks:
 ```
 
 The Flutter job in `.github/workflows/ci.yml` sets both to `false` with `sed` in its throwaway checkout, because no test
-loads the Go core. It builds the Rust library with `cargo build --locked` and points `FRB_DART_LOAD_EXTERNAL_LIBRARY_NATIVE_LIB_DIR`
+loads the Go core. With both off nothing there calls Go, Java, Gradle or the NDK, so it passes `android: 'false'` to
+`.github/actions/setup-android-toolchain` and gets only Flutter and Rust. It builds the Rust library with `cargo build --locked` and points `FRB_DART_LOAD_EXTERNAL_LIBRARY_NATIVE_LIB_DIR`
 at it, since the editor tests in `test/plugins/code_forge/` and the socket test in `test/core/desktop/ipc_native_test.dart`
 load that library.
 Never commit `false`: a build with it set stages whatever `libclash/` already
