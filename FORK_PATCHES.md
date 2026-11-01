@@ -252,8 +252,8 @@
 
 ### G4. 依赖安全版本
 
-- **文件**：上游文件 `core/go.mod`、`core/go.sum`、`services/helper/Cargo.toml`、`services/helper/Cargo.lock`、`services/helper/src/service/hub.rs`、`services/helper/src/service/linux.rs`、`plugins/rust_api/rust/Cargo.lock`。
-- **改了什么**：Go 固定 cilium/ebpf、insomniacslk/dhcp、klauspost/compress、goldmark、grpc、go-jose、otel/sdk、x/net 等的修复版本，并把 logrus 变成直接依赖（A1 使用）；helper 升到 warp 0.4，`linux.rs` 自己实现带鉴权的连接服务循环；两个 Rust 锁文件固定 tokio 1.53.3。
+- **文件**：上游文件 `core/go.mod`、`core/go.sum`、`services/helper/Cargo.toml`、`services/helper/Cargo.lock`、`services/helper/src/service/hub.rs`、`services/helper/src/service/linux.rs`、`services/helper/src/service/peer.rs`、`plugins/rust_api/rust/Cargo.lock`。
+- **改了什么**：Go 固定 cilium/ebpf、insomniacslk/dhcp、klauspost/compress、goldmark、grpc、go-jose、otel/sdk、x/net 等的修复版本，并把 logrus 变成直接依赖（A1 使用）；helper 升到 warp 0.4，`linux.rs` 和 `peer.rs`（Windows）各自实现带鉴权的连接服务循环；两个 Rust 锁文件固定 tokio 1.53.3。
 - **为什么**：清除依赖漏洞告警（`8097e29c`、`4021b38d`）。
 - **核对**：合并后对照 `git diff v0.9.2 HEAD -- core/go.mod`，版本不能回退。上游自己升到 warp 0.4 时比较服务循环，保留连接鉴权。Dependabot 的 `/core` 只开安全更新，就是因为 `go mod tidy` 会删掉这些 indirect 版本（`SECURITY_AUTOMATION.md`）；手工跑过 tidy 也要这样核对。兜底：`.github/workflows/security.yaml`、`services/helper` 的 `cargo test`。
 
@@ -414,7 +414,7 @@
 
 这些补丁看起来可以不打，但都没有实测过。去掉前先跑全量回归。
 
-- **H1**：只有 Windows 上分隔符才不是 `/`，而 fork 的 CI 跑在 Linux 上，只发布 Android。
+- **H1**：只有 Windows 上分隔符才不是 `/`，而 fork 的测试只跑在 Linux 上；Windows 构建不跑 `flutter test`。
 - **I2**：仓库里没有地方设置 `LIBCLANG_PATH`；上游只找 `lib` 和 `lib64`。去掉后要构建一次 APK。
 - **I3**：没有提交说明，也没有测试。
 - **B2 里 `lib/providers/actions/common.dart` 的非 Android 分支**：`checkForUpdate` 在非 Android 上直接返回 null，线上走不到这里读 `source` 和 `download_url` 的两行，可以恢复成上游写法。
