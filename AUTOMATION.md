@@ -74,8 +74,9 @@ installs again over the running app, and uninstalls silently until the directory
 `ANDROID_DEBUG_KEYSTORE`: `keytool` and `openssl` turn it into a temporary PEM that is gone when signing ends, and the run
 fails before any upload unless the signature verifies with the certificate in `lib/common/app_update.dart` and that
 certificate matches the APK's. The uploads then go in this order: `FlClash-alpha-windows-amd64-setup.exe` and
-`FlClash-alpha-windows-amd64.zip`, `update-windows.json`, and `SHA256SUMS.txt` with the APK line first and unchanged and
-the three Windows lines after it. Title, body, `update.json` and the latest flag stay as they were. Then
+`FlClash-alpha-windows-amd64.zip`, `SHA256SUMS.txt` with the APK line first and unchanged and the three Windows lines
+after it, and `update-windows.json` last: the app downloads as soon as it reads the manifest, and its presence is what
+marks the publish complete. Title, body, `update.json` and the latest flag stay as they were. Then
 `control.py mirror` starts the CNB mirror; if that start fails, the hourly mirror run picks the files up.
 
 A failed publish run opens the Issue `[Windows 构建待处理] <tag>`, assigned to the owner, with the way to retry: run

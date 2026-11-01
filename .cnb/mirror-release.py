@@ -70,7 +70,7 @@ def mirror_windows(release):
         return
     checksums = download(assets[CHECKSUMS]) if CHECKSUMS in assets else b''
     digests = {line.split()[-1]: line.split()[0] for line in checksums.decode().splitlines() if line.strip()}
-    # windows_release.py uploads the checksums last, so a gap means it is still at work or left an Issue behind.
+    # windows_release.py uploads the manifest last, so a gap means it is still at work or left an Issue behind.
     if not all(name in assets and name in digests for name in WINDOWS):
         print('GitHub release has no complete set of Windows files yet')
         return

@@ -199,6 +199,13 @@ class MirrorTests(unittest.TestCase):
         self.run_mirror()
         self.assertEqual([mirror.APK, 'SHA256SUMS.txt', 'update.json'], self.uploaded())
 
+    def test_checksums_without_the_manifest_upload_nothing_of_windows(self):
+        self.add_windows()
+        self.release['assets'] = [a for a in self.release['assets'] if a['name'] != mirror.MANIFEST]
+        self.publish_on_cnb(mirror.APK, 'SHA256SUMS.txt', 'update.json')
+        self.run_mirror()
+        self.assertEqual([], self.uploaded())
+
     def test_files_without_their_checksum_lines_wait(self):
         self.add_windows()
         self.files['SHA256SUMS.txt'] = (self.metadata['sha256'] + '  ' + mirror.APK).encode()

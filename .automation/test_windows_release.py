@@ -197,15 +197,26 @@ class PublishTests(unittest.TestCase):
                 patch.object(w, 'client_certificate', return_value=b'certificate'), patch.object(w, 'signed_manifest', sign):
             w.publish(self.dir)
 
-    def test_packages_then_manifest_then_checksums_go_up(self):
+    def test_packages_then_checksums_then_manifest_go_up(self):
         self.publish(release())
         uploads = [c for c in self.commands if c[1] == 'upload']
         self.assertEqual(3, len(uploads))
         self.assertTrue(uploads[0][3].endswith(w.SETUP) and uploads[0][4].endswith(w.ARCHIVE))
-        self.assertTrue(uploads[1][3].endswith(w.MANIFEST))
-        self.assertTrue(uploads[2][3].endswith(w.CHECKSUMS))
+        self.assertTrue(uploads[1][3].endswith(w.CHECKSUMS))
+        self.assertTrue(uploads[2][3].endswith(w.MANIFEST))
         self.assertEqual('abc  FlClash-alpha-arm64-v8a.apk', self.sums.splitlines()[0])
         self.assertEqual([w.SETUP, w.ARCHIVE, w.MANIFEST], [line.split()[-1] for line in self.sums.splitlines()[1:]])
+
+    def test_a_failed_checksums_upload_leaves_no_manifest_so_a_retry_is_not_skipped(self):
+        def gh(*args):
+            if args[1] == 'upload' and args[-2].endswith(w.CHECKSUMS):
+                raise RuntimeError('upload failed')
+            return self.gh(*args)
+        found = release()
+        with patch.object(self, 'gh', gh), self.assertRaises(RuntimeError):
+            self.publish(found)
+        uploaded = [name for c in self.commands if c[1] == 'upload' for name in c[3:-1]]
+        self.assertFalse(any(name.endswith(w.MANIFEST) for name in uploaded))
 
     def test_the_manifest_copies_the_release_and_describes_the_installer(self):
         self.publish(release(published_at='2026-11-01T00:00:00Z'))

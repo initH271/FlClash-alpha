@@ -288,10 +288,9 @@ def publish(root=ROOT):
     checksums = root / CHECKSUMS
     checksums.write_text(merged, encoding='utf-8')
     gh('release', 'upload', tag, *map(str, packages), '--clobber')
-    # After the packages, because the app starts downloading as soon as it reads this.
-    gh('release', 'upload', tag, str(manifest), '--clobber')
-    # Last, so whoever sees a Windows line in the checksums also finds its file.
     gh('release', 'upload', tag, str(checksums), '--clobber')
+    # Last: the app starts downloading as soon as it reads this, and has_windows takes its presence for a complete publish.
+    gh('release', 'upload', tag, str(manifest), '--clobber')
     print(f'Published the Windows files on {tag}')
     close_report(tag)
 
