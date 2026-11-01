@@ -115,6 +115,7 @@ class PackageTests(unittest.TestCase):
     def test_the_product_version_is_read_from_the_pe_string_table(self):
         self.assertEqual(VERSION, w.product_version(pe_with_version(VERSION)))
         self.assertIsNone(w.product_version(b'MZ no resources'))
+        self.assertEqual(VERSION, w.product_version(pe_with_version(VERSION + ' ' * 25)))
 
     def test_complete_packages_pass(self):
         write_packages(self.dir)

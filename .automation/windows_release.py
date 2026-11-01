@@ -118,7 +118,8 @@ def product_version(data):
     end = at
     while data[end:end + 2] != b'\0\0' and end < len(data):
         end += 2
-    return data[at:end].decode('utf-16-le')
+    # Inno Setup pads this string with spaces.
+    return data[at:end].decode('utf-16-le').strip()
 
 
 def verify(directory, identity):
