@@ -21,7 +21,7 @@ rule is in the PR template, and no check enforces it.
 | `ci-ok` | `.github/workflows/ci.yml` | Runs on every PR and passes when every job passed or was skipped. `.github/scripts/ci_changes.py` picks the jobs from the changed paths: automation tests, Go, Rust, Flutter, Android unit tests, Android release compile. A path no rule names runs every job. A change to `.automation/policy.json` runs every job |
 | `Dependency vulnerability scan` | `.github/workflows/security.yaml` | See [SECURITY_AUTOMATION.md](SECURITY_AUTOMATION.md) |
 | `NPC review (advisory)` | `.github/workflows/npc-review.yml` | Not required, and not part of `ci-ok` |
-| `Windows build`, `Windows helper test` | `.github/workflows/windows.yaml` | Not required, and not part of `ci-ok`. Runs when a PR changes `windows/`, `services/helper/`, `plugins/`, `core/`, `setup.dart`, `pubspec.yaml`, `pubspec.lock`, `build_config.yaml`, `distribute_options.yaml`, `.gitmodules`, the workflow or its script. It leaves `lib/` to analyze and test on Linux, since the Windows risk sits in native code and build scripts. The packages stay on the run as an artifact for 3 days |
+| `Windows build`, `Windows helper test` | `.github/workflows/windows.yaml` | Not required, and not part of `ci-ok`. Runs when a PR changes `windows/`, `services/helper/`, `plugins/`, `core/`, `setup.dart`, `pubspec.yaml`, `pubspec.lock`, `build_config.yaml`, `distribute_options.yaml`, `.gitmodules`, the workflow, its scripts or `lib/common/app_update.dart`. It leaves `lib/` to analyze and test on Linux, since the Windows risk sits in native code and build scripts. The packages stay on the run as an artifact for 3 days |
 
 ### NPC review
 
@@ -53,7 +53,8 @@ closes it.
 
 `windows.yaml` starts when `Android release` completes. `.automation/windows_release.py plan` ends the run green, without
 compiling, unless that run succeeded on this repository's `main` from a `push` or `workflow_dispatch`, the `release.json`
-of its commit names a published Release whose target is that same commit, and the Release lacks a Windows file. So a merge
+of its commit names a published Release whose target is that same commit, and the Release lacks a Windows file or the
+signed manifest. So a merge
 without a version change builds nothing, and adding packages to an older Release takes a manual retry.
 
 `Windows build` compiles on `windows-2022` with no secret and a read-only token. `.automation/windows_release.py stamp`
@@ -62,13 +63,23 @@ the version only from there, and `package` fails the build if `FlClash.exe` or t
 the archive lacks a file the app needs. It also fetches the CA bundle upstream pins, which the core embeds and the
 submodule keeps empty; bump `CA_BUNDLE` and `CA_BUNDLE_SHA256` with upstream.
 
-`Windows publish` checks the artifact again, uploads `FlClash-alpha-windows-amd64-setup.exe` and
-`FlClash-alpha-windows-amd64.zip`, and only then replaces `SHA256SUMS.txt` with the APK line first and unchanged and the
-two Windows lines after it. Title, body, `update.json` and the latest flag stay as they were. Then `control.py mirror`
-starts the CNB mirror; if that start fails, the hourly mirror run picks the files up.
+Before keeping the packages, `.automation/windows_smoke.ps1` installs the installer on the runner, and any failure fails
+the build, so a publish run then publishes nothing. It installs with the arguments the in-app updater uses, checks the
+directory, the uninstall entry under the app's GUID and the publisher, waits for the relaunched app and keeps it up for 20
+seconds, registers the helper service under its own name, asks it for `/logs` on the port it published and stops it,
+installs again over the running app, and uninstalls silently until the directory and the entry are gone.
+
+`Windows publish` checks the artifact again and copies the release fields of `update.json` into a new signed
+`update-windows.json` (see [RELEASE_CHANNELS.md](RELEASE_CHANNELS.md#app-updates)). Only that one step receives
+`ANDROID_DEBUG_KEYSTORE`: `keytool` and `openssl` turn it into a temporary PEM that is gone when signing ends, and the run
+fails before any upload unless the signature verifies with the certificate in `lib/common/app_update.dart` and that
+certificate matches the APK's. The uploads then go in this order: `FlClash-alpha-windows-amd64-setup.exe` and
+`FlClash-alpha-windows-amd64.zip`, `update-windows.json`, and `SHA256SUMS.txt` with the APK line first and unchanged and
+the three Windows lines after it. Title, body, `update.json` and the latest flag stay as they were. Then
+`control.py mirror` starts the CNB mirror; if that start fails, the hourly mirror run picks the files up.
 
 A failed publish run opens the Issue `[Windows 构建待处理] <tag>`, assigned to the owner, with the way to retry: run
-`windows.yaml` on `main` with `release_tag`. A later success closes it. A Release that already has both files is left
+`windows.yaml` on `main` with `release_tag`. A later success closes it. A Release that already has all three files is left
 alone, so its bytes do not change after the mirror copied them.
 
 Measured on `windows-2022` for a PR: `Windows build` 8 minutes with warm caches and up to 14 without, and `Windows helper
@@ -150,7 +161,7 @@ GitHub Actions secrets, and these two are all there are:
 
 | Secret | Used by | Needs |
 |---|---|---|
-| `ANDROID_DEBUG_KEYSTORE` | `build.yaml`, `sign-existing.yaml` | The personal signing key. It stays on GitHub only |
+| `ANDROID_DEBUG_KEYSTORE` | `build.yaml`, `sign-existing.yaml`, `windows.yaml` (the one step that signs `update-windows.json`) | The personal signing key. It stays on GitHub only |
 | `CNB_AUTOMATION_TOKEN` | `build.yaml`, `windows.yaml` (the one step that starts the mirror), `upstream.yaml`, `npc-review.yml`, `npc-upstream.yml` | On `507space/FlClash-alpha`: code push, build trigger, status, stop and stage logs, release read |
 
 The CNB mirror uses CNB's own pipeline token. Everything else on GitHub uses `GITHUB_TOKEN`, with permissions declared in
@@ -165,7 +176,7 @@ Run these from GitHub Actions on `main`:
 - `npc-upstream.yml`: `issue`, `tag`, `base`, `head`.
 - `sign-existing.yaml`: signs the artifact of an earlier run.
 - `windows.yaml`: `release_tag` empty compiles the selected ref and keeps the packages on the run. `release_tag` set, on
-  `main`, builds that Release's target commit and adds the Windows files, unless it already has both.
+  `main`, builds that Release's target commit and adds the Windows files, unless it already has all three.
 
 ## Changing the process
 
@@ -195,9 +206,12 @@ Unit tests and read-only dry runs cover these. None has run for real:
 - `api_trigger_npc_upstream`, including whether a truncated diff of about 1 MB still yields a useful analysis.
 - A real release since this process replaced the old one: `control.py promote`, `notify`, and the mirror it starts.
 - Dependabot security updates on `/core`, and the Cargo patch-only rule.
-- `windows.yaml` beyond the PR compile: the `workflow_run` trigger, `release_tag`, `Windows publish`, the failure Issue,
+- `windows.yaml` beyond the PR build and smoke test: the `workflow_run` trigger, `release_tag`, `Windows publish`, signing
+  with the real key (a throwaway key in both store formats goes through the same code in the unit tests), the failure Issue,
   and whether a recovery run of `build.yaml`, which `GITHUB_TOKEN` dispatches, fires `workflow_run` at all. If it does
   not, run `windows.yaml` with `release_tag`.
 - The mirror adding files to a Release already published on CNB, and comparing the `size` CNB reports. The OpenAPI
   schema documents `assets`, `size` and `overwrite`, and sets no such restriction, but no run has done it.
-- Installing or starting any Windows package: CI only compiles and inspects them.
+- The in-app Windows update on a real desktop: UAC, the download through the proxy and the relaunch after an update
+  from a real earlier version. The smoke test installs with the same arguments, without UAC, over the same version.
+- `update-windows.json` on CNB's latest-release path, including what CNB answers while the file is missing.

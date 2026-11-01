@@ -366,6 +366,20 @@
 - **为什么**：手机上显示全部服务。
 - **核对**：上游改 `ServiceStatusCard.build`、`_syncShown`、`shownServiceCountProvider`、`_ServiceGrid` 时重看。兜底："a phone card scrolls sideways through every service"、"a vertical drag on the phone card scrolls the page"。
 
+### I14. Windows 独立身份
+
+- **文件**：上游文件 `windows/packaging/exe/make_config.yaml`、`windows/packaging/exe/inno_setup.iss`、`windows/runner/Runner.rc`（`CompanyName`）、`services/helper/src/service/windows.rs`（`SERVICE_NAME`）、`services/helper/src/service/peer.rs`（`PORT_KEY`）、`lib/common/constant.dart`、`lib/common/launch.dart`、`test/core/desktop/helper_client_test.dart`；fork 文件 `test/tool/packaging_config_test.dart` 的 Windows 分组。
+- **改了什么**：换成自己的 `AppId`、发布者、安装目录、数据目录、服务名、开机启动值名、快捷方式和卸载项名字。安装和卸载只结束 `{app}` 下的进程。`/RELAUNCH` 让静默安装结束后重新启动应用。上游写的 `publisher` 键 flutter_distributor 不读，改成 `publisher_name`。
+- **为什么**：和官方版能同时安装，官方的文件、服务、快捷方式和数据都不被碰。对照表见 `RELEASE_CHANNELS.md`。
+- **核对**：上游改 Inno 模板或 helper 服务时，确认这些值没被冲掉，也没有新增按进程名结束进程、写死 `com.follow` 或 `FlClashHelperService` 服务名的地方。`hub.rs` 的 host 白名单和 helper 的 exe 文件名不用改：Windows 客户端走 127.0.0.1，那个名字是 Linux 的。`_readHelperPort` 读不到注册表时回退到固定端口 47890，这时可能连到官方的旧 helper，靠 `readiness` 的 Core 哈希拦下。兜底：`test/tool/packaging_config_test.dart`、`test/core/desktop/helper_client_test.dart`、`windows.yaml` 的冒烟。
+
+### I15. Windows 应用内更新
+
+- **文件**：上游文件 `lib/common/request.dart`、`lib/common/system.dart`、`lib/providers/actions/common.dart`、`pubspec.yaml`、`pubspec.lock`（`pointycastle`）；fork 文件 `lib/common/app_update.dart`、`lib/common/update_download.dart`、`lib/widgets/app_update_dialog.dart`、`test/common/windows_update_test.dart`、`test/widgets/windows_update_dialog_test.dart`。
+- **改了什么**：Windows 走和 Android 同一套选源、弹窗和下载，但读带签名的 `update-windows.json`，用提权方式启动安装包。Android 的 `updateSources`、校验和流程不变。
+- **为什么**：见 `RELEASE_CHANNELS.md` 的 App updates。
+- **核对**：上游加桌面更新或改 `checkForUpdate`、`checkUpdateResultHandle` 时，保留 `system.supportsAppUpdate` 这条路径。`updateCertificate`、`updateSigningCertificate` 和 `.automation/windows_release.py` 的前缀、GUID、安装包名由测试绑在一起，换签名密钥要一起改。兜底：`test/common/windows_update_test.dart`、`.automation/test_windows_release.py`。
+
 ## J. 仪表盘磁贴
 
 ### J1. 磁贴扩展机制（#116）
@@ -417,4 +431,4 @@
 - **H1**：只有 Windows 上分隔符才不是 `/`，而 fork 的测试只跑在 Linux 上；Windows 构建不跑 `flutter test`。
 - **I2**：仓库里没有地方设置 `LIBCLANG_PATH`；上游只找 `lib` 和 `lib64`。去掉后要构建一次 APK。
 - **I3**：没有提交说明，也没有测试。
-- **B2 里 `lib/providers/actions/common.dart` 的非 Android 分支**：`checkForUpdate` 在非 Android 上直接返回 null，线上走不到这里读 `source` 和 `download_url` 的两行，可以恢复成上游写法。
+- **B2 里 `lib/providers/actions/common.dart` 的另一个分支**：`checkForUpdate` 在 Android 和 Windows 以外直接返回 null，线上走不到这里读 `source` 和 `download_url` 的两行，可以恢复成上游写法。
