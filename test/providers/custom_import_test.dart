@@ -863,6 +863,67 @@ rule-providers:
       },
     );
 
+    test(
+      'a set edited while it waits for a free load keeps the edit',
+      () async {
+        final action = container.read(profilesActionProvider.notifier);
+        final config = await action.readCustomImport(
+          profileId,
+          utf8.encode('''
+rule-providers:
+  a: {type: http, url: https://example.com/a.txt}
+  b: {type: http, url: https://example.com/b.txt}
+  c: {type: http, url: https://example.com/c.txt}
+  d: {type: http, url: https://example.com/d.txt}
+  queuedRemote: {type: http, url: https://example.com/queued.txt}
+  queuedMoved: {type: http, url: https://example.com/old.txt}
+  queuedLocal: {type: inline, behavior: domain, payload: [+.example.com]}
+'''),
+        );
+        expect(maxConcurrentImports, 4);
+        compileGate = Completer();
+
+        final importing = action.importCustomProfile(profileId, config);
+        final stopwatch = Stopwatch()..start();
+        while (compiledUrls.length < maxConcurrentImports) {
+          if (stopwatch.elapsed > const Duration(seconds: 10)) {
+            fail('the first loads did not start: $compiledUrls');
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+        final providers = container.read(clashProvidersProvider.notifier);
+        for (final provider in container.read(clashProvidersProvider).value!) {
+          switch (provider.label) {
+            case 'queuedRemote' || 'queuedLocal':
+              providers.put(provider.copyWith(label: '${provider.label}2'));
+            case 'queuedMoved':
+              providers.put(
+                provider.copyWith(url: 'https://example.com/new.txt'),
+              );
+          }
+        }
+        compileGate!.complete();
+        await importing;
+        await pumpEventQueue();
+
+        expect(
+          [
+            for (final provider
+                in await testDatabase.clashProvidersDao.query().get())
+              if (provider.label.startsWith('queued'))
+                (provider.label, provider.url),
+          ],
+          unorderedEquals([
+            ('queuedRemote2', 'https://example.com/queued.txt'),
+            ('queuedMoved', 'https://example.com/new.txt'),
+            ('queuedLocal2', ''),
+          ]),
+        );
+        expect(compiledUrls, contains('https://example.com/new.txt'));
+        expect(compiledUrls, isNot(contains('https://example.com/old.txt')));
+      },
+    );
+
     test('takes an app proxy carrying a dialer for the same proxy and gives '
         'the dialer to the profile', () async {
       await testDatabase.customProxies.put(

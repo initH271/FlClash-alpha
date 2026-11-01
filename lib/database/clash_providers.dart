@@ -64,11 +64,17 @@ class ClashProvidersDao extends DatabaseAccessor<Database>
     });
   }
 
-  /// Unlike a put, this cannot bring back a row deleted in the meantime.
-  Future<void> updateExisting(ClashProvider provider) async {
-    await (update(
-      clashProviders,
-    )..where((t) => t.id.equals(provider.id))).write(provider.toCompanion());
+  /// Records what the Core read from [provider]'s file. Unlike a put, this
+  /// cannot bring back a deleted row or undo an edit made since the read.
+  Future<void> updateInfo(ClashProvider provider) async {
+    await (update(clashProviders)
+          ..where((t) => t.id.equals(provider.id) & t.url.equals(provider.url)))
+        .write(
+          ClashProvidersCompanion(
+            behavior: Value(provider.behavior),
+            format: Value(provider.format),
+          ),
+        );
   }
 
   void putAllWithBatch(Batch batch, Iterable<ClashProvider> providers) {
