@@ -109,7 +109,7 @@ Automation writes no CNB Issues or comments, and nothing on CNB merges. Bug repo
 | `control.report_conflict` | Issue comment | After OK, on a conflict or protected path, once per upstream commit |
 | `scheduler.notify_once` | `[构建待处理]` Issue assigned to the owner | Build on `main` failed and cannot be reused, one per run |
 | `npc-review.yml` | PR comment | Each head of a non-Dependabot PR |
-| Dependabot | PRs, alert emails | Weekly, or when an advisory appears |
+| Dependabot | PRs, alert emails | Monthly, or when an advisory appears |
 | GitHub | Workflow failure email | Scheduled or release run failed |
 
 ## Credentials
