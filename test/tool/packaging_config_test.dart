@@ -41,6 +41,13 @@ void main() {
       expect(script, isNot(contains('APP_NAME')));
     });
 
+    test('the shortcuts do not share a path with the official app', () {
+      final icons = RegExp(r'Name: "\{(autoprograms|autodesktop)\}[^"]*"');
+      final names = icons.allMatches(script).map((match) => match[0]!).toList();
+      expect(names, hasLength(2));
+      expect(names, everyElement(endsWith(r'\\FlClash-alpha"')));
+    });
+
     test('nothing ends a process by name alone', () {
       expect(script, isNot(contains('taskkill')));
       expect(script, contains(r'$_.Path.StartsWith($d'));
