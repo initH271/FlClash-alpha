@@ -90,10 +90,13 @@ class Request {
 
   /// Null when this build is current; throws when GitHub cannot be asked.
   Future<Map<String, dynamic>?> checkForUpdate() async {
-    if (!Platform.isAndroid) return null;
+    if (!system.supportsAppUpdate) return null;
     final build = int.tryParse(globalState.packageInfo.buildNumber);
     if (build == null) return null;
-    final result = await AppUpdateChecker.network(dio).check(build);
+    final checker = system.isWindows
+        ? AppUpdateChecker.windows(dio)
+        : AppUpdateChecker.network(dio);
+    final result = await checker.check(build);
     if (result != null) {
       commonPrint.log('Update ${result['tag_name']} via ${result['source']}');
     }

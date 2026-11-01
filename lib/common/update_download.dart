@@ -3,9 +3,12 @@ import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
+import 'package:fl_clash/common/app_update.dart';
 import 'package:fl_clash/common/print.dart';
+import 'package:fl_clash/common/system.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 // A VPN also reports the transport it runs on, so [wifi, vpn] is a VPN over Wi-Fi.
 bool isOnWifi(List<ConnectivityResult> results) {
@@ -32,6 +35,8 @@ class UpdateInstaller {
 
   const UpdateInstaller();
 
+  String get extension => 'apk';
+
   Future<Directory> directory() async =>
       Directory((await channel.invokeMethod<String>('directory'))!);
 
@@ -53,6 +58,41 @@ class UpdateInstaller {
     'build': release['build'],
     'sha256': release['sha256'],
   };
+}
+
+typedef ElevatedStart = bool Function(String command, String arguments);
+
+bool _startElevated(String command, String arguments) =>
+    windows!.runas(command, arguments);
+
+class WindowsUpdateInstaller extends UpdateInstaller {
+  final ElevatedStart start;
+
+  const WindowsUpdateInstaller({this.start = _startElevated});
+
+  @override
+  String get extension => 'exe';
+
+  @override
+  Future<Directory> directory() async =>
+      Directory(p.join((await getApplicationCacheDirectory()).path, 'updates'));
+
+  @override
+  Future<void> validate(File file, Map<String, dynamic> release) async {}
+
+  @override
+  Future<bool> canInstall() async => true;
+
+  /// The file waited in a folder this user can write to, and it is about to run
+  /// as administrator, so its hash is checked again right here.
+  @override
+  Future<String> install(File file, Map<String, dynamic> release) async {
+    if ((await sha256.bind(file.openRead()).first).toString() !=
+        release['sha256']) {
+      throw const FormatException('Update checksum mismatch');
+    }
+    return start(file.path, windowsInstallerArguments) ? 'opened' : 'cancelled';
+  }
 }
 
 typedef UpdateTransfer =
@@ -103,13 +143,15 @@ class UpdateDownload {
     }
     final directory = await installer.directory();
     await directory.create(recursive: true);
-    final file = File(p.join(directory.path, 'release-$build.apk'));
+    final file = File(
+      p.join(directory.path, 'release-$build.${installer.extension}'),
+    );
     final partial = File('${file.path}.part');
     for (final entity in await directory.list(followLinks: false).toList()) {
       if (entity is File &&
           entity.path != file.path &&
           RegExp(
-            r'^release-\d+\.apk(?:\.part)?$',
+            r'^release-\d+\.(?:apk|exe)(?:\.part)?$',
           ).hasMatch(p.basename(entity.path))) {
         await entity.delete();
       }

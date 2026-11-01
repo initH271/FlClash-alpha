@@ -19,7 +19,7 @@ reachability or exploitability, and nothing tracks a match on main: read the rep
 
 ## Dependabot
 
-Alerts and security updates are on in the repository settings. `.github/dependabot.yml` sets a weekly schedule, Monday
+Alerts and security updates are on in the repository settings. `.github/dependabot.yml` sets a monthly schedule, the first of the month at
 09:00 Shanghai, with version and security updates grouped per ecosystem. CI starts on these PRs by itself, and the NPC
 review skips them.
 

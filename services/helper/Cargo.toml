@@ -19,6 +19,7 @@ sha2 = "0.10.8"
 
 [target.'cfg(windows)'.dependencies]
 tokio-stream = { version = "0.1", default-features = false }
+hyper-util = { version = "0.1", features = ["server-auto", "server-graceful", "service", "tokio"] }
 windows-sys = { version = "0.52.0", features = [
     "Win32_Foundation",
     "Win32_NetworkManagement_IpHelper",

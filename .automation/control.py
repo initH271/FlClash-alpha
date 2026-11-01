@@ -317,6 +317,10 @@ def notify_release():
         close_published_failures()
     except (RuntimeError, KeyError, OSError) as error:
         print(f'Published successfully; old failure Issue cleanup needs retry: {error}')
+    start_mirror()
+
+
+def start_mirror():
     api(f'{CNB}/build/start', 'POST', {'branch': 'main', 'event': 'api_trigger', 'sync': 'false',
                                      'title': 'Mirror newly published signed release'})
 
@@ -333,5 +337,6 @@ def build_status():
 
 if __name__ == '__main__':
     commands = {'watch': watch, 'approvals': approvals, 'validate': validate_source,
-                'promote': promote, 'sync': sync_main, 'notify': notify_release, 'status': build_status}
+                'promote': promote, 'sync': sync_main, 'notify': notify_release, 'mirror': start_mirror,
+                'status': build_status}
     commands[sys.argv[1]]()

@@ -1,4 +1,4 @@
-# Weekly, grouped and few at a time. Every PR goes through ci-ok and Dependency vulnerability scan, and the owner merges it.
+# Monthly, grouped and few at a time. Every PR goes through ci-ok and Dependency vulnerability scan, and the owner merges it.
 #
 # core/Clash.Meta: its own go.mod is not in this repository, so Dependabot cannot read it. `/core` updates the versions the
 # build really uses, and security_scan.py covers the whole resolved graph. There is deliberately no `gitsubmodule` block:
@@ -19,13 +19,12 @@ updates:
       - /plugins/tray
       - /plugins/window
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
       time: '09:00'
       timezone: Asia/Shanghai
     open-pull-requests-limit: 2
-    # The desktop code in lib/ and plugins/window is written against 0.2 and does not compile against 0.3. CI builds Android
-    # only, so it would not notice this widening a constraint.
+    # The desktop code in lib/ and plugins/window is written against 0.2 and does not compile against 0.3. The required
+    # checks build Android only, and the Windows build is advisory, so they would not stop this widening a constraint.
     ignore:
       - dependency-name: screen_retriever
         update-types: ['version-update:semver-minor', 'version-update:semver-major']
@@ -39,8 +38,7 @@ updates:
   - package-ecosystem: gomod
     directory: /core
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
       time: '09:00'
       timezone: Asia/Shanghai
     # Security updates only. A version update runs `go mod tidy`, which drops the indirect fix versions core/go.mod holds
@@ -56,8 +54,7 @@ updates:
       - /services/helper
       - /plugins/rust_api/rust
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
       time: '09:00'
       timezone: Asia/Shanghai
     # Patch releases only: a group is all or nothing, so one breaking minor (rquickjs without Android bindings) sinks the
@@ -78,8 +75,7 @@ updates:
       - /android
       - /plugins/wifi_ssid/android
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
       time: '09:00'
       timezone: Asia/Shanghai
     open-pull-requests-limit: 2
@@ -95,8 +91,7 @@ updates:
       - /
       - /.github/actions/setup-android-toolchain
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
       time: '09:00'
       timezone: Asia/Shanghai
     open-pull-requests-limit: 1
