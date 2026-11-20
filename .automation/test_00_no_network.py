@@ -70,12 +70,12 @@ class NetworkBlockTests(unittest.TestCase):
 
     def test_urlopen_is_refused(self):
         with self.assertRaises(NetworkBlocked):
-            urllib.request.urlopen('https://api.cnb.cool/')
+            urllib.request.urlopen('https://api.github.com/')
 
-    def test_the_controller_api_cannot_reach_cnb(self):
+    def test_the_controller_api_cannot_reach_github(self):
         import control
         with self.assertRaises(NetworkBlocked) as caught:
-            control.api('https://api.cnb.cool/x')
+            control.api('https://api.github.com/x')
         self.assertNotIsInstance(caught.exception, RuntimeError)
 
     def test_the_socket_connect_is_the_block(self):

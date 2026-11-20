@@ -1,4 +1,3 @@
-import base64
 import json
 import os
 import pathlib
@@ -15,7 +14,6 @@ from tool.release_identity import release_identity, verify_native_identity  # no
 
 POLICY = json.loads((ROOT / '.automation/policy.json').read_text())
 GH = 'https://api.github.com/repos/' + POLICY['github']
-CNB = 'https://api.cnb.cool/' + POLICY['cnb'] + '/-'
 OWNER = POLICY['github'].split('/')[0]
 BOT = 'github-actions[bot]'
 
@@ -29,9 +27,7 @@ class HttpStatusError(RuntimeError):
 def api(url, method='GET', data=None, missing=False, timeout=60):
     headers = {'Accept': 'application/json', 'User-Agent': 'FlClash-alpha-automation'}
     host = urllib.parse.urlsplit(url).netloc
-    token = os.getenv('GH_TOKEN') if host == 'api.github.com' else (
-        os.getenv('CNB_AUTOMATION_TOKEN') or os.getenv('CNB_TOKEN')
-        if host == 'api.cnb.cool' else None)
+    token = os.getenv('GH_TOKEN') if host == 'api.github.com' else None
     if token:
         headers['Authorization'] = 'Bearer ' + token
     if data is not None:
@@ -47,7 +43,7 @@ def api(url, method='GET', data=None, missing=False, timeout=60):
             return None
         try:
             detail = json.loads(error.read())
-            reason = str(detail.get('message', detail.get('errmsg', '')))[:300]
+            reason = str(detail.get('message', ''))[:300]
         except (ValueError, AttributeError):
             reason = ''
         if token:
@@ -148,15 +144,6 @@ def upstream_title(tag):
     return f'[上游升级] FlClash {tag}'
 
 
-def analyze(number, tag, sha):
-    """Ask the NPC for a read-only analysis. It is only advice: failing costs one comment, not the Issue."""
-    try:
-        api(f'{GH}/actions/workflows/npc-upstream.yml/dispatches', 'POST', {'ref': 'main', 'inputs': {
-            'issue': str(number), 'tag': tag, 'base': POLICY['upstream_sha'], 'head': sha}})
-    except (RuntimeError, OSError) as error:
-        print(f'No NPC analysis for Issue #{number}: {error}')
-
-
 def watch():
     release = api(f'https://api.github.com/repos/{POLICY["upstream"]}/releases/latest')
     tag = release['tag_name']
@@ -180,7 +167,6 @@ def watch():
             + marker(payload))
     issue = api(f'{GH}/issues', 'POST', {'title': title, 'body': body, 'assignees': [OWNER]})
     print(f'Created Issue #{issue["number"]}')
-    analyze(issue['number'], tag, payload['sha'])
 
 
 def dispatch(source, reuse_run=''):
@@ -272,33 +258,6 @@ def open_pull_request(request, number, branch):
     comment(number, f'已按本次 OK 开出升级 PR：{pr["html_url"]}。{approve}')
 
 
-def sync_branch(branch, source='HEAD'):
-    token = os.environ['CNB_AUTOMATION_TOKEN']
-    encoded = base64.b64encode(f'cnb:{token}'.encode()).decode()
-    env = dict(os.environ, GIT_CONFIG_COUNT='1', GIT_CONFIG_KEY_0='http.https://cnb.cool/.extraheader',
-               GIT_CONFIG_VALUE_0='Authorization: Basic ' + encoded, GIT_TERMINAL_PROMPT='0')
-    git('push', f'https://cnb.cool/{POLICY["cnb"]}.git', f'{source}:refs/heads/{branch}', env=env)
-
-
-def promote():
-    validate_source()
-    sync_branch('main')
-
-
-def sync_main():
-    """Bring CNB main up to GitHub main, which carries the mirror and NPC pipelines; promote only runs for a release."""
-    base = api(f'{GH}/git/ref/heads/main')['object']['sha']
-    git('fetch', '--no-tags', f'https://github.com/{POLICY["github"]}.git', base)
-    git('fetch', '--no-tags', f'https://cnb.cool/{POLICY["cnb"]}.git', 'refs/heads/main')
-    source = git('rev-parse', 'FETCH_HEAD')
-    if source == base:
-        return
-    if git('merge-base', '--is-ancestor', source, base, check=False).returncode != 0:
-        # Fail the step so the owner hears of it: a stale CNB main silently keeps old mirror and NPC pipelines.
-        raise ValueError('CNB main is not behind GitHub main; leaving both unchanged')
-    sync_branch('main', base)
-
-
 def close_published_failures():
     for issue in bot_issues('open'):
         match = re.fullmatch(r'\[构建待处理\] GitHub #(\d+)', issue['title'])
@@ -312,17 +271,11 @@ def close_published_failures():
 
 
 def notify_release():
-    # The release is already public: tidying old Issues must never stop the mirror from being told.
+    # The release is already public: failing to tidy old Issues must not turn its run red.
     try:
         close_published_failures()
     except (RuntimeError, KeyError, OSError) as error:
         print(f'Published successfully; old failure Issue cleanup needs retry: {error}')
-    start_mirror()
-
-
-def start_mirror():
-    api(f'{CNB}/build/start', 'POST', {'branch': 'main', 'event': 'api_trigger', 'sync': 'false',
-                                     'title': 'Mirror newly published signed release'})
 
 
 def build_status():
@@ -337,6 +290,5 @@ def build_status():
 
 if __name__ == '__main__':
     commands = {'watch': watch, 'approvals': approvals, 'validate': validate_source,
-                'promote': promote, 'sync': sync_main, 'notify': notify_release, 'mirror': start_mirror,
-                'status': build_status}
+                'notify': notify_release, 'status': build_status}
     commands[sys.argv[1]]()

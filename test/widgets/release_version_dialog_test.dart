@@ -41,7 +41,7 @@ void main() {
             'tag_name': 'v0.8.98-alpha.13',
             'displayVersion': '0.8.98-alpha.13',
             'build': 2026094013,
-            'source': 'CNB',
+            'source': 'GitHub',
             'body': '- Readable versions',
           },
           downloader: _ReadyDownload(),
@@ -50,7 +50,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('0.8.98-alpha.13 · CNB'), findsOneWidget);
+    expect(find.text('0.8.98-alpha.13 · GitHub'), findsOneWidget);
     expect(find.text('Release date: 2026-10-06'), findsOneWidget);
     expect(find.textContaining('2026094013'), findsNothing);
     expect(find.textContaining('Readable versions'), findsOneWidget);

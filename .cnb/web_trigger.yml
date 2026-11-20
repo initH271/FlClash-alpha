@@ -1,6 +1,0 @@
-branch:
-  - reg: '^main$'
-    buttons:
-      - name: 同步最新正式版本
-        description: 校验 GitHub 固定签名 APK，并发布到 CNB
-        event: web_trigger

@@ -1438,7 +1438,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "paste": MessageLookupByLibrary.simpleMessage("Вставить"),
     "peers": MessageLookupByLibrary.simpleMessage("Пиры"),
     "personalForkDescription": MessageLookupByLibrary.simpleMessage(
-      "FlClash-alpha поддерживается Aharon и основан на chen08209/FlClash. Сохраняет журналы и обновляется из GitHub и CNB.",
+      "FlClash-alpha поддерживается Aharon и основан на chen08209/FlClash. Сохраняет журналы и обновляется из GitHub.",
     ),
     "pickFromAlbum": MessageLookupByLibrary.simpleMessage("Выбрать из галереи"),
     "pinWindow": MessageLookupByLibrary.simpleMessage(

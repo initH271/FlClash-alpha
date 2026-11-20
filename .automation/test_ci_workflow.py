@@ -16,8 +16,8 @@ BUILD = ROOT / '.github/workflows/build.yaml'
 SUMMARY = 'ci-ok'
 TOOLCHAIN = (r"go-version: '([^']+)'", r"java-version: '([^']+)'", r"flutter-version: '([^']+)'",
              r'ndk-version: (\S+)', r'rustup toolchain install (\S+)')
-# What CNB used to run before its CI was switched off, in the commands of the GitHub jobs that replaced it.
-CNB_COMMANDS = {
+# A job that lost one of these commands would still pass ci-ok.
+JOB_COMMANDS = {
     'automation': ("python3 -m unittest discover -s .automation -p 'test_*.py'",),
     'go': ('go test . ./internal/logstore', 'go vet . ./internal/logstore',
            'GOOS=android GOARCH=arm64', 'go vet -tags="$tags" $pkgs'),
@@ -130,8 +130,8 @@ class CiWorkflowTests(unittest.TestCase):
         self.assertIn("RUSTUP_TOOLCHAIN: '1.99.0'", build)
         self.assertIn("RUSTUP_TOOLCHAIN: '1.99.0'", self.source)
 
-    def test_every_cnb_check_has_a_github_job(self):
-        for job, commands in CNB_COMMANDS.items():
+    def test_every_job_keeps_its_commands(self):
+        for job, commands in JOB_COMMANDS.items():
             for command in commands:
                 with self.subTest(job=job, command=command):
                     self.assertIn(command, self.jobs[job])
@@ -209,7 +209,6 @@ class CiChangesTests(unittest.TestCase):
     def test_each_area_runs_its_jobs(self):
         cases = {
             '.automation/control.py': {'automation'},
-            '.cnb.yml': {'automation'},
             'core/main.go': {'automation', 'go', 'android_unit', 'android_build'},
             'core/Clash.Meta': {'automation', 'go', 'android_unit', 'android_build', 'flutter'},
             'core/protocol.go': {'automation', 'go', 'android_unit', 'android_build', 'flutter'},
@@ -235,11 +234,8 @@ class CiChangesTests(unittest.TestCase):
 
     def test_pull_requests_that_only_touched_automation_and_documents_run_only_automation(self):
         pull_requests = {
-            131: ['.automation/test_cnb_pipelines.py', '.automation/test_npc_review.py', '.cnb.yml',
-                  '.github/scripts/npc_review.py', '.github/workflows/npc-review.yml'],
             132: ['.agents/rules.md', '.automation/test_ci_paths.py', '.automation/test_ci_workflow.py',
-                  '.automation/test_cnb_pipelines.py', '.automation/test_security.py', '.cnb.yml',
-                  '.github/pull_request_template.md', 'AGENTS.md', 'FORK_PATCHES.md'],
+                  '.automation/test_security.py', '.github/pull_request_template.md', 'AGENTS.md', 'FORK_PATCHES.md'],
             143: ['.agents/commands.md', '.automation/test_security.py', '.github/dependabot.yml'],
             150: ['.automation/test_security.py', '.github/dependabot.yml', 'AUTOMATION.md', 'SECURITY_AUTOMATION.md'],
         }
@@ -255,7 +251,7 @@ class CiChangesTests(unittest.TestCase):
                     read = 'core/Clash.Meta'
                 with self.subTest(path=path.name, read=read):
                     self.assertIn('flutter', changes.needed_jobs([read]))
-        for path in [*(ROOT / '.automation').glob('test_*.py'), ROOT / '.cnb/test_mirror_release.py']:
+        for path in (ROOT / '.automation').glob('test_*.py'):
             for read in re.findall(r"(?:ROOT|root) / '([^']+)'", path.read_text(encoding='utf-8')):
                 with self.subTest(path=path.name, read=read):
                     self.assertIn('automation', changes.needed_jobs([read]))

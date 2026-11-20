@@ -163,12 +163,6 @@ jobs:
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE }}
         run: python3 .automation/windows_release.py publish
-      # The hourly mirror run picks the files up if this start fails, so it does not count as a failed publish.
-      - name: Start the CNB mirror
-        continue-on-error: true
-        env:
-          CNB_AUTOMATION_TOKEN: ${{ secrets.CNB_AUTOMATION_TOKEN }}
-        run: python3 .automation/control.py mirror
   report:
     name: Windows failure report
     needs: [plan, build, publish]

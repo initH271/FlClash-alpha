@@ -270,11 +270,8 @@ void main() {
       }
     }
     expect(find.textContaining('Project · GitHub'), findsOneWidget);
-    expect(find.textContaining('Project · CNB'), findsOneWidget);
     expect(
-      find.textContaining(
-        'It keeps rolling logs and updates from GitHub and CNB.',
-      ),
+      find.textContaining('It keeps rolling logs and updates from GitHub.'),
       findsOneWidget,
     );
     expect(tester.takeException(), null);

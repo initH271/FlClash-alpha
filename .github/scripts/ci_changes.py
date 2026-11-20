@@ -16,8 +16,7 @@ NEUTRAL = ('docs/', 'snapshots/', 'LICENSE', '.agents/', '.github/ISSUE_TEMPLATE
 RULES = (
     # An upstream upgrade always changes the followed version, and it must run everything.
     (('.github/workflows/ci.yml', '.automation/policy.json'), JOBS),
-    (('.automation/', '.cnb/', '.cnb.yml', TESTED_DOC, '.github/workflows/', '.github/scripts/',
-      '.github/dependabot.yml', 'macos/'), ()),
+    (('.automation/', TESTED_DOC, '.github/workflows/', '.github/scripts/', '.github/dependabot.yml', 'macos/'), ()),
     # Dart tests read these. core/Clash.Meta is a submodule, so a diff names only that path, never its files.
     (('core/Clash.Meta', 'core/protocol.go', 'core/service_check.go'),
      ('go', 'android_unit', 'android_build', 'flutter')),

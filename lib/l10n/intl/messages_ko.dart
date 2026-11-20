@@ -1153,7 +1153,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "paste": MessageLookupByLibrary.simpleMessage("붙여넣기"),
     "peers": MessageLookupByLibrary.simpleMessage("피어"),
     "personalForkDescription": MessageLookupByLibrary.simpleMessage(
-      "FlClash-alpha는 Aharon이 관리하며 chen08209/FlClash를 기반으로 합니다. 순환 로그를 보관하고 GitHub와 CNB에서 업데이트합니다.",
+      "FlClash-alpha는 Aharon이 관리하며 chen08209/FlClash를 기반으로 합니다. 순환 로그를 보관하고 GitHub에서 업데이트합니다.",
     ),
     "pickFromAlbum": MessageLookupByLibrary.simpleMessage("앨범에서 선택"),
     "pinWindow": MessageLookupByLibrary.simpleMessage("창 고정"),

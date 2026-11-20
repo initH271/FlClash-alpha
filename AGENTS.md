@@ -22,7 +22,7 @@ Read these only when the task touches their area:
 - [.agents/agent-config.md](.agents/agent-config.md): how to choose between `AGENTS.md`, `.agents`, skills, Codex config,
   command rules, and hooks.
 - [.agents/worktrees.md](.agents/worktrees.md): worktree hygiene across Claude Code, Codex, and Gemini.
-- [AUTOMATION.md](AUTOMATION.md): pull requests, CI, releases, upstream upgrades, CNB, credentials, and changing any of
+- [AUTOMATION.md](AUTOMATION.md): pull requests, CI, releases, upstream upgrades, credentials, and changing any of
   them.
 - [.agents/flutter-upgrade.md](.agents/flutter-upgrade.md): SDK-pinned workarounds to recheck before changing the
   Flutter version.
@@ -51,7 +51,7 @@ Read these only when the task touches their area:
 - Use `flutter test`, not `dart test`, because models pull in Flutter types.
 - Run code generation after modifying models, providers, or database schema.
 - Do not manually edit generated files.
-- Changes under `.automation/`, `.cnb/`, `.cnb.yml` and `.github/` are ordinary GitHub PRs, and the owner merges every PR.
+- Changes under `.automation/` and `.github/` are ordinary GitHub PRs, and the owner merges every PR.
   Read [AUTOMATION.md](AUTOMATION.md) first.
 - Preserve lifecycle ownership: desktop Core process convergence belongs to `lib/core/desktop/`; Android service intent
   arbitration belongs to `ServiceState`. UI/provider code may request a transition but must not become a second source of

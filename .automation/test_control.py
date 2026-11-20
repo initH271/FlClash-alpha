@@ -1,8 +1,3 @@
-import contextlib
-import io
-import os
-import pathlib
-import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -98,7 +93,6 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual([], posts)
 
     def test_a_later_green_build_of_main_leaves_nothing_to_do(self):
-        # The failures from before this moved to GitHub would otherwise all reopen once: their Issues are on CNB.
         later = [{'id': 11, 'display_title': 'Android ' + 'b' * 40, 'status': 'completed', 'conclusion': 'success'}]
         self.assertEqual([], self.schedule([{'name': 'Publish GitHub release', 'conclusion': 'failure'}],
                                            [{'name': 'FlClash-arm64-log-history', 'expired': False}], later=later))
@@ -115,76 +109,20 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual([], self.schedule([], [], 'startup_failure'))
 
 
-class SyncMainTests(unittest.TestCase):
-    """Local git decides the direction, so the check is real; only the fetches and the push are replaced."""
-
-    def setUp(self):
-        directory = tempfile.TemporaryDirectory()
-        self.addCleanup(directory.cleanup)
-        self.root = pathlib.Path(directory.name)
-        self.real_git = control.git
-        for item in (patch.object(control, 'ROOT', self.root),
-                     patch.object(control, 'git', self.git),
-                     patch.object(control, 'sync_branch')):
-            item.start()
-            self.addCleanup(item.stop)
-        self.sync = control.sync_branch
-        self.real_git('init', '-q', '-b', 'main')
-        self.real_git('config', 'user.name', 'Test')
-        self.real_git('config', 'user.email', 'test@example.invalid')
-        self.older = self.commit('older')
-        self.newer = self.commit('newer')
-
-    def commit(self, message):
-        self.real_git('commit', '-q', '--allow-empty', '-m', message)
-        return self.real_git('rev-parse', 'HEAD')
-
-    def git(self, *args, check=True, env=None):
-        if args[0] == 'fetch':
-            return ''
-        if args[:2] == ('rev-parse', 'FETCH_HEAD'):
-            return self.cnb
-        return self.real_git(*args, check=check, env=env)
-
-    def run_sync(self, github, cnb):
-        self.cnb = cnb
-        with patch.object(control, 'api', return_value={'object': {'sha': github}}), \
-                contextlib.redirect_stdout(io.StringIO()) as printed:
-            control.sync_main()
-        return printed.getvalue()
-
-    def test_cnb_behind_is_fast_forwarded_to_github_main(self):
-        self.run_sync(self.newer, self.older)
-        self.sync.assert_called_once_with('main', self.newer)
-
-    def test_equal_mains_push_nothing(self):
-        self.run_sync(self.newer, self.newer)
-        self.sync.assert_not_called()
-
-    def test_cnb_ahead_or_diverged_changes_nothing_and_fails_the_step(self):
-        with self.assertRaisesRegex(ValueError, 'leaving both unchanged'):
-            self.run_sync(self.older, self.newer)
-        self.sync.assert_not_called()
-
-
-class PromoteTests(unittest.TestCase):
-    def test_promote_only_synchronizes_the_current_main(self):
+class ValidateSourceTests(unittest.TestCase):
+    def test_the_current_main_is_accepted_after_only_reading_its_ref(self):
         sha = 'a' * 40
         with patch.object(control, 'git', return_value=sha), \
-                patch.object(control, 'api', return_value={'object': {'sha': sha}}) as api, \
-                patch.object(control, 'sync_branch') as sync:
-            control.promote()
-        sync.assert_called_once_with('main')
+                patch.object(control, 'api', return_value={'object': {'sha': sha}}) as api:
+            control.validate_source()
         self.assertTrue(all(call.args[0].endswith('/git/ref/heads/main') for call in api.call_args_list))
         self.assertTrue(all(len(call.args) == 1 for call in api.call_args_list))
 
-    def test_a_source_that_is_not_main_stops_before_any_push(self):
+    def test_a_source_that_is_not_main_is_refused(self):
         with patch.object(control, 'git', return_value='b' * 40), \
-                patch.object(control, 'api', return_value={'object': {'sha': 'a' * 40}}), \
-                patch.object(control, 'sync_branch') as sync:
+                patch.object(control, 'api', return_value={'object': {'sha': 'a' * 40}}):
             with self.assertRaisesRegex(ValueError, 'not the current main'):
-                control.promote()
-        sync.assert_not_called()
+                control.validate_source()
 
 
 if __name__ == '__main__':

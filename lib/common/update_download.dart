@@ -178,7 +178,7 @@ class UpdateDownload {
     for (final url in urls) {
       _checkCancelled(token);
       try {
-        onSource?.call(Uri.parse(url).host == 'cnb.cool' ? 'CNB' : 'GitHub');
+        onSource?.call(_sourceName(url));
         await transfer(url, partial.path, token, progress);
         _checkCancelled(token);
         verifying();
@@ -204,6 +204,13 @@ class UpdateDownload {
 
   void _checkCancelled(CancelToken token) {
     if (token.isCancelled) throw token.cancelError!;
+  }
+
+  String _sourceName(String url) {
+    for (final source in [...updateSources, ...windowsUpdateSources]) {
+      if (url.startsWith('${source.download}/')) return source.name;
+    }
+    return Uri.parse(url).host;
   }
 
   Future<String> _hash(File file) async =>

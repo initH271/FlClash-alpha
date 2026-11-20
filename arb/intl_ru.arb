@@ -971,7 +971,7 @@
   "addedToLocalProxies": "«{name}» добавлен в локальные прокси",
   "alreadyInLocalProxies": "«{name}» уже есть в локальных прокси",
   "upstreamProject": "Исходный проект",
-  "personalForkDescription": "FlClash-alpha поддерживается Aharon и основан на chen08209/FlClash. Сохраняет журналы и обновляется из GitHub и CNB.",
+  "personalForkDescription": "FlClash-alpha поддерживается Aharon и основан на chen08209/FlClash. Сохраняет журналы и обновляется из GitHub.",
   "updateDownloading": "Загрузка обновления…",
   "updateVerifying": "Проверка установочного пакета…",
   "updateReady": "Загрузка и проверка завершены. Нажмите «Установить обновление».",

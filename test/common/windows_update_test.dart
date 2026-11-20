@@ -12,6 +12,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:pointycastle/export.dart';
 
+import '../helpers/update_sources.dart';
+
 // Made once by .automation/windows_release.py (keytool and openssl) with a key
 // that was then thrown away, so the Python signer and the Dart verifier have to
 // agree byte for byte.
@@ -204,7 +206,8 @@ void main() {
 
   group('Windows update check', () {
     const github = 'github.com';
-    const cnb = 'cnb.cool';
+    const primary = 'primary.test';
+    const mirror = 'mirror.test';
 
     ({int status, String body}) signed(Map<String, dynamic> payload) =>
         (status: 200, body: _manifest(privateKey, payload));
@@ -218,16 +221,27 @@ void main() {
       return AppUpdateChecker.windows(dio, key: publicKey).check(installed);
     }
 
-    test('offers a signed newer build from both sources', () async {
-      final adapter = _Adapter({
-        github: signed(_payload()),
-        cnb: signed(_payload()),
-      });
+    Future<Map<String, dynamic>?> checkMirrored(
+      _Adapter adapter, {
+      int installed = 2026094021,
+    }) {
+      final dio = Dio()..httpClientAdapter = adapter;
+      final windows = AppUpdateChecker.windows(dio, key: publicKey);
+      return AppUpdateChecker(
+        target: mirrored(windowsUpdate),
+        load: windows.load,
+        probe: windows.probe,
+      ).check(installed);
+    }
+
+    test('offers a signed newer build', () async {
+      final adapter = _Adapter({github: signed(_payload())});
       final result = await check(adapter);
       expect(result?['build'], 2026094022);
       expect(result?['sha256'], _setupHash);
       expect(result?['body'], 'Changes');
-      expect(result?['download_urls'], hasLength(2));
+      expect(result?['source'], 'GitHub');
+      expect(result?['download_urls'], [result?['download_url']]);
       expect(
         result?['download_url'],
         endsWith('/v0.9.2-alpha.22/$updateInstallerName'),
@@ -238,17 +252,32 @@ void main() {
       );
     });
 
+    test('every source serving the build is a download URL', () async {
+      final adapter = _Adapter({
+        primary: signed(_payload()),
+        mirror: signed(_payload()),
+      });
+      final result = await checkMirrored(adapter);
+      expect(result?['build'], 2026094022);
+      expect(result?['download_urls'], hasLength(2));
+      expect(adapter.requested.where((url) => url.startsWith('GET')).toSet(), {
+        'GET ${primarySource.api}',
+        'GET ${mirrorSource.api}',
+      });
+    });
+
     test(
       'a release without Windows files is no update, not an error',
       () async {
-        final adapter = _Adapter({github: missing, cnb: missing});
-        expect(await check(adapter), isNull);
+        expect(await check(_Adapter({github: missing})), isNull);
+        final adapter = _Adapter({primary: missing, mirror: missing});
+        expect(await checkMirrored(adapter), isNull);
       },
     );
 
     test('a missing manifest on one source leaves the other', () async {
-      final adapter = _Adapter({github: missing, cnb: signed(_payload())});
-      expect((await check(adapter))?['source'], 'CNB');
+      final adapter = _Adapter({primary: missing, mirror: signed(_payload())});
+      expect((await checkMirrored(adapter))?['source'], mirrorSource.name);
     });
 
     test('a broken source leaves the other', () async {
@@ -259,22 +288,21 @@ void main() {
         (status: 200, body: '<html>mirror error</html>'),
         (status: 500, body: 'oops'),
       ]) {
-        final adapter = _Adapter({github: broken, cnb: signed(_payload())});
-        final result = await check(adapter);
-        expect(result?['source'], 'CNB');
+        final adapter = _Adapter({primary: broken, mirror: signed(_payload())});
+        final result = await checkMirrored(adapter);
+        expect(result?['source'], mirrorSource.name);
         expect(result?['download_urls'], hasLength(1));
       }
     });
 
     test('an unreachable source leaves the other', () async {
-      final adapter = _Adapter({cnb: signed(_payload())});
-      expect((await check(adapter))?['source'], 'CNB');
+      final adapter = _Adapter({mirror: signed(_payload())});
+      expect((await checkMirrored(adapter))?['source'], mirrorSource.name);
     });
 
     test('every source failing its signature is an error', () async {
       final foreign = (status: 200, body: _manifest(privateKey, _payload()));
-      final dio = Dio()
-        ..httpClientAdapter = _Adapter({github: foreign, cnb: foreign});
+      final dio = Dio()..httpClientAdapter = _Adapter({github: foreign});
       await expectLater(
         AppUpdateChecker.windows(dio).check(2026094021),
         throwsStateError,
@@ -291,10 +319,7 @@ void main() {
         _payload(size: 'large'),
         {..._payload(), 'sha256': 'not a hash'},
       ]) {
-        final adapter = _Adapter({
-          github: signed(payload),
-          cnb: signed(payload),
-        });
+        final adapter = _Adapter({github: signed(payload)});
         expect(await check(adapter), isNull);
         expect(
           adapter.requested.where((url) => url.startsWith('HEAD')),
@@ -305,18 +330,15 @@ void main() {
 
     test('the same or an older build is not offered', () async {
       final adapter = _Adapter({
-        github: signed(_payload()),
-        cnb: signed(_payload(build: 2026094021)),
+        primary: signed(_payload()),
+        mirror: signed(_payload(build: 2026094021)),
       });
-      expect(await check(adapter, installed: 2026094022), isNull);
+      expect(await checkMirrored(adapter, installed: 2026094022), isNull);
       expect(adapter.requested.where((url) => url.startsWith('HEAD')), isEmpty);
     });
 
     test('Android reads only its own manifest', () async {
-      final adapter = _Adapter({
-        github: (status: 200, body: '{}'),
-        cnb: (status: 200, body: '{}'),
-      });
+      final adapter = _Adapter({github: (status: 200, body: '{}')});
       final dio = Dio()..httpClientAdapter = adapter;
       expect(await AppUpdateChecker.network(dio).check(1), isNull);
       expect(

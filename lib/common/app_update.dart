@@ -22,12 +22,6 @@ const updateSources = [
         'https://github.com/initH271/FlClash-alpha/releases/latest/download/update.json',
     download: 'https://github.com/initH271/FlClash-alpha/releases/download',
   ),
-  UpdateSource(
-    name: 'CNB',
-    api:
-        'https://cnb.cool/507space/FlClash-alpha/-/releases/latest/download/update.json',
-    download: 'https://cnb.cool/507space/FlClash-alpha/-/releases/download',
-  ),
 ];
 
 const windowsApplicationId = '94491F5A-A742-4DFF-B144-119A92A2FFD1';
@@ -68,12 +62,6 @@ const windowsUpdateSources = [
     api:
         'https://github.com/initH271/FlClash-alpha/releases/latest/download/update-windows.json',
     download: 'https://github.com/initH271/FlClash-alpha/releases/download',
-  ),
-  UpdateSource(
-    name: 'CNB',
-    api:
-        'https://cnb.cool/507space/FlClash-alpha/-/releases/latest/download/update-windows.json',
-    download: 'https://cnb.cool/507space/FlClash-alpha/-/releases/download',
   ),
 ];
 

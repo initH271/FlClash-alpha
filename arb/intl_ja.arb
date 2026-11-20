@@ -971,7 +971,7 @@
   "addedToLocalProxies": "{name} をローカルプロキシに追加しました",
   "alreadyInLocalProxies": "{name} はすでにローカルプロキシにあります",
   "upstreamProject": "元のプロジェクト",
-  "personalForkDescription": "FlClash-alpha は Aharon が保守し、chen08209/FlClash をベースにしています。ログを継続保存し、GitHub と CNB から更新できます。",
+  "personalForkDescription": "FlClash-alpha は Aharon が保守し、chen08209/FlClash をベースにしています。ログを継続保存し、GitHub から更新できます。",
   "updateDownloading": "更新をダウンロード中…",
   "updateVerifying": "インストールパッケージを検証中…",
   "updateReady": "ダウンロードと検証が完了しました。「更新をインストール」を押してください。",
