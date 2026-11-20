@@ -56,13 +56,13 @@
 - **为什么**：提交 `56f5a2f6`、`9b47564f`、`ec5a51fd` 的 Changelog：修大日志导出，并按选择器返回的完整文档地址保存。
 - **核对**：上游改 `saveFileWithPath` 的调用方、`lib/views/backup_and_restore.dart`、日志页按钮时重看。Android 文档类型写死为 `application/zip`，新调用方要是别的格式就得改。兜底：`test/common/file_export_test.dart`、`test/plugins/app_test.dart`、`test/views/logs_view_test.dart`。
 
-## B. 双渠道发布与应用内更新
+## B. 发布与应用内更新
 
 ### B1. 更新来源
 
 - **文件**：上游文件 `lib/common/constant.dart`、`lib/common/request.dart`；fork 文件 `lib/common/app_update.dart`。
-- **改了什么**：`repository` 改成 `initH271/FlClash-alpha`；`checkForUpdate` 只在 Android 上工作，并行查 GitHub 和 CNB，按内部构建号比较。
-- **为什么**：fork 只发 Android ARM64，两个渠道互为备份（`RELEASE_CHANNELS.md`）。
+- **改了什么**：`repository` 改成 `initH271/FlClash-alpha`；`checkForUpdate` 只在 Android 上工作，读 GitHub 最新 Release 的 `update.json`，按内部构建号比较。
+- **为什么**：fork 只发 Android ARM64，更新来自 fork 自己的 Release（`RELEASE_CHANNELS.md`）。
 - **核对**：上游改 `checkForUpdate`、`latestRelease`，或新增用到 `repository` 的地方时重看，它现在指向 fork 仓库。兜底：`test/common/app_update_test.dart`。
 
 ### B2. 更新检查调度
@@ -82,7 +82,7 @@
 ### B4. 关于页
 
 - **文件**：上游文件 `lib/views/about.dart`；fork 文件 `assets/images/avatar/aharon.png`。版本读取见 D4。
-- **改了什么**：页面改成有状态组件；标题写死 FlClash-alpha；显示可读版本、上游版本、发布日期和内部构建号；项目链接改成 GitHub、CNB 和上游；加维护者；去掉 Telegram 链接。
+- **改了什么**：页面改成有状态组件；标题写死 FlClash-alpha；显示可读版本、上游版本、发布日期和内部构建号；项目链接改成 GitHub 和上游；加维护者；去掉 Telegram 链接。
 - **为什么**：可读版本的需求见 `docs/versions/v1.5.0/requirements.md`。去掉 Telegram 链接的原因未记录（`de664d73`）。
 - **核对**：上游改关于页布局时，以上游新结构为准重打。兜底：`test/views/about_view_test.dart`、`test/views/release_version_view_test.dart`、`test/widgets/uncovered_views_test.dart`。
 
@@ -128,16 +128,16 @@
 ### D1. 发布工作流
 
 - **文件**：上游文件 `.github/workflows/build.yaml`（整份替换）。
-- **改了什么**：只构建 Android ARM64，用个人证书签名和校验，发布 GitHub Release 并触发 CNB 镜像；签名或发布失败后可复用已有产物，不重新编译。
-- **为什么**：fork 只发 Android ARM64，用固定个人密钥，两个渠道发相同的 APK（`RELEASE_CHANNELS.md`）。
-- **核对**：冲突时保留 fork 版本，再读上游这次的工作流差异。上游升工具链时一起改 Go、Flutter、Rust 版本：`.github/workflows/build.yaml`、`ci.yml`、`security.yaml`（只有 Go）、`.github/actions/setup-android-toolchain/action.yml`、`.cnb/Dockerfile`。
+- **改了什么**：只构建 Android ARM64，用个人证书签名和校验，发布 GitHub Release；签名或发布失败后可复用已有产物，不重新编译。
+- **为什么**：fork 只发 Android ARM64，用固定个人密钥（`RELEASE_CHANNELS.md`）。
+- **核对**：冲突时保留 fork 版本，再读上游这次的工作流差异。上游升工具链时一起改 Go、Flutter、Rust 版本：`.github/workflows/build.yaml`、`ci.yml`、`security.yaml`（只有 Go）、`.github/actions/setup-android-toolchain/action.yml`。
 
 ### D3. 签名与发布脚本
 
-- **文件**：fork 文件 `.github/release.json`、`.github/release-notes.md`、`.github/scripts/`、`.github/workflows/sign-existing.yaml`、`.automation/verify_apk.py`、`.cnb/mirror-release.py`。
-- **改了什么**：记录发行身份和证书指纹，签名 APK，生成 `update.json` 和校验和，把 Release 镜像到 CNB。
-- **为什么**：固定签名让已装版本能原地升级，两个渠道的字节要一致（`RELEASE_CHANNELS.md`）。
-- **核对**：基本不冲突。`applicationId` 和 `.dev` 后缀来自未改动的 `android/app/build.gradle.kts`，上游改这里时必须重看，包名或证书一变已装版本就无法升级。兜底：`.cnb/test_mirror_release.py`、`.automation/test_release_identity_wiring.py`。
+- **文件**：fork 文件 `.github/release.json`、`.github/release-notes.md`、`.github/scripts/`、`.github/workflows/sign-existing.yaml`、`.automation/verify_apk.py`。
+- **改了什么**：记录发行身份和证书指纹，签名 APK，生成 `update.json` 和校验和。
+- **为什么**：固定签名让已装版本能原地升级（`RELEASE_CHANNELS.md`）。
+- **核对**：基本不冲突。`applicationId` 和 `.dev` 后缀来自未改动的 `android/app/build.gradle.kts`，上游改这里时必须重看，包名或证书一变已装版本就无法升级。兜底：`.automation/test_release_identity_wiring.py`。
 
 ### D4. 版本身份与发布说明
 
@@ -192,8 +192,8 @@
 
 ### E1. 工作流与脚本
 
-- **文件**：fork 文件 `.automation/`、`.cnb/`、`.cnb.yml`、`.github/workflows/`（`ci.yml`、`upstream.yaml`、`upstream-approval.yml`、`npc-review.yml`、`npc-upstream.yml`、`security.yaml`）、`.github/scripts/ci_changes.py`、`.github/scripts/npc_review.py`、`.github/dependabot.yml`、`.github/pull_request_template.md`、`AUTOMATION.md`、`CNB_DEVELOPMENT.md`、`SECURITY_AUTOMATION.md`。
-- **改了什么**：PR CI、NPC 审核和上游分析（只提意见）、上游版本追踪和 owner 批准、依赖漏洞扫描和 Dependabot、CNB main 同步和国内下载镜像。
+- **文件**：fork 文件 `.automation/`、`.github/workflows/`（`ci.yml`、`upstream.yaml`、`upstream-approval.yml`、`security.yaml`）、`.github/scripts/ci_changes.py`、`.github/dependabot.yml`、`.github/pull_request_template.md`、`AUTOMATION.md`、`SECURITY_AUTOMATION.md`。
+- **改了什么**：PR CI、上游版本追踪和 owner 批准、依赖漏洞扫描和 Dependabot。
 - **为什么**：合并只认 CI 和 owner，新的上游正式版要 owner 批准才开 PR（`AUTOMATION.md`）；依赖漏洞的处理见 `SECURITY_AUTOMATION.md`。
 - **核对**：基本不冲突。上游新增顶层目录或构建输入时，看 `.github/scripts/ci_changes.py` 的 `NEUTRAL`、`RULES`。上游改 CI 或路径时看 `.automation/policy.json` 的 `protected_paths`。兜底：`python3 -m unittest discover -s .automation -p 'test_*.py'`。
 
@@ -233,7 +233,7 @@
 
 - **文件**：上游文件 `.gitmodules`。
 - **改了什么**：子模块指针 `core/Clash.Meta` 和 v0.9.2 相同（`c5062921`），没有补丁。只把子模块地址从 SSH 改成 HTTPS。
-- **为什么**：原因未记录（`be6eeb74`）。`.cnb.yml` 直接跑 `git submodule update --init --recursive`，没有配置 SSH 或 `insteadOf`。
+- **为什么**：原因未记录（`be6eeb74`）。
 - **核对**：确认地址还是 HTTPS。上游换子模块仓库或分支时重看。
 
 ### G2. Socket 保护
@@ -319,7 +319,7 @@
 
 ### I7. fork 独有文档
 
-- **文件**：fork 文件 `docs/README.md`、`docs/versions/`、`CNB_DEVELOPMENT.md`、`RELEASE_CHANNELS.md`、`ROLLING_LOG_HISTORY.md`。
+- **文件**：fork 文件 `docs/README.md`、`docs/versions/`、`RELEASE_CHANNELS.md`、`ROLLING_LOG_HISTORY.md`。
 - **改了什么**：记录 fork 的里程碑、发布渠道和日志设计。
 - **为什么**：fork 自己的文档。
 - **核对**：不冲突。升级后更新里面写到的上游版本。
