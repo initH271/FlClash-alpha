@@ -19,4 +19,4 @@ issue：
 回滚方式：
 
 ## 流程改动
-- [ ] 本 PR 改动了 `.github/`、`.automation/`、`.cnb/` 或 `.cnb.yml`，并在同一个 PR 更新了 `AUTOMATION.md` 或 `SECURITY_AUTOMATION.md`
+- [ ] 本 PR 改动了 `.github/` 或 `.automation/`，并在同一个 PR 更新了 `AUTOMATION.md` 或 `SECURITY_AUTOMATION.md`

@@ -44,9 +44,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Test automation, the release mirror and the release identity
+      - name: Test automation and the release identity
         run: |
-          python3 .cnb/test_mirror_release.py
           python3 -m unittest tool.test_release_identity
           python3 -m unittest discover -s .automation -p 'test_*.py'
   go:

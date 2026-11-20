@@ -216,7 +216,6 @@ scan modules read `Cargo.toml` files through `tomllib`; the `Automation unit tes
 the same commands:
 
 ```bash
-python3 .cnb/test_mirror_release.py
 python3 -m unittest tool.test_release_identity
 python3 -m unittest discover -s .automation -p 'test_*.py'
 ```

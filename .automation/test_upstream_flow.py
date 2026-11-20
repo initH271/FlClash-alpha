@@ -72,7 +72,6 @@ class WatchTests(unittest.TestCase):
         self.posts, self.tracked = [], []
         self.release = {'tag_name': TAG, 'draft': False, 'prerelease': False,
                         'body': 'thanks @someone, see #12 and https://github.com/x/y/issues/3 ' + '<!-- flclash-upstream {} -->'}
-        self.dispatch_error = None
 
     def api(self, url, method='GET', data=None, missing=False, timeout=60):
         if url.endswith('/releases/latest'):
@@ -81,8 +80,6 @@ class WatchTests(unittest.TestCase):
             return {'object': {'type': 'commit', 'sha': 'c' * 40}}
         if method == 'POST':
             self.posts.append((url, data))
-            if url.endswith('/dispatches') and self.dispatch_error:
-                raise self.dispatch_error
             return {'number': 40}
         self.fail(f'Unexpected API call: {method} {url}')
 
@@ -91,18 +88,14 @@ class WatchTests(unittest.TestCase):
                 contextlib.redirect_stdout(io.StringIO()):
             control.watch()
 
-    def test_a_new_version_opens_one_github_issue_for_the_owner_and_asks_for_analysis(self):
+    def test_a_new_version_opens_one_github_issue_for_the_owner_and_starts_nothing_else(self):
         self.run_watch()
-        self.assertEqual(f'{control.GH}/issues', self.posts[0][0])
+        self.assertEqual([f'{control.GH}/issues'], [url for url, _ in self.posts])
         issue = self.posts[0][1]
         self.assertEqual(control.upstream_title(TAG), issue['title'])
         self.assertEqual([control.OWNER], issue['assignees'])
         request = control.upstream_request({'user': BOT, 'title': issue['title'], 'body': issue['body']})
         self.assertEqual({'tag': TAG, 'sha': 'c' * 40, 'upstream': control.POLICY['upstream']}, request)
-        url, data = self.posts[1]
-        self.assertTrue(url.endswith('/actions/workflows/npc-upstream.yml/dispatches'))
-        self.assertEqual({'ref': 'main', 'inputs': {'issue': '40', 'tag': TAG, 'base': control.POLICY['upstream_sha'],
-                                                    'head': 'c' * 40}}, data)
 
     def test_the_body_mentions_nobody_and_carries_no_upstream_text(self):
         self.run_watch()
@@ -115,11 +108,6 @@ class WatchTests(unittest.TestCase):
         self.tracked = [{'title': control.upstream_title(TAG), 'number': 3}]
         self.run_watch()
         self.assertEqual([], self.posts)
-
-    def test_a_failed_analysis_request_keeps_the_issue(self):
-        self.dispatch_error = control.HttpStatusError('POST api.github.com returned HTTP 500: ', 500)
-        self.run_watch()
-        self.assertEqual(2, len(self.posts))
 
     def test_old_prereleased_or_odd_versions_open_nothing(self):
         for change in ({'tag_name': control.POLICY['upstream_tag']}, {'prerelease': True}, {'draft': True}, {'tag_name': 'v9.9.9-pre.1'}):
@@ -363,12 +351,10 @@ class ConflictTests(UpgradeRepo):
 
 
 class ReleaseNotifyTests(unittest.TestCase):
-    """notify_release sits on the release path: whatever happens to the Issues, the mirror must hear of the release."""
+    """notify_release runs after the release is public: whatever happens to the Issues, it must not fail that run."""
 
     def api(self, url, method='GET', data=None, missing=False, timeout=60):
         self.calls.append((method, url, data))
-        if url.endswith('/build/start'):
-            return None
         if '/actions/runs/' in url:
             return {'display_title': 'Android ' + 'a' * 40}
         return {}
@@ -380,42 +366,33 @@ class ReleaseNotifyTests(unittest.TestCase):
             item.start()
             self.addCleanup(item.stop)
 
-    def assert_mirror_started(self):
-        self.assertEqual(('POST', f'{control.CNB}/build/start'), self.calls[-1][:2])
-        self.assertEqual('api_trigger', self.calls[-1][2]['event'])
-        self.assertEqual('main', self.calls[-1][2]['branch'])
+    def writes(self):
+        return [c for c in self.calls if c[0] != 'GET']
 
     def notify(self, issues):
         with patch.object(control, 'bot_issues', lambda state: iter(issues)), contextlib.redirect_stdout(io.StringIO()):
             control.notify_release()
 
-    def test_a_release_starts_the_mirror_without_any_key_or_candidate(self):
+    def test_a_release_with_no_old_failure_writes_nothing_and_needs_no_key_or_candidate(self):
         with patch.dict(os.environ):
             os.environ.pop('UPSTREAM_APPROVAL_KEY', None)
             self.notify([])
-        self.assert_mirror_started()
+        self.assertEqual([], self.writes())
         self.assertFalse((ROOT / '.automation/candidate.json').exists())
 
-    def test_a_github_failure_while_tidying_still_starts_the_mirror(self):
+    def test_a_github_failure_while_tidying_is_reported_and_does_not_fail_the_step(self):
         for error in (control.HttpStatusError('GET api.github.com returned HTTP 403: ', 403), OSError('down'), KeyError('title')):
-            self.calls.clear()
-            with patch.object(control, 'close_published_failures', side_effect=error), contextlib.redirect_stdout(io.StringIO()):
+            with patch.object(control, 'close_published_failures', side_effect=error), \
+                    contextlib.redirect_stdout(io.StringIO()) as printed:
                 control.notify_release()
-            self.assert_mirror_started()
-
-    def test_a_mirror_that_cannot_start_fails_the_step(self):
-        with patch.object(control, 'api', side_effect=control.HttpStatusError('POST api.cnb.cool returned HTTP 401: ', 401)), \
-                patch.object(control, 'bot_issues', lambda state: iter([])):
-            with self.assertRaises(control.HttpStatusError):
-                control.notify_release()
+            self.assertIn('cleanup needs retry', printed.getvalue())
 
     def test_a_published_successor_closes_the_old_failure_on_github(self):
         self.notify([{'number': 9, 'title': '[构建待处理] GitHub #77'}, {'number': 10, 'title': control.upstream_title(TAG)}])
-        writes = [c for c in self.calls if c[0] != 'GET' and not c[1].endswith('/build/start')]
+        writes = self.writes()
         self.assertEqual([('POST', f'{control.GH}/issues/9/comments'), ('PATCH', f'{control.GH}/issues/9')],
                          [c[:2] for c in writes])
         self.assertEqual('closed', writes[1][2]['state'])
-        self.assert_mirror_started()
 
 
 class IssueListingTests(unittest.TestCase):

@@ -565,7 +565,7 @@ failure, disposal, and any timer boundary that changes visible state.
 
 ## Automation Changes
 
-`.automation/`, `.cnb/`, `.cnb.yml` and `.github/` describe how this repository is automated. Change them through an
+`.automation/` and `.github/` describe how this repository is automated. Change them through an
 ordinary GitHub pull request, with the same required checks as any other: `ci-ok` and `Dependency vulnerability scan`.
 
 - Read [AUTOMATION.md](../AUTOMATION.md) first, and update it or `SECURITY_AUTOMATION.md` in the same pull request.

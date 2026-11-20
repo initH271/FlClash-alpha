@@ -173,7 +173,7 @@ def sha256(path):
 
 
 def merge_checksums(existing, digests):
-    """The APK line stays first and unchanged: the CNB mirror and anyone checking by hand read it there."""
+    """The APK line stays first and unchanged: anyone checking by hand reads it there."""
     kept = [line for line in existing.splitlines() if line.strip() and line.split()[-1] not in digests]
     if not kept:
         raise ValueError(f'{CHECKSUMS} has no line for the APK')

@@ -379,7 +379,7 @@ class WorkflowTests(unittest.TestCase):
                 self.assertNotIn('secrets.', job(name))
                 self.assertNotIn('permissions:', job(name))
                 self.assertIn('persist-credentials: false', job(name))
-        self.assertEqual(['KEYSTORE_BASE64', 'CNB_AUTOMATION_TOKEN'], re.findall(r'(\w+): \$\{\{ secrets\.', WORKFLOW))
+        self.assertEqual(['KEYSTORE_BASE64'], re.findall(r'(\w+): \$\{\{ secrets\.', WORKFLOW))
 
     def test_the_signing_key_reaches_only_the_step_that_signs(self):
         self.assertEqual(1, WORKFLOW.count('secrets.ANDROID_DEBUG_KEYSTORE'))
@@ -391,11 +391,6 @@ class WorkflowTests(unittest.TestCase):
         build = job('build')
         self.assertLess(build.index('windows_release.py package'), build.index('windows_smoke.ps1'))
         self.assertLess(build.index('windows_smoke.ps1'), build.index('upload-artifact'))
-
-    def test_the_mirror_start_cannot_fail_a_finished_publish(self):
-        step = job('publish').split('Start the CNB mirror')[1]
-        self.assertIn('continue-on-error: true', step)
-        self.assertIn('control.py mirror', step)
 
     def test_the_trigger_follows_the_android_release_by_its_exact_name(self):
         name = re.search(r'^name: (.+)$', (ROOT / '.github/workflows/build.yaml').read_text(encoding='utf-8'), re.M).group(1)
@@ -425,12 +420,6 @@ class WorkflowTests(unittest.TestCase):
     def test_a_pull_request_never_reaches_publish_or_report(self):
         self.assertIn("github.event_name != 'pull_request'", job('report'))
         self.assertIn("needs.plan.outputs.mode == 'publish'", job('publish'))
-
-    def test_every_packaged_name_is_the_one_the_mirror_copies(self):
-        mirror = (ROOT / '.cnb/mirror-release.py').read_text(encoding='utf-8')
-        self.assertIn(w.SETUP, mirror)
-        self.assertIn(w.ARCHIVE, mirror)
-        self.assertIn(w.MANIFEST, mirror)
 
 
 if __name__ == '__main__':
