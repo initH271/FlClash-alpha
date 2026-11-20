@@ -153,12 +153,6 @@ class _AboutViewState extends ConsumerState<AboutView> {
               ),
               _buildLinkItem(
                 glyph: AppGlyphs.code,
-                title: '${appLocalizations.project} · CNB',
-                url: 'https://cnb.cool/507space/FlClash-alpha',
-                label: 'CNB',
-              ),
-              _buildLinkItem(
-                glyph: AppGlyphs.code,
                 title: appLocalizations.upstreamProject,
                 url: 'https://github.com/chen08209/FlClash',
                 label: 'FlClash · chen08209',

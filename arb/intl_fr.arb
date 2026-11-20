@@ -971,7 +971,7 @@
   "addedToLocalProxies": "{name} ajouté aux proxys locaux",
   "alreadyInLocalProxies": "{name} est déjà dans les proxys locaux",
   "upstreamProject": "Projet amont",
-  "personalForkDescription": "FlClash-alpha est maintenu par Aharon et basé sur chen08209/FlClash. Il conserve des journaux tournants et se met à jour depuis GitHub et CNB.",
+  "personalForkDescription": "FlClash-alpha est maintenu par Aharon et basé sur chen08209/FlClash. Il conserve des journaux tournants et se met à jour depuis GitHub.",
   "updateDownloading": "Téléchargement de la mise à jour…",
   "updateVerifying": "Vérification du paquet d'installation…",
   "updateReady": "Téléchargement vérifié. Touchez Installer la mise à jour pour continuer.",

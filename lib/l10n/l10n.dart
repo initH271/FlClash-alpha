@@ -8122,10 +8122,10 @@ class AppLocalizations {
     );
   }
 
-  /// `FlClash-alpha is maintained by Aharon and based on chen08209/FlClash. It keeps rolling logs and updates from GitHub and CNB.`
+  /// `FlClash-alpha is maintained by Aharon and based on chen08209/FlClash. It keeps rolling logs and updates from GitHub.`
   String get personalForkDescription {
     return Intl.message(
-      'FlClash-alpha is maintained by Aharon and based on chen08209/FlClash. It keeps rolling logs and updates from GitHub and CNB.',
+      'FlClash-alpha is maintained by Aharon and based on chen08209/FlClash. It keeps rolling logs and updates from GitHub.',
       name: 'personalForkDescription',
       desc: '',
       args: [],

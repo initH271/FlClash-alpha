@@ -7,6 +7,8 @@ import 'package:fl_clash/common/app_update.dart';
 import 'package:fl_clash/common/release_identity.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../helpers/update_sources.dart';
+
 class _DateAdapter implements HttpClientAdapter {
   final Map<String, dynamic> Function(RequestOptions) respond;
 
@@ -99,15 +101,13 @@ void main() {
     },
   );
 
-  test('wrong release or unavailable primary date falls back to CNB', () async {
+  test('an answer for another release yields no date', () async {
     final hosts = <String>[];
     final dio = Dio()
       ..httpClientAdapter = _DateAdapter((options) {
         hosts.add(options.uri.host);
         return {
-          'tag_name': options.uri.host == 'api.github.com'
-              ? 'alpha-0.8.98-2026094012'
-              : 'alpha-0.8.98-2026094013',
+          'tag_name': 'alpha-0.8.98-2026094012',
           'published_at': '2026-10-06T01:02:03Z',
         };
       });
@@ -116,9 +116,9 @@ void main() {
       await ReleaseDateClient(
         dio,
       ).lookup('alpha-0.8.98-2026094013', CancelToken()),
-      DateTime.utc(2026, 10, 6, 1, 2, 3),
+      isNull,
     );
-    expect(hosts, ['api.github.com', 'api.cnb.cool']);
+    expect(hosts, ['api.github.com']);
   });
 
   test('draft, malformed date and cancellation do not invent a date', () async {
@@ -150,14 +150,14 @@ void main() {
     'update eligibility still compares internal builds across display versions',
     () async {
       final checker = AppUpdateChecker(
+        target: mirrored(androidUpdate),
         load: (source) async {
+          final newer = source == primarySource;
           final metadata = {
-            'build': source.name == 'GitHub' ? 2026094013 : 2026094012,
-            'displayVersion': source.name == 'GitHub'
-                ? '0.8.98-alpha.13'
-                : '0.8.99-alpha.12',
-            'upstreamVersion': source.name == 'GitHub' ? '0.8.98' : '0.8.99',
-            'revision': source.name == 'GitHub' ? 13 : 12,
+            'build': newer ? 2026094013 : 2026094012,
+            'displayVersion': newer ? '0.8.98-alpha.13' : '0.8.99-alpha.12',
+            'upstreamVersion': newer ? '0.8.98' : '0.8.99',
+            'revision': newer ? 13 : 12,
             'applicationId': 'com.follow.clash.dev',
             'apk': updateApkName,
             'certificateSha256': updateCertificate,

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
+import 'package:fl_clash/common/app_update.dart';
 import 'package:fl_clash/common/update_download.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -36,7 +37,10 @@ void main() {
     release = {
       'build': 10,
       'sha256': sha256.convert(bytes).toString(),
-      'download_urls': ['https://cnb.cool/first', 'https://github.com/second'],
+      'download_urls': [
+        'https://primary.test/first',
+        'https://mirror.test/second',
+      ],
     };
   });
   tearDown(() => root.delete(recursive: true));
@@ -86,6 +90,28 @@ void main() {
     final file = await download.fetch(release, CancelToken(), (_, _) {}, () {});
     expect(visited.length, 2);
     expect(await file.readAsBytes(), bytes);
+  });
+
+  test('names the source a download comes from', () async {
+    final source = updateSources.single;
+    final named = <String>[];
+    final download = UpdateDownload(
+      installer: installer,
+      transfer: (_, path, _, _) async {
+        await File(path).writeAsBytes(bytes);
+      },
+    );
+    await download.fetch(
+      {
+        ...release,
+        'download_urls': ['${source.download}/alpha-10/$updateApkName'],
+      },
+      CancelToken(),
+      (_, _) {},
+      () {},
+      onSource: named.add,
+    );
+    expect(named, [source.name]);
   });
 
   test('closing cancels and removes the incomplete download', () async {

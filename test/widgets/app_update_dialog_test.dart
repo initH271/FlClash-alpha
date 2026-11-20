@@ -52,7 +52,7 @@ class _Download extends UpdateDownload {
 void main() {
   const release = {
     'tag_name': 'alpha-test',
-    'source': 'CNB',
+    'source': 'GitHub',
     'body': 'Changes',
   };
 

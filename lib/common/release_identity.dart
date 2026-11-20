@@ -101,42 +101,36 @@ class ReleaseDateClient {
       return null;
     }
     if (_dates[tag] case final cached?) return cached;
-    for (final base in [
-      'https://api.github.com/repos/initH271/FlClash-alpha/releases/tags',
-      'https://api.cnb.cool/507space/FlClash-alpha/-/releases/tags',
-    ]) {
-      if (token.isCancelled) return null;
-      try {
-        final options =
-            Options(
-                responseType: ResponseType.json,
-                sendTimeout: const Duration(seconds: 3),
-                receiveTimeout: const Duration(seconds: 3),
-              ).compose(
-                dio.options,
-                '$base/${Uri.encodeComponent(tag)}',
-                cancelToken: token,
-              )
-              ..connectTimeout = const Duration(seconds: 3);
-        final response = await dio.fetch<Object?>(options);
-        final data = response.data is String
-            ? jsonDecode(response.data as String)
-            : response.data;
-        if (data is! Map ||
-            data['tag_name'] != tag ||
-            data['draft'] == true ||
-            data['prerelease'] == true) {
-          continue;
-        }
-        final date = parseReleaseDate(data['published_at']);
-        if (date != null) {
-          _dates[tag] = date;
-          return date;
-        }
-      } catch (_) {
-        if (token.isCancelled) return null;
+    if (token.isCancelled) return null;
+    const releases =
+        'https://api.github.com/repos/initH271/FlClash-alpha/releases/tags';
+    try {
+      final options =
+          Options(
+              responseType: ResponseType.json,
+              sendTimeout: const Duration(seconds: 3),
+              receiveTimeout: const Duration(seconds: 3),
+            ).compose(
+              dio.options,
+              '$releases/${Uri.encodeComponent(tag)}',
+              cancelToken: token,
+            )
+            ..connectTimeout = const Duration(seconds: 3);
+      final response = await dio.fetch<Object?>(options);
+      final data = response.data is String
+          ? jsonDecode(response.data as String)
+          : response.data;
+      if (data is! Map ||
+          data['tag_name'] != tag ||
+          data['draft'] == true ||
+          data['prerelease'] == true) {
+        return null;
       }
+      final date = parseReleaseDate(data['published_at']);
+      if (date != null) _dates[tag] = date;
+      return date;
+    } catch (_) {
+      return null;
     }
-    return null;
   }
 }

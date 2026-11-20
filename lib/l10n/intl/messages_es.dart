@@ -1477,7 +1477,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "paste": MessageLookupByLibrary.simpleMessage("Pegar"),
     "peers": MessageLookupByLibrary.simpleMessage("Pares"),
     "personalForkDescription": MessageLookupByLibrary.simpleMessage(
-      "FlClash-alpha lo mantiene Aharon y se basa en chen08209/FlClash. Conserva registros rotativos y se actualiza desde GitHub y CNB.",
+      "FlClash-alpha lo mantiene Aharon y se basa en chen08209/FlClash. Conserva registros rotativos y se actualiza desde GitHub.",
     ),
     "pickFromAlbum": MessageLookupByLibrary.simpleMessage("Elegir del álbum"),
     "pinWindow": MessageLookupByLibrary.simpleMessage("Fijar ventana"),
