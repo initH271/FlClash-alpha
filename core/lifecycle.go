@@ -25,7 +25,7 @@ var (
 	sdkVersion atomic.Int32
 )
 
-func handleInitClash(params *InitParams) bool {
+func handleInit(params *InitParams) error {
 	configMu.Lock()
 	defer configMu.Unlock()
 	sdkVersion.Store(int32(params.Version))
@@ -34,26 +34,30 @@ func handleInitClash(params *InitParams) bool {
 	clearSpilledResponses()
 	startLogHistoryWithRetention(params.HomeDir, params.LogRetentionDays)
 	isInit.Store(true)
-	return true
+	return nil
 }
 
-func handleGetIsInit() bool {
+func handleInitialized() bool {
 	return isInit.Load()
 }
 
-func handleStartListener() bool {
+func setRunning(running bool) {
+	isRunning.Store(running)
+}
+
+func handleStartListener() error {
 	configMu.Lock()
 	defer configMu.Unlock()
 	if !isInit.Load() || currentConfig == nil {
-		return false
+		return errConfigNotApplied
 	}
-	isRunning.Store(true)
+	setRunning(true)
 	updateListeners(currentConfig)
 	resolver.ResetConnection()
 	// A probe already out left before the TUN routes and over the DNS
 	// connections just dropped, so its answer must not stand for this route.
 	bumpRouteEpoch()
-	return true
+	return nil
 }
 
 func tunStartupReady() bool {
@@ -62,13 +66,13 @@ func tunStartupReady() bool {
 	return isInit.Load() && currentConfig != nil && isRunning.Load()
 }
 
-func handleStopListener() bool {
+func handleStopListener() {
 	configMu.Lock()
 	defer configMu.Unlock()
-	isRunning.Store(false)
+	setRunning(false)
 	listener.StopListener()
 	resolver.ResetConnection()
-	return true
+	bumpRouteEpoch()
 }
 
 func updateListeners(cfg *config.Config) {
@@ -97,12 +101,12 @@ func updateListeners(cfg *config.Config) {
 	}
 }
 
-func handleShutdown() bool {
+func handleShutdown() {
 	handleStopLog()
 	stopRouteWatch()
 
 	configMu.Lock()
-	isRunning.Store(false)
+	setRunning(false)
 	listener.StopListener()
 	updater.StopGeoUpdater()
 	executor.Shutdown()
@@ -112,7 +116,6 @@ func handleShutdown() bool {
 
 	handleForceGC()
 	stopLogHistory()
-	return true
 }
 
 func handleForceGC() {

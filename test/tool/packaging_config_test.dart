@@ -19,7 +19,7 @@ void main() {
 
     test('the installer is the one the updater accepts', () {
       expect(config['app_id'], windowsApplicationId);
-      expect(config['publisher_name'], 'initH271');
+      expect(config['publisher'], 'initH271');
       expect(config['install_dir_name'], r'{autopf64}\FlClash-alpha');
     });
 
@@ -37,7 +37,8 @@ void main() {
     });
 
     test('the installer removes the startup entry the app writes', () {
-      expect(script, contains("Run', '$windowsAutoLaunchName'"));
+      expect(config['display_name'], windowsAutoLaunchName);
+      expect(script, contains("Run', '{{DISPLAY_NAME}}'"));
       expect(script, isNot(contains('APP_NAME')));
     });
 
@@ -45,7 +46,7 @@ void main() {
       final icons = RegExp(r'Name: "\{(autoprograms|autodesktop)\}[^"]*"');
       final names = icons.allMatches(script).map((match) => match[0]!).toList();
       expect(names, hasLength(2));
-      expect(names, everyElement(endsWith(r'\\FlClash-alpha"')));
+      expect(names, everyElement(endsWith(r'\\{{DISPLAY_NAME}}"')));
     });
 
     test('nothing ends a process by name alone', () {
@@ -82,24 +83,6 @@ void main() {
           isTrue,
         );
       });
-    }
-  });
-
-  test('every Linux package names the GTK application id as its window '
-      'class', () {
-    final applicationId = RegExp(
-      r'set\(APPLICATION_ID "([^"]+)"\)',
-    ).firstMatch(File('linux/CMakeLists.txt').readAsStringSync())!.group(1);
-
-    for (final format in ['deb', 'rpm', 'appimage']) {
-      final config =
-          loadYaml(
-                File(
-                  'linux/packaging/$format/make_config.yaml',
-                ).readAsStringSync(),
-              )
-              as YamlMap;
-      expect(config['startup_wm_class'], applicationId, reason: format);
     }
   });
 

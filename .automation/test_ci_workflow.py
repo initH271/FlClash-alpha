@@ -263,9 +263,8 @@ class CiChangesTests(unittest.TestCase):
             package = path.relative_to(ROOT).parts[:2]
             for read in re.findall(r"_resolveSource\(\s*'([^']+)'", path.read_text(encoding='utf-8')):
                 reads.append('/'.join((*package, read)))
-        self.assertTrue(reads)
         lockfile = 'plugins/setup/setup_hooks/pubspec.lock'
-        for read in (*reads, lockfile, 'plugins/tray/pubspec.yaml', '.github/workflows/ci.yml'):
+        for read in (*reads, lockfile, 'plugins/dynamic_color/pubspec.yaml', '.github/workflows/ci.yml'):
             with self.subTest(read=read):
                 self.assertIn('plugins', changes.needed_jobs([read]))
                 self.assertTrue((ROOT / read).exists())

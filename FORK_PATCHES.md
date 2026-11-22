@@ -8,8 +8,8 @@
 
 | 基线 | 值 |
 | --- | --- |
-| 上游版本 | `v0.9.2`（`7fd417fb`），同 `.automation/policy.json` 的 `upstream_tag` |
-| 正文对应的 fork 提交 | `984799d4` |
+| 上游版本 | `v0.9.4`（`89791d7c`），同 `.automation/policy.json` 的 `upstream_tag` |
+| 正文对应的 fork 提交 | 合并 `v0.9.4` 的提交 |
 | 重新列差异 | `git diff --stat <上游 tag> HEAD` |
 
 仓库文档索引见 [AGENTS.md](AGENTS.md)。相关文档：[AUTOMATION.md](AUTOMATION.md)、[RELEASE_CHANNELS.md](RELEASE_CHANNELS.md)、[ROLLING_LOG_HISTORY.md](ROLLING_LOG_HISTORY.md)、[SECURITY_AUTOMATION.md](SECURITY_AUTOMATION.md)。
@@ -20,7 +20,7 @@
 - **整份用 fork 版本**：`.github/workflows/build.yaml`、`README.md`。
 - **继续保持删除**：`.github/workflows/pages.yaml`、`site/`、`tool/build_site.sh`、`tool/render_site.mjs`、`README_zh_CN.md`。
 - **其他冲突文件**：取上游版本，再按本清单把 fork 补丁打回去。提交 `6a7a5383` 是恢复 fork 功能的样板。
-- **生成文件不手工合并**：`lib/**/generated/**` 用 `dart run build_runner build --delete-conflicting-outputs` 重新生成，`lib/l10n/` 用 `dart run intl_utils:generate` 重新生成。
+- **生成文件不手工合并**：`lib/**/generated/**` 用 `dart run build_runner build --delete-conflicting-outputs` 重新生成，`lib/l10n/` 用 `flutter gen-l10n` 重新生成。
 - **锁文件不能直接取上游**：取上游的 `core/go.sum` 和 `Cargo.lock` 会丢掉安全版本，见 G4。
 - **全量回归**：升级 PR 改了 `.automation/policy.json`，`ci.yml` 会跑全部 job。
 - **mihomo**：`core/Clash.Meta` 没有 fork 补丁。改动规则见 `.agents/rules.md` 里关于 `core/Clash.Meta` 的预算条目，默认在 FlClash 这一侧解决。
@@ -183,7 +183,7 @@
 
 ### D10. 中文分组标题（#115）
 
-- **文件**：上游文件 `arb/intl_zh_CN.arb` 和生成文件、`test/widgets/update_dialog_test.dart`。
+- **文件**：上游文件 `arb/intl_zh.arb` 和生成文件、`test/widgets/update_dialog_test.dart`。
 - **改了什么**：zh_CN 的 `changelogBreaking`、`changelogFeatures`、`changelogFixes`、`changelogPerformance`、`changelogReverts` 等分组标题改成口语（「新玩意儿」「修好了」）。
 - **为什么**：和条目语气一致。
 - **核对**：上游改这些 key 时保留 fork 的中文，再重新生成 `lib/l10n/`。兜底：`test/widgets/update_dialog_test.dart`。
@@ -236,12 +236,9 @@
 - **为什么**：原因未记录（`be6eeb74`）。
 - **核对**：确认地址还是 HTTPS。上游换子模块仓库或分支时重看。
 
-### G2. Socket 保护
+### G2. Socket 保护（已退掉）
 
-- **文件**：上游文件 `core/lib.go`；fork 文件 `core/socket_guard.go`、`core/socket_guard_test.go`、`core/lib_protect_test.go`。
-- **改了什么**：钩子在加载时安装；没有活动 TUN handler 时打开的 socket 先保留，下一个 handler 启动时再保护；TUN 启动过程中打开的 socket 也保护。
-- **为什么**：VPN 重启时，健康检查的 QUIC socket 没被保护，流量回环进 TUN（`53b11ce2`）。
-- **核对**：上游改 `TunHandler`、`installHooks`、`DefaultSocketHook`、`handleProtect` 时重看。兜底：`cd core && CGO_ENABLED=0 go test -run 'TestSocketHook|TestSocketGuard' .`。
+- 上游 `43a7af80` 的 `core/protect.go` 做了同样的事：钩子在加载时安装，没有 VPN 时打开的 socket 先留着，`TunHandler.start` 在 `t.Start` 之前激活保护，所以 TUN 启动过程中打开的 socket 也被保护。fork 的 `core/socket_guard.go` 及其测试已删除。
 
 ### G3. 启动顺序门禁（#202）
 
@@ -289,12 +286,9 @@
 - **为什么**：原因未记录（`be6eeb74`）。
 - **核对**：上游改 `_bindgenEnvironment` 时可以先取上游版本，再构建 APK 验证。
 
-### I3. AnimatedVisibility 跟随减少动画
+### I3. AnimatedVisibility（已退掉）
 
-- **文件**：上游文件 `lib/ui/animated_visibility.dart`。
-- **改了什么**：系统关闭动画时，把时长设为 0 并直接跳到结果值。
-- **为什么**：原因未记录。这段代码是合并提交 `5bd6efd0` 带进来的，两个父提交都没有。
-- **核对**：上游改这个组件时可以先取上游版本。没有针对这段行为的测试，`test/widgets/animated_visibility_test.dart` 不覆盖它。
+- 上游删除了 `lib/ui/animated_visibility.dart`，组件改由 `plugins/prism_ui` 提供，补丁不再保留。
 
 ### I4. README
 
@@ -305,7 +299,7 @@
 
 ### I5. 界面文案
 
-- **文件**：上游文件 `arb/intl_en.arb`、`arb/intl_es.arb`、`arb/intl_fr.arb`、`arb/intl_ja.arb`、`arb/intl_ko.arb`、`arb/intl_ru.arb`、`arb/intl_zh_CN.arb`。
+- **文件**：上游文件 `arb/intl_en.arb`、`arb/intl_es.arb`、`arb/intl_fr.arb`、`arb/intl_ja.arb`、`arb/intl_ko.arb`、`arb/intl_ru.arb`、`arb/intl_zh.arb`。
 - **改了什么**：7 种语言都在文件末尾加了 fork 文案（更新、网络工具、日志保留、版本信息）；en、ja、ru、zh_CN 把 `exportLogs` 改成「导出全部日志」的意思。
 - **为什么**：A、B、C 组功能的界面文案。
 - **核对**：冲突时两边的 key 都保留，再重新生成 `lib/l10n/`。兜底：`test/l10n`。
@@ -347,7 +341,7 @@
 
 ### I11. 服务状态：分类文案（#113）
 
-- **文件**：上游文件 `arb/intl_en.arb`、`arb/intl_es.arb`、`arb/intl_fr.arb`、`arb/intl_ja.arb`、`arb/intl_ko.arb`、`arb/intl_ru.arb`、`arb/intl_zh_CN.arb` 和 `lib/l10n/` 生成文件。
+- **文件**：上游文件 `arb/intl_en.arb`、`arb/intl_es.arb`、`arb/intl_fr.arb`、`arb/intl_ja.arb`、`arb/intl_ko.arb`、`arb/intl_ru.arb`、`arb/intl_zh.arb` 和 `lib/l10n/` 生成文件。
 - **改了什么**：6 个 `serviceCategory*` key（Ai、Streaming、Social、Finance、Developer、Gaming），7 种语言。
 - **为什么**：面板分类标题（I12）。
 - **核对**：上游 arb 冲突时保留这些 key，再重新生成 `lib/l10n/`。兜底：`test/l10n`。
@@ -376,7 +370,7 @@
 ### I15. Windows 独立身份
 
 - **文件**：上游文件 `windows/packaging/exe/make_config.yaml`、`windows/packaging/exe/inno_setup.iss`、`windows/runner/Runner.rc`（`CompanyName`）、`services/helper/src/service/windows.rs`（`SERVICE_NAME`）、`services/helper/src/service/peer.rs`（`PORT_KEY`）、`lib/common/constant.dart`、`lib/common/launch.dart`、`test/core/desktop/helper_client_test.dart`；fork 文件 `test/tool/packaging_config_test.dart` 的 Windows 分组。
-- **改了什么**：换成自己的 `AppId`、发布者、安装目录、数据目录、服务名、开机启动值名、快捷方式和卸载项名字。安装和卸载只结束 `{app}` 下的进程。`/RELAUNCH` 让静默安装结束后重新启动应用。上游写的 `publisher` 键 flutter_distributor 不读，改成 `publisher_name`。
+- **改了什么**：换成自己的 `AppId`、发布者、安装目录、数据目录、服务名、开机启动值名、快捷方式和卸载项名字。安装和卸载只结束 `{app}` 下的进程。`/RELAUNCH` 让静默安装结束后重新启动应用。打包改用上游的 `tool/package.dart`，身份都来自 `make_config.yaml`：`display_name` 是快捷方式、卸载项和开机启动值的名字，必须等于 `windowsAutoLaunchName`。
 - **为什么**：和官方版能同时安装，官方的文件、服务、快捷方式和数据都不被碰。对照表见 `RELEASE_CHANNELS.md`。
 - **核对**：上游改 Inno 模板或 helper 服务时，确认这些值没被冲掉，也没有新增按进程名结束进程、写死 `com.follow` 或 `FlClashHelperService` 服务名的地方。`hub.rs` 的 host 白名单和 helper 的 exe 文件名不用改：Windows 客户端走 127.0.0.1，那个名字是 Linux 的。`_readHelperPort` 读不到注册表时回退到固定端口 47890，这时可能连到官方的旧 helper，靠 `readiness` 的 Core 哈希拦下。兜底：`test/tool/packaging_config_test.dart`、`test/core/desktop/helper_client_test.dart`、`windows.yaml` 的冒烟。
 
@@ -398,14 +392,15 @@
 
 ### J2. 推送通道磁贴（#116）
 
-- **文件**：上游文件 `arb/intl_en.arb`、`arb/intl_es.arb`、`arb/intl_fr.arb`、`arb/intl_ja.arb`、`arb/intl_ko.arb`、`arb/intl_ru.arb`、`arb/intl_zh_CN.arb`、`lib/models/generated/config.g.dart`、`lib/enum/enum.dart`；fork 文件 `lib/views/dashboard/fork/push_channel.dart`、`test/views/dashboard/fork/push_channel_test.dart`。
+- **文件**：上游文件 `arb/intl_en.arb`、`arb/intl_es.arb`、`arb/intl_fr.arb`、`arb/intl_ja.arb`、`arb/intl_ko.arb`、`arb/intl_ru.arb`、`arb/intl_zh.arb`、`lib/models/generated/config.g.dart`、`lib/enum/enum.dart`；fork 文件 `lib/views/dashboard/fork/push_channel.dart`、`test/views/dashboard/fork/push_channel_test.dart`。
 - **改了什么**：新增 `forkPushChannel` 磁贴。
 - **为什么**：一眼看出 FCM 有没有走代理。
 - **核对**：上游改 `ConnectionsPolling`（`lib/views/dashboard/widgets/connections_table.dart`）、`TrackerInfo`、`DashboardCard` 的接口时重看。`config.g.dart` 冲突时重新生成，不要手动合。兜底：`test/views/dashboard/fork/push_channel_test.dart`。
 
 ### J3. 分流自检磁贴（#116）
 
-- **文件**：上游文件 `arb/intl_en.arb`、`arb/intl_es.arb`、`arb/intl_fr.arb`、`arb/intl_ja.arb`、`arb/intl_ko.arb`、`arb/intl_ru.arb`、`arb/intl_zh_CN.arb`、`lib/models/generated/config.g.dart`、`lib/enum/enum.dart`、`test/views/dashboard/edit_test.dart`（一行：视图高度 1400 改 1800）；fork 文件 `lib/providers/fork/route_check.dart`、`lib/views/dashboard/fork/route_check.dart`、`test/providers/fork/route_check_test.dart`、`test/views/dashboard/fork/route_check_test.dart`。
+- **Core 探测**：上游在 `2a5a42c3` 删掉了通用的 URL 探测方法。fork 用 `core/url_probe.go` 补回一个 `probe.url`，注册在 `core/method.go`、`core/protocol.go`，Dart 侧是 `CoreMethod.probeUrl`、`lib/core/interface.dart` 的 `probe` 和 `lib/models/core.dart` 的 `ProbeParams`、`ProbeResult`。结果不再带命中的规则，磁贴只显示延迟和链路。上游改方法注册表或 `runProbe` 时重看。
+- **文件**：上游文件 `arb/intl_en.arb`、`arb/intl_es.arb`、`arb/intl_fr.arb`、`arb/intl_ja.arb`、`arb/intl_ko.arb`、`arb/intl_ru.arb`、`arb/intl_zh.arb`、`lib/models/generated/config.g.dart`、`lib/enum/enum.dart`、`test/views/dashboard/edit_test.dart`（一行：视图高度 1400 改 1800）；fork 文件 `lib/providers/fork/route_check.dart`、`lib/views/dashboard/fork/route_check.dart`、`test/providers/fork/route_check_test.dart`、`test/views/dashboard/fork/route_check_test.dart`。
 - **改了什么**：新增 `forkRouteCheck` 磁贴，数据层和界面分开。
 - **为什么**：排查规则分流。
 - **核对**：上游改 `RoutedProbe`（`lib/providers/routed_probe.dart`）、`ProbeParams`（`lib/models/core.dart`）、`outboundIpProbeProvider` 时重看。上游改 `edit_test.dart` 时确认那一行加高还在；上游改 dashboard 布局分支时确认 fork 磁贴在手机布局和宽布局（J6）都还能出现。兜底：`test/providers/fork/route_check_test.dart`、`test/views/dashboard/fork/route_check_test.dart`。
@@ -437,5 +432,4 @@
 
 - **H1**：只有 Windows 上分隔符才不是 `/`，而 fork 的测试只跑在 Linux 上；Windows 构建不跑 `flutter test`。
 - **I2**：仓库里没有地方设置 `LIBCLANG_PATH`；上游只找 `lib` 和 `lib64`。去掉后要构建一次 APK。
-- **I3**：没有提交说明，也没有测试。
 - **B2 里 `lib/providers/actions/common.dart` 的另一个分支**：`checkForUpdate` 在 Android 和 Windows 以外直接返回 null，线上走不到这里读 `source` 和 `download_url` 的两行，可以恢复成上游写法。

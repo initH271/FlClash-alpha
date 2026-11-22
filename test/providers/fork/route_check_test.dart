@@ -20,7 +20,7 @@ void main() {
   setUpAll(() => registerFallbackValue(const ProbeParams(url: '', timeout: 0)));
 
   late _MockCore core;
-  late Map<String, Completer<ProbeResult?>> pending;
+  late Map<String, Completer<ProbeResult>> pending;
   late List<ProbeParams> asked;
 
   setUp(() {
@@ -30,7 +30,7 @@ void main() {
     when(() => core.probe(any())).thenAnswer((invocation) {
       final params = invocation.positionalArguments.single as ProbeParams;
       asked.add(params);
-      return (pending[params.url] = Completer<ProbeResult?>()).future;
+      return (pending[params.url] = Completer<ProbeResult>()).future;
     });
   });
 
@@ -110,15 +110,17 @@ void main() {
 
   test('an answer settles fresh or failed and keeps the outcome', () async {
     final container = await ask(containerOf());
-    void answer(String label, ProbeResult? result) =>
+    void answer(String label, ProbeResult result) =>
         pending[routeCheckTargets.firstWhere((t) => t.label == label).url]!
             .complete(result);
 
     answer('Google', _ok);
     answer('GitHub', const ProbeResult(error: 'timeout'));
     answer('OKX', const ProbeResult(error: 'failed'));
-    answer('FCM', null);
-    pending[routeCheckTargets.last.url]!.completeError(StateError('core gone'));
+    for (final label in ['FCM', 'Baidu']) {
+      pending[routeCheckTargets.firstWhere((t) => t.label == label).url]!
+          .completeError(StateError('core gone'));
+    }
     await settle();
 
     expect(entryOf(container, 'Google').phase, ProbePhase.fresh);

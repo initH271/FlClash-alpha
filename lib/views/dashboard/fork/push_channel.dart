@@ -6,7 +6,7 @@ import 'package:fl_clash/views/dashboard/widgets/card.dart';
 import 'package:fl_clash/views/dashboard/widgets/connections_table.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/widgets.dart';
 
 const _pushPorts = {'5228', '5229', '5230'};
 const _unproxiedExits = {'', 'DIRECT', 'REJECT', 'REJECT-DROP', 'PASS'};

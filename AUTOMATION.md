@@ -19,7 +19,7 @@ rule is in the PR template, and no check enforces it.
 |---|---|---|
 | `ci-ok` | `.github/workflows/ci.yml` | Runs on every PR and passes when every job passed or was skipped. `.github/scripts/ci_changes.py` picks the jobs from the changed paths: automation tests, Go, Rust, Flutter, plugin tests, Android unit tests, Android release compile. A path no rule names runs every job. A change to `ci.yml` or `.automation/policy.json` runs every job. Documents and templates (`docs/`, `.agents/`, root `*.md` except `AUTOMATION.md`, the PR and Issue templates) run none. `AUTOMATION.md` runs only the automation tests, because one of them reads it. Other workflows, `.github/scripts/`, `.github/dependabot.yml` and `macos/` run only the automation tests. `linux/`, `windows/` and `.github/release-notes.md` also run the Flutter job, and so do `core/Clash.Meta`, `core/protocol.go`, `core/service_check.go`, `services/helper/src/service/peer.rs` and `services/helper/src/service/windows.rs` on top of their own jobs, because Dart tests read them. No job compiles a desktop platform |
 | `Dependency vulnerability scan` | `.github/workflows/security.yaml` | See [SECURITY_AUTOMATION.md](SECURITY_AUTOMATION.md) |
-| `Windows build`, `Windows helper test` | `.github/workflows/windows.yaml` | Not required, and not part of `ci-ok`. Runs when a PR changes `windows/`, `services/helper/`, `plugins/`, `core/`, `setup.dart`, `pubspec.yaml`, `pubspec.lock`, `build_config.yaml`, `distribute_options.yaml`, `.gitmodules`, the workflow, its scripts or `lib/common/app_update.dart`. It leaves `lib/` to analyze and test on Linux, since the Windows risk sits in native code and build scripts. The packages stay on the run as an artifact for 3 days |
+| `Windows build`, `Windows helper test` | `.github/workflows/windows.yaml` | Not required, and not part of `ci-ok`. Runs when a PR changes `windows/`, `services/helper/`, `plugins/`, `core/`, `tool/package.dart`, `tool/src/package/`, `pubspec.yaml`, `pubspec.lock`, `build_config.yaml`, `.gitmodules`, the workflow, its scripts or `lib/common/app_update.dart`. It leaves `lib/` to analyze and test on Linux, since the Windows risk sits in native code and build scripts. The packages stay on the run as an artifact for 3 days |
 
 ### Plugin tests
 
@@ -70,7 +70,7 @@ signed manifest. So a merge
 without a version change builds nothing, and adding packages to an older Release takes a manual retry.
 
 `Windows build` compiles on `windows-2022` with no secret and a read-only token. `.automation/windows_release.py stamp`
-writes the release identity into `pubspec.yaml` on the runner, because `flutter_distributor` and the Windows runner read
+writes the release identity into `pubspec.yaml` on the runner, because `tool/package.dart` and the Windows runner read
 the version only from there, and `package` fails the build if `FlClash.exe` or the installer carries another version or
 the archive lacks a file the app needs. It also fetches the CA bundle upstream pins, which the core embeds and the
 submodule keeps empty; bump `CA_BUNDLE` and `CA_BUNDLE_SHA256` with upstream.

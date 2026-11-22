@@ -45,7 +45,7 @@ func TestListenerRejectsUninitializedAndUnconfiguredCore(t *testing.T) {
 	})
 	for _, initialized := range []bool{false, true} {
 		isInit.Store(initialized)
-		if handleStartListener() || isRunning.Load() {
+		if handleStartListener() == nil || isRunning.Load() {
 			t.Fatal("core started without an applied configuration")
 		}
 	}

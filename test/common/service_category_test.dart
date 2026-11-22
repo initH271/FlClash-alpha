@@ -1,8 +1,8 @@
 import 'package:fl_clash/common/service_category.dart';
 import 'package:fl_clash/common/service_probe.dart';
-import 'package:fl_clash/l10n/l10n.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/widgets.dart';
+import 'package:fl_clash/common/app_localizations.dart';
 
 void main() {
   test('every service lands in exactly one group', () {
@@ -78,7 +78,7 @@ void main() {
   });
 
   test('every group is named in English and Chinese', () async {
-    final english = await AppLocalizations.load(const Locale('en'));
+    final english = loadAppLocalizations(const Locale('en'));
     expect(
       [for (final category in ServiceCategory.values) category.label(english)],
       [
@@ -90,7 +90,7 @@ void main() {
         'Gaming',
       ],
     );
-    final chinese = await AppLocalizations.load(const Locale('zh', 'CN'));
+    final chinese = loadAppLocalizations(const Locale('zh', 'CN'));
     expect(ServiceCategory.finance.label(chinese), '交易所与金融');
     expect(ServiceCategory.streaming.label(chinese), '流媒体');
   });

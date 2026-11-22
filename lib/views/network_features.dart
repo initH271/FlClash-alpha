@@ -3,7 +3,8 @@ import 'package:fl_clash/common/network_policy.dart';
 import 'package:fl_clash/models/network_features.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/widgets/widgets.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class NetworkFeaturesView extends ConsumerWidget {
@@ -27,50 +28,66 @@ class NetworkFeaturesView extends ConsumerWidget {
           bottom: 20 + context.bottomInset,
         ),
         children: [
-          SwitchListTile(
-            title: Text(l.smartAutoStop),
-            subtitle: Text(l.smartAutoStopDesc),
-            value: settings.smartAutoStop,
-            onChanged: (value) =>
-                update((s) => s.copyWith(smartAutoStop: value)),
+          generateSection(
+            items: [
+              ListItem.toggle(
+                title: Text(l.smartAutoStop),
+                subtitle: Text(l.smartAutoStopDesc),
+                value: settings.smartAutoStop,
+                onChanged: (value) =>
+                    update((s) => s.copyWith(smartAutoStop: value)),
+              ),
+            ],
           ),
+          ListHeader(title: l.networkRules),
           _NetworkRulesEditor(initialValue: settings.smartAutoStopNetworks),
-          SwitchListTile(
-            title: Text(l.disableQuic),
-            subtitle: Text(l.disableQuicDesc),
-            value: settings.disableQuic,
-            onChanged: (value) => update((s) => s.copyWith(disableQuic: value)),
+          generateSection(
+            items: [
+              ListItem.toggle(
+                title: Text(l.disableQuic),
+                subtitle: Text(l.disableQuicDesc),
+                value: settings.disableQuic,
+                onChanged: (value) =>
+                    update((s) => s.copyWith(disableQuic: value)),
+              ),
+              ListItem.toggle(
+                title: Text(l.snifferOverride),
+                value: settings.overrideSniffer,
+                onChanged: (value) =>
+                    update((s) => s.copyWith(overrideSniffer: value)),
+              ),
+              ListItem.toggle(
+                title: Text(l.sniffer),
+                value: settings.snifferEnabled,
+                onChanged: settings.overrideSniffer
+                    ? (value) =>
+                          update((s) => s.copyWith(snifferEnabled: value))
+                    : null,
+              ),
+            ],
           ),
-          SwitchListTile(
-            title: Text(l.snifferOverride),
-            value: settings.overrideSniffer,
-            onChanged: (value) =>
-                update((s) => s.copyWith(overrideSniffer: value)),
+          generateSection(
+            items: [
+              ListItem.toggle(
+                title: Text(l.ntpOverride),
+                value: settings.overrideNtp,
+                onChanged: (value) =>
+                    update((s) => s.copyWith(overrideNtp: value)),
+              ),
+              ListItem.toggle(
+                title: const Text('NTP'),
+                value: settings.ntpEnabled,
+                onChanged: settings.overrideNtp
+                    ? (value) => update((s) => s.copyWith(ntpEnabled: value))
+                    : null,
+              ),
+            ],
           ),
-          SwitchListTile(
-            title: Text(l.sniffer),
-            value: settings.snifferEnabled,
-            onChanged: settings.overrideSniffer
-                ? (value) => update((s) => s.copyWith(snifferEnabled: value))
-                : null,
-          ),
-          SwitchListTile(
-            title: Text(l.ntpOverride),
-            value: settings.overrideNtp,
-            onChanged: (value) => update((s) => s.copyWith(overrideNtp: value)),
-          ),
-          SwitchListTile(
-            title: const Text('NTP'),
-            value: settings.ntpEnabled,
-            onChanged: settings.overrideNtp
-                ? (value) => update((s) => s.copyWith(ntpEnabled: value))
-                : null,
-          ),
+          ListHeader(title: l.ntpServer),
           TextFormField(
             initialValue: settings.ntpServer,
             maxLength: 253,
             textInputAction: TextInputAction.done,
-            decoration: InputDecoration(labelText: l.ntpServer),
             onFieldSubmitted: (value) {
               if (value.trim().isNotEmpty) {
                 update((s) => s.copyWith(ntpServer: value.trim()));
@@ -78,10 +95,15 @@ class NetworkFeaturesView extends ConsumerWidget {
             },
           ),
           if (system.isDesktop)
-            SwitchListTile(
-              title: Text(l.keepAwake),
-              value: settings.keepAwake,
-              onChanged: (value) => update((s) => s.copyWith(keepAwake: value)),
+            generateSection(
+              items: [
+                ListItem.toggle(
+                  title: Text(l.keepAwake),
+                  value: settings.keepAwake,
+                  onChanged: (value) =>
+                      update((s) => s.copyWith(keepAwake: value)),
+                ),
+              ],
             ),
         ],
       ),
@@ -145,9 +167,7 @@ class _NetworkRulesEditorState extends ConsumerState<_NetworkRulesEditor> {
           maxLines: 3,
           textInputAction: TextInputAction.done,
           decoration: InputDecoration(
-            labelText: l.networkRules,
             helperText: l.networkRulesDesc,
-            helperMaxLines: 7,
             errorMaxLines: 4,
           ),
           autovalidateMode: AutovalidateMode.onUserInteraction,

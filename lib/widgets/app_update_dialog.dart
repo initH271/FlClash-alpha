@@ -7,7 +7,7 @@ import 'package:fl_clash/common/release_identity.dart';
 import 'package:fl_clash/models/changelog.dart';
 import 'package:fl_clash/ui/icons/icons.dart';
 import 'package:fl_clash/ui/ui.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/widgets.dart';
 
 bool _updateDialogOpen = false;
 
@@ -188,7 +188,7 @@ class _AppUpdateDialogState extends State<AppUpdateDialog>
         : l10n.updateDownloading;
     return PopScope(
       canPop: !_installing,
-      child: CommonDialog(
+      child: AlertDialog(
         title: l10n.discoverNewVersion,
         actions: [
           TextButton(
@@ -196,11 +196,11 @@ class _AppUpdateDialogState extends State<AppUpdateDialog>
             child: Text(l10n.close),
           ),
           if (!_started)
-            FilledButton(onPressed: _download, child: Text(l10n.download))
+            TextButton(onPressed: _download, child: Text(l10n.download))
           else if (_failed)
             TextButton(onPressed: _download, child: Text(l10n.updateRetry))
           else if (ready)
-            FilledButton(
+            TextButton(
               onPressed: _installing ? null : _install,
               child: Text(l10n.installUpdate),
             ),

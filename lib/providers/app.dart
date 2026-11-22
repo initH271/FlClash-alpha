@@ -7,6 +7,7 @@ import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/log_history.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
+import 'package:fl_clash/plugins/app.dart';
 import 'package:fl_clash/providers/core.dart';
 import 'package:flutter/services.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -17,11 +18,44 @@ part 'generated/app.g.dart';
 bool safeMode(Ref ref) => safeModeBuild;
 
 @Riverpod(keepAlive: true)
+App? packageIconSource(Ref ref) => app;
+
+/// Android: su is there and granted FlClash's last request.
+@Riverpod(keepAlive: true)
+Future<bool> rootAccess(Ref ref) async {
+  if (!system.isAndroid || app == null) {
+    return false;
+  }
+  return app!.hasRootAccess();
+}
+
+@Riverpod(keepAlive: true)
 class AuthorizedTunEnable extends _$AuthorizedTunEnable
     with AutoDisposeNotifierMixin {
   @override
   TunAuthorizationState build() {
     return TunAuthorizationState.none;
+  }
+}
+
+@Riverpod(keepAlive: true)
+class CoreCapabilitiesState extends _$CoreCapabilitiesState
+    with AutoDisposeNotifierMixin {
+  @override
+  CoreCapabilities build() => const CoreCapabilities.everything();
+}
+
+/// The warnings of the config the Core last set up; they end with the Core.
+@Riverpod(keepAlive: true)
+class CoreStopReason extends _$CoreStopReason with AutoDisposeNotifierMixin {
+  @override
+  String? build() {
+    ref.listen(coreStatusProvider, (_, next) {
+      if (next != CoreStatus.disconnected) {
+        state = null;
+      }
+    });
+    return null;
   }
 }
 

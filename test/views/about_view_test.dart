@@ -1,6 +1,6 @@
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/about.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
@@ -33,12 +33,14 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Aharon'), findsOneWidget);
       expect(find.text('Telegram'), findsNothing);
-      expect(
-        tester
-            .widget<CircleAvatar>(find.byType(CircleAvatar).first)
-            .foregroundImage,
-        const AssetImage('assets/images/avatar/aharon.png'),
+      final avatar = find.byWidgetPredicate(
+        (widget) =>
+            widget is Container &&
+            widget.foregroundDecoration is BoxDecoration &&
+            (widget.foregroundDecoration! as BoxDecoration).image?.image ==
+                const AssetImage('assets/images/avatar/aharon.png'),
       );
+      expect(avatar, findsOneWidget);
       expect(find.textContaining('initH271'), findsNothing);
       expect(find.text('Project · GitHub'), findsOneWidget);
       expect(find.textContaining('Project ·'), findsOneWidget);

@@ -27,7 +27,7 @@ Alerts and security updates are on in the repository settings. `.github/dependab
 | `pub` | `/` and the plugins with external dependencies | All | Yes |
 | `gomod` | `/core` | **Off** (`open-pull-requests-limit: 0`) | Yes |
 | `cargo` | `/services/helper`, `/plugins/rust_api/rust` | **Patch only** (`allow` with `update-types`) | Yes |
-| `gradle` | `/android`, `/plugins/wifi_ssid/android` | All | Yes |
+| `gradle` | `/android`, `/plugins/dynamic_color/android` | All | Yes |
 | `github-actions` | `/`, `/.github/actions/setup-android-toolchain` | All | Yes |
 
 `open-pull-requests-limit` counts version updates only: security updates have their own fixed limit of 10. `allow`

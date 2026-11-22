@@ -27,6 +27,13 @@ class CommonAction extends _$CommonAction {
 
   void toggleRunning() {
     final running = !ref.read(isStartProvider);
+    if (running && ref.read(coreStatusProvider) == CoreStatus.disconnected) {
+      ref.read(setupActionProvider.notifier).resumeOnRestart();
+      unawaited(
+        globalState.safeRun(ref.read(coreActionProvider.notifier).restartCore),
+      );
+      return;
+    }
     unawaited(
       globalState.safeRun(
         () => ref
@@ -170,18 +177,15 @@ class CommonAction extends _$CommonAction {
         return;
       }
       final context = globalState.navigatorKey.currentContext!;
+      final tag = data['tag_name'] as String;
       final res = await dialogs.showMessage(
         title: currentAppLocalizations.discoverNewVersion,
-        message: _releaseSpan(
-          context,
-          '${data['tag_name']} · ${data['source']}',
-          data['body'] as String?,
-        ),
+        message: _releaseSpan(context, tag, data['body'] as String?),
         confirmText: currentAppLocalizations.goDownload,
         cancelText: isUser ? null : currentAppLocalizations.noLongerRemind,
       );
       if (res == true) {
-        unawaited(launchUrl(Uri.parse(data['download_url'] as String)));
+        _openReleasePage();
       } else if (!isUser && res == false) {
         ref
             .read(appSettingProvider.notifier)
@@ -195,5 +199,11 @@ class CommonAction extends _$CommonAction {
         ),
       );
     }
+  }
+
+  void _openReleasePage() {
+    unawaited(
+      launchUrl(Uri.parse('https://github.com/$repository/releases/latest')),
+    );
   }
 }

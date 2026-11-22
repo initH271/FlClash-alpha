@@ -4,7 +4,8 @@ import 'package:fl_clash/views/network_features.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/services.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/widgets.dart';
+import 'package:fl_clash/widgets/widgets.dart';
 
 import '../helpers/test_app.dart';
 
@@ -44,7 +45,7 @@ void main() {
         rules,
       );
       Future<void> toggle(String label) async {
-        final tile = find.widgetWithText(SwitchListTile, label);
+        final tile = find.widgetWithText(ListItem, label);
         await tester.ensureVisible(tile);
         await tester.pumpAndSettle();
         await tester.tap(tile);
@@ -53,8 +54,11 @@ void main() {
 
       expect(
         tester
-            .widget<SwitchListTile>(
-              find.widgetWithText(SwitchListTile, l.sniffer),
+            .widget<Switch>(
+              find.descendant(
+                of: find.widgetWithText(ListItem, l.sniffer),
+                matching: find.byType(Switch),
+              ),
             )
             .onChanged,
         isNull,

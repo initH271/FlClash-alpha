@@ -336,10 +336,8 @@ class DependabotTests(unittest.TestCase):
         for ecosystem in ('gradle', 'github-actions'):
             self.assertNotRegex(self.blocks[ecosystem], r'(?m)^    ignore:')
 
-    def test_pub_only_holds_back_screen_retriever_which_the_desktop_code_is_written_against(self):
-        block = self.blocks['pub']
-        self.assertEqual(['screen_retriever'], re.findall(r'(?m)^      - dependency-name: (\S+)$', block))
-        self.assertIn("update-types: ['version-update:semver-minor', 'version-update:semver-major']", block)
+    def test_pub_holds_nothing_back(self):
+        self.assertNotRegex(self.blocks['pub'], r'(?m)^    ignore:')
 
     def test_yaml_aliases_are_not_relied_on(self):
         self.assertNotRegex(self.source, r'[&*]\w+\s*$')

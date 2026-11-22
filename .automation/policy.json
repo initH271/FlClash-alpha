@@ -1,8 +1,8 @@
 {
   "github": "initH271/FlClash-alpha",
   "upstream": "chen08209/FlClash",
-  "upstream_tag": "v0.9.2",
-  "upstream_sha": "7fd417fb9a9a277c6a9339a8ac87f907df7c25f7",
+  "upstream_tag": "v0.9.4",
+  "upstream_sha": "89791d7c11978bf9b580ba71bffcb00506a17659",
   "protected_paths": [
     ".github/",
     ".automation/"

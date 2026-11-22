@@ -4,7 +4,9 @@ import 'package:fl_clash/ui/fork/foot_action.dart';
 import 'package:fl_clash/ui/icons/icons.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/widgets.dart';
+
+const proxiesDelayTestButtonKey = ValueKey('proxies-delay-test');
 
 /// Floats the delay test over the foot of [child], where a thumb reaches it.
 class ProxiesDelayTestFab extends StatelessWidget {
@@ -42,14 +44,16 @@ class _DelayTestButton extends ConsumerWidget {
     final isTesting = ref.watch(currentGroupDelayTestingProvider);
     return ElasticPress(
       enabled: !isTesting,
-      child: FloatingActionButton(
-        heroTag: null,
-        splashColor: Colors.transparent,
-        tooltip: context.appLocalizations.delayTest,
-        onPressed: isTesting ? null : onPressed,
-        child: isTesting
-            ? const _ChargingBolt()
-            : const GlyphIcon(AppGlyphs.bolt, fill: 1),
+      child: SizedBox.square(
+        dimension: FloatingFootAction.actionSide,
+        child: IconButton.filled(
+          key: proxiesDelayTestButtonKey,
+          tooltip: context.appLocalizations.delayTest,
+          onPressed: isTesting ? null : onPressed,
+          icon: isTesting
+              ? const _ChargingBolt()
+              : const GlyphIcon(AppGlyphs.bolt, fill: 1),
+        ),
       ),
     );
   }

@@ -8,7 +8,7 @@ import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/ui/icons/icons.dart';
 import 'package:fl_clash/ui/ui.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 @immutable
@@ -104,7 +104,21 @@ class _AboutViewState extends ConsumerState<AboutView> {
   Widget _buildContributor(Contributor contributor, String subtitle) {
     final link = contributor.link;
     return ListItem(
-      leading: CircleAvatar(foregroundImage: AssetImage(contributor.avatar)),
+      leading: Container(
+        width: 40,
+        height: 40,
+        foregroundDecoration: BoxDecoration(
+          shape: BoxShape.circle,
+          image: DecorationImage(
+            image: AssetImage(contributor.avatar),
+            fit: BoxFit.cover,
+          ),
+        ),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: context.colorScheme.primaryContainer,
+        ),
+      ),
       title: Text(contributor.name),
       subtitle: Text(subtitle),
       onTap: link == null ? null : () => dialogs.openUrl(link),
@@ -115,7 +129,7 @@ class _AboutViewState extends ConsumerState<AboutView> {
   Widget build(BuildContext context) {
     final appLocalizations = context.appLocalizations;
     final isLoading = ref.watch(loadingProvider(LoadingTag.checkUpdate));
-    return CommonScaffold(
+    return Scaffold(
       isLoading: isLoading,
       title: appLocalizations.about,
       body: ListView(
@@ -135,9 +149,9 @@ class _AboutViewState extends ConsumerState<AboutView> {
               ref
                   .read(appSettingProvider.notifier)
                   .update((state) => state.copyWith(developerMode: true));
-              context.showNotifier(
+              dialogs.showBanner(
                 appLocalizations.developerModeEnableTip,
-                level: MessageLevel.success,
+                level: BannerLevel.success,
               );
             },
           ),
@@ -274,15 +288,7 @@ class _AboutHero extends StatelessWidget {
               );
             },
           ),
-          ExpansionTile(
-            title: Text(appLocalizations.versionDetails),
-            children: [
-              ListTile(
-                title: Text(appLocalizations.buildNumber),
-                subtitle: Text(globalState.packageInfo.buildNumber),
-              ),
-            ],
-          ),
+          const _VersionDetails(),
           const SizedBox(height: 20),
           TonalButton(
             size: TonalButtonSize.bar,
@@ -292,6 +298,41 @@ class _AboutHero extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _VersionDetails extends StatefulWidget {
+  const _VersionDetails();
+
+  @override
+  State<_VersionDetails> createState() => _VersionDetailsState();
+}
+
+class _VersionDetailsState extends State<_VersionDetails> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final appLocalizations = context.appLocalizations;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        TextButton.icon(
+          onPressed: () => setState(() => _expanded = !_expanded),
+          icon: GlyphIcon(
+            _expanded ? AppGlyphs.chevronUp : AppGlyphs.chevronDown,
+          ),
+          label: Text(appLocalizations.versionDetails),
+        ),
+        if (_expanded) ...[
+          Text(
+            appLocalizations.buildNumber,
+            style: AppTextStyle.caption1.of(context),
+          ),
+          Text(globalState.packageInfo.buildNumber),
+        ],
+      ],
     );
   }
 }
