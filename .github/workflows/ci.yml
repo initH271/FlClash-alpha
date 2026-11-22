@@ -44,9 +44,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Test automation, the release mirror and the release identity
+      - name: Test automation and the release identity
         run: |
-          python3 .cnb/test_mirror_release.py
           python3 -m unittest tool.test_release_identity
           python3 -m unittest discover -s .automation -p 'test_*.py'
   go:
@@ -100,7 +99,7 @@ jobs:
       - name: Setup Rust and system libraries
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libx11-dev libxkbcommon-dev
+          sudo apt-get install -y --no-install-recommends libx11-dev libxkbcommon-dev libgtk-3-dev
           rustup toolchain install 1.99.0 --profile minimal
       - uses: Swatinem/rust-cache@v2
         with:
@@ -125,6 +124,11 @@ jobs:
       - uses: ./.github/actions/setup-android-toolchain
         with:
           android: 'false'
+      # rust_api links GTK on Linux for the tray and the window.
+      - name: Install system libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libgtk-3-dev
       - name: Install Flutter dependencies
         run: flutter pub get
       - name: Analyze and test
@@ -149,11 +153,12 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: '3.47.6'
+          flutter-version: '3.50.0'
           cache: true
       - name: Test Flutter plugin packages
         run: |
           for tests in plugins/*/test; do
+            [ -d "$tests" ] || continue
             (cd "$(dirname "$tests")" && flutter pub get && flutter test --reporter expanded)
           done
       - name: Test the build hook package

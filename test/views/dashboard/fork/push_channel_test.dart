@@ -6,10 +6,12 @@ import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/views/dashboard/fork/push_channel.dart';
 import 'package:fl_clash/views/dashboard/widget_registry.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/widgets.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/test_app.dart';
+import '../../../helpers/core_connections.dart';
+import '../../../helpers/host_scaffold.dart';
 
 class _MockCore extends Mock implements CoreHandlerInterface {}
 
@@ -51,7 +53,10 @@ void main() {
     List<TrackerInfo> connections, {
     Locale locale = const Locale('en'),
   }) async {
-    when(() => core.getConnections()).thenAnswer((_) async => connections);
+    whenConnections<({List<TrackerInfo> next, int tcp})>(
+      core,
+      () async => connections,
+    );
     await tester.pumpWidget(
       TestApp(
         locale: locale,
@@ -59,7 +64,9 @@ void main() {
           coreHandlerProvider.overrideWithValue(CoreController.scoped(core)),
           coreStatusProvider.overrideWithBuild((_, _) => CoreStatus.connected),
         ],
-        child: Scaffold(body: ListView(children: const [PushChannelCard()])),
+        child: HostScaffold(
+          body: ListView(children: const [PushChannelCard()]),
+        ),
       ),
     );
     await tester.pump();

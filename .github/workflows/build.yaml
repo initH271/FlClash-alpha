@@ -27,7 +27,6 @@ jobs:
     timeout-minutes: 70
     env:
       GH_TOKEN: ${{ github.token }}
-      CNB_AUTOMATION_TOKEN: ${{ secrets.CNB_AUTOMATION_TOKEN }}
       REUSE_RUN: ${{ inputs.reuse_run }}
     steps:
       - uses: actions/checkout@v4
@@ -61,7 +60,7 @@ jobs:
         if: steps.plan.outputs.compile == 'true'
         with:
           channel: stable
-          flutter-version: '3.47.6'
+          flutter-version: '3.50.0'
           cache: true
       - uses: nttld/setup-ndk@v1
         if: steps.plan.outputs.compile == 'true'
@@ -92,7 +91,6 @@ jobs:
       - name: Analyze and test
         if: steps.plan.outputs.compile == 'true'
         run: |
-          python3 .cnb/test_mirror_release.py
           python3 -m unittest discover -s .automation -p 'test_*.py'
           flutter analyze --no-fatal-infos
           cp pubspec.yaml /tmp/flclash-pubspec.yaml
@@ -144,9 +142,6 @@ jobs:
           path: dist/
           retention-days: 14
           if-no-files-found: error
-      - name: Synchronize CNB main before publishing
-        if: steps.plan.outputs.active == 'true' && env.CNB_AUTOMATION_TOKEN != ''
-        run: python3 .automation/control.py promote
       - name: Publish GitHub release
         if: steps.plan.outputs.active == 'true'
         run: |
@@ -162,8 +157,8 @@ jobs:
             gh release create "$tag" dist/FlClash-alpha-arm64-v8a.apk dist/SHA256SUMS.txt dist/update.json --target "$(git rev-parse HEAD)" --title "$title" --notes-file dist/release-notes.md --draft
           fi
           gh release edit "$tag" --draft=false --latest
-      - name: Notify owner and trigger CNB mirror
-        if: steps.plan.outputs.active == 'true' && env.CNB_AUTOMATION_TOKEN != ''
+      - name: Close the build failure Issues this release resolves
+        if: steps.plan.outputs.active == 'true'
         run: python3 .automation/control.py notify
       - name: Record final source status
         if: always() && steps.plan.outcome == 'success'

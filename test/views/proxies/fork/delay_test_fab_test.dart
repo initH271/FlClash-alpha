@@ -10,7 +10,7 @@ import 'package:fl_clash/views/proxies/proxies.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/widgets.dart';
 
 import '../../../helpers/glyph_finders.dart';
 import '../../../helpers/test_app.dart';
@@ -19,7 +19,7 @@ import '../../../helpers/test_profiles.dart';
 const _phone = Size(393, 852);
 const _safeBottom = 34.0;
 
-final _fab = find.byType(FloatingActionButton);
+final _fab = find.byKey(proxiesDelayTestButtonKey);
 final _charging = find.descendant(of: _fab, matching: find.byType(ShaderMask));
 
 class _SpyProxiesAction extends ProxiesAction {
@@ -165,7 +165,7 @@ void main() {
       findsNothing,
     );
     expect(find.text('Delay test'), findsNothing);
-    expect(tester.widget<FloatingActionButton>(_fab).tooltip, 'Delay test');
+    expect(tester.widget<IconButton>(_fab).tooltip, 'Delay test');
     expect(tester.getSize(_fab), const Size.square(56));
   });
 
@@ -218,8 +218,7 @@ void main() {
     final container = _container(tester);
     await _pumpView(tester, container);
     final testing = container.read(delayTestingGroupsProvider.notifier);
-    bool enabled() =>
-        tester.widget<FloatingActionButton>(_fab).onPressed != null;
+    bool enabled() => tester.widget<IconButton>(_fab).onPressed != null;
 
     testing.start('B');
     await tester.pump();
@@ -230,7 +229,7 @@ void main() {
     await tester.pump();
     expect(enabled(), isFalse);
     expect(_charging, findsOneWidget);
-    expect(tester.widget<FloatingActionButton>(_fab).tooltip, 'Delay test');
+    expect(tester.widget<IconButton>(_fab).tooltip, 'Delay test');
     await tester.tap(_fab, warnIfMissed: false);
     await tester.pump();
     expect(_SpyProxiesAction.tested, isEmpty);

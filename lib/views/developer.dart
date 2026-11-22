@@ -1,14 +1,14 @@
 import 'dart:async';
 
 import 'package:fl_clash/common/common.dart';
-import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/common.dart';
 import 'package:fl_clash/providers/action.dart';
 import 'package:fl_clash/providers/app.dart';
 import 'package:fl_clash/providers/config.dart';
 import 'package:fl_clash/state.dart';
+import 'package:fl_clash/views/dashboard/widgets/live_status.dart';
 import 'package:fl_clash/widgets/widgets.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class DeveloperView extends ConsumerWidget {
@@ -22,8 +22,8 @@ class DeveloperView extends ConsumerWidget {
         ListItem(
           title: Text(appLocalizations.messageTest),
           onTap: () {
-            for (final level in MessageLevel.values) {
-              context.showNotifier(
+            for (final level in BannerLevel.values) {
+              dialogs.showBanner(
                 '${level.name}: ${appLocalizations.messageTestTip}',
                 level: level,
               );
@@ -59,6 +59,10 @@ class DeveloperView extends ConsumerWidget {
               unawaited(coreAction.crash());
             },
           ),
+        ListItem(
+          title: Text(appLocalizations.liveStatusTest),
+          onTap: () => showLiveStatusPreview(context),
+        ),
         ListItem(
           title: Text(appLocalizations.clearData),
           onTap: () async {

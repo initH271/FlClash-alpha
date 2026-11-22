@@ -8,7 +8,6 @@ import 'package:fl_clash/core/interface.dart';
 import 'package:fl_clash/core/method.dart';
 import 'package:fl_clash/database/database.dart' as db;
 import 'package:fl_clash/enum/enum.dart';
-import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/action.dart';
 import 'package:fl_clash/providers/app.dart';
@@ -118,7 +117,6 @@ void main() {
     ) async {
       reloads.add(invocation.positionalArguments.single as String);
       if (reloadError case final error?) throw error;
-      return '';
     });
     when(() => core.compileRuleSet(any(), url: any(named: 'url'))).thenAnswer((
       invocation,
@@ -730,7 +728,7 @@ void main() {
     });
 
     test('when update all listed it just before the delete', () async {
-      await AppLocalizations.load(const Locale('en'));
+      loadAppLocalizations(const Locale('en'));
       await seedHeld();
       compileGate!.complete();
 
@@ -747,7 +745,7 @@ void main() {
     });
 
     group('while the proxies page updates it', () {
-      Future<String> update() async => container
+      Future<void> update() async => container
           .read(proxiesActionProvider.notifier)
           .updateProvider(
             ExternalProvider(
@@ -768,7 +766,7 @@ void main() {
         await downloadStarts(first);
         await delete(first);
         compileGate!.complete();
-        expect(await updating, '');
+        await updating;
         await pumpEventQueue();
 
         expect(await storedIds(), [second.id]);
@@ -784,7 +782,7 @@ void main() {
         await downloadStarts(first);
         await delete(first);
         compileGate!.complete();
-        expect(await updating, '');
+        await updating;
 
         expect(await storedIds(), [second.id]);
         expect(reloads, isEmpty);
@@ -809,7 +807,6 @@ void main() {
               profileId: profileId,
               profileLastUpdateDate: null,
               profileType: ProfileType.custom,
-              extendType: ExtendType.standard,
               rules: [
                 Rule.parse('RULE-SET,First,DIRECT', id: 2),
                 Rule.parse('RULE-SET,Second,DIRECT', id: 3),
@@ -1023,7 +1020,7 @@ void main() {
 
     group('when update all listed it just before the edit', () {
       setUp(() async {
-        await AppLocalizations.load(const Locale('en'));
+        loadAppLocalizations(const Locale('en'));
         await seedHeld(usedBy: 'Second');
         compileGate!.complete();
       });
@@ -1128,7 +1125,7 @@ void main() {
     });
 
     group('while the proxies page updates it', () {
-      Future<String> update() async => container
+      Future<void> update() async => container
           .read(proxiesActionProvider.notifier)
           .updateProvider(
             ExternalProvider(
@@ -1150,7 +1147,7 @@ void main() {
         await downloadStarts(first);
         await rename(first, 'Renamed');
         compileGate!.complete();
-        expect(await updating, '');
+        await updating;
         await pumpEventQueue();
 
         final saved = await stored(first.id);
@@ -1168,7 +1165,7 @@ void main() {
         await reorder();
         final order = (await stored(first.id)).order;
         compileGate!.complete();
-        expect(await updating, '');
+        await updating;
 
         expect((await stored(first.id)).order, order);
         expect((await stored(first.id)).behavior, classical.behavior);
@@ -1185,7 +1182,7 @@ void main() {
           await downloadStarts(first);
           await move(first);
           compileGate!.complete();
-          expect(await updating, '');
+          await updating;
           await pumpEventQueue();
 
           final saved = await stored(first.id);
@@ -1216,7 +1213,6 @@ void main() {
               profileId: profileId,
               profileLastUpdateDate: null,
               profileType: ProfileType.custom,
-              extendType: ExtendType.standard,
               rules: [
                 Rule.parse('RULE-SET,First,DIRECT', id: 2),
                 Rule.parse('RULE-SET,Second,DIRECT', id: 3),

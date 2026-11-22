@@ -13,11 +13,12 @@ import 'package:fl_clash/views/dashboard/widgets/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/widgets.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/test_app.dart';
 import '../../../helpers/test_profiles.dart';
+import '../../../helpers/core_connections.dart';
 
 class _MockCore extends Mock implements CoreHandlerInterface {}
 
@@ -54,9 +55,16 @@ void main() {
 
   setUp(() {
     core = _MockCore();
-    when(() => core.probe(any())).thenAnswer((_) async => null);
-    when(() => core.getConnections()).thenAnswer((_) async => const []);
-    when(() => core.outboundIp(any())).thenAnswer((_) async => null);
+    when(
+      () => core.probe(any()),
+    ).thenAnswer((_) async => const ProbeResult(error: 'failed'));
+    whenConnections<({List<TrackerInfo> next, int tcp})>(
+      core,
+      () async => const [],
+    );
+    when(
+      () => core.outboundIp(any()),
+    ).thenAnswer((_) async => const OutboundIpResult(error: 'failed'));
     useContainer();
   });
 

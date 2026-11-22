@@ -1,6 +1,6 @@
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/about.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 

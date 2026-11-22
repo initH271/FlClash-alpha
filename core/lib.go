@@ -45,10 +45,14 @@ func (th *TunHandler) start(fd int, stack, address, dns, options string) bool {
 	configMu.Lock()
 	defer configMu.Unlock()
 
-	// initHook and t.Start run outside th.mu on purpose: both protect sockets
-	// on this very goroutine, and protectSocket's RLock taken while this one
-	// holds the write lock deadlocks the start outright.
+	th.mu.Lock()
 	th.initHook()
+	th.mu.Unlock()
+	socketProtection.activate(th.callbacks.Protect)
+
+	// t.Start runs outside th.mu on purpose: a socket opened anywhere inside
+	// Start reaches the hooks on this very goroutine, and the owner lookup's
+	// RLock would deadlock against a write lock held here.
 	tunListener := t.Start(fd, stack, address, dns, options)
 
 	th.mu.Lock()
@@ -70,25 +74,12 @@ func (th *TunHandler) close() {
 
 func (th *TunHandler) clear() {
 	th.removeHook()
+	socketProtection.deactivate()
 	if th.listener != nil {
 		_ = th.listener.Close()
 	}
 	th.callbacks = nil
 	th.listener = nil
-}
-
-// A refused protect never fails the dial: mihomo's tunnel retries a failed
-// dial ten times, and Android refuses only after the VPN was revoked, when the
-// routes are gone and an unprotected socket takes the default network.
-func (th *TunHandler) protectSocket(fd int) bool {
-	th.mu.RLock()
-	defer th.mu.RUnlock()
-
-	if th.callbacks == nil {
-		return false
-	}
-	th.callbacks.Protect(fd)
-	return true
 }
 
 func (th *TunHandler) handleResolveProcess(source, target net.Addr) (int, string) {
@@ -119,19 +110,27 @@ func (th *TunHandler) handleResolveProcess(source, target net.Addr) (int, string
 
 var (
 	installHooksOnce sync.Once
-	tunSockets       socketGuard
+	activeTunHandler atomic.Pointer[TunHandler]
+	socketProtection = newSocketProtector()
 )
+
+// Set from load on, so no socket escapes it; mihomo then ignores
+// interface-name, routing-mark and tfo, as it always has under CMFA.
+// A refused protect never fails the dial: the socket waits for the next VPN.
+func init() {
+	dialer.DefaultSocketHook = func(network, address string, conn syscall.RawConn) error {
+		if platform.ShouldBlockConnection() {
+			return errBlocked
+		}
+		socketProtection.guard(conn)
+		return nil
+	}
+}
 
 func installHooks() {
 	installHooksOnce.Do(func() {
-		dialer.DefaultSocketHook = func(network, address string, conn syscall.RawConn) error {
-			if platform.ShouldBlockConnection() {
-				return errBlocked
-			}
-			return tunSockets.protect(conn)
-		}
 		process.DefaultPackageNameResolver = func(metadata *constant.Metadata) (string, error) {
-			th, _ := tunSockets.current().(*TunHandler)
+			th := activeTunHandler.Load()
 			if th == nil {
 				return "", process.ErrInvalidNetwork
 			}
@@ -151,14 +150,14 @@ func installHooks() {
 
 func (th *TunHandler) initHook() {
 	installHooks()
-	tunSockets.activate(th)
+	activeTunHandler.Store(th)
 }
 
 // Swap the handler, never the hook: mihomo nil-checks DefaultSocketHook once and
 // dereferences it again when the socket is created, so clearing it mid-dial
 // calls a nil func value.
 func (th *TunHandler) removeHook() {
-	tunSockets.deactivate(th)
+	activeTunHandler.CompareAndSwap(th, nil)
 }
 
 var (
@@ -231,16 +230,6 @@ func handleUpdateDns(value string) {
 	})
 }
 
-// A hook installed only by the first tun start misses the sockets that the
-// profile setup before it opens, and those are never protected.
-func init() {
-	installHooks()
-	registerMethod(updateDnsMethod, withArguments(func(value string) bool {
-		handleUpdateDns(value)
-		return true
-	}))
-}
-
 // gobind runs an export on the caller's thread and turns no panic into a Java
 // exception, so a panic that leaves one ends the whole application.
 func recoverExport(name string) {
@@ -286,13 +275,13 @@ func QuickSetup(initParamsString, setupParamsString string, answer func(string))
 			answer("init failed")
 			return
 		}
-		handleInitClash(&initParams)
+		_ = handleInit(&initParams)
 		setupParams := &SetupParams{}
 		if err := json.Unmarshal([]byte(setupParamsString), setupParams); err != nil {
 			answer(err.Error())
 			return
 		}
-		isRunning.Store(true)
+		setRunning(true)
 		if err := handleSetupConfig(setupParams); err != nil {
 			answer(err.Error())
 			return
@@ -320,12 +309,12 @@ func hasEventListener() bool {
 
 func GetTotalTraffic(onlyStatisticsProxy bool) string {
 	defer recoverExport("getTotalTraffic")
-	return marshalResult(handleGetTotalTraffic(onlyStatisticsProxy))
+	return marshalResult(handleGetTotalTraffic(TrafficParams{OnlyProxy: onlyStatisticsProxy}))
 }
 
 func GetTraffic(onlyStatisticsProxy bool) string {
 	defer recoverExport("getTraffic")
-	return marshalResult(handleGetTraffic(onlyStatisticsProxy))
+	return marshalResult(handleGetTraffic(TrafficParams{OnlyProxy: onlyStatisticsProxy}))
 }
 
 func marshalResult(value any) string {
@@ -382,6 +371,10 @@ func ForceGC() {
 		handleForceGC()
 	})
 }
+
+// SetMitmPressure stays for the Android service, which reports memory pressure
+// whatever the core; this core keeps nothing to release.
+func SetMitmPressure(level int32) {}
 
 func UpdateDns(value string) {
 	defer recoverExport("updateDns")

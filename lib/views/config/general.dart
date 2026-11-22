@@ -3,13 +3,15 @@ import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/features/form/form.dart';
 import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/models/models.dart';
+import 'package:fl_clash/providers/mitm.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/views/config/log_retention.dart';
 import 'package:fl_clash/views/config/on_demand.dart';
 import 'package:fl_clash/views/config/override.dart';
 import 'package:fl_clash/views/config/user_agents.dart';
 import 'package:fl_clash/widgets/widgets.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 part 'general/overrides.dart';
@@ -101,6 +103,9 @@ class HostsItem extends ConsumerWidget {
     final hosts = ref.watch(
       patchClashConfigProvider.select((state) => state.hosts),
     );
+    final taken =
+        ref.watch(mitmTakeoverProvider).value?.hosts ??
+        const <String, String>{};
     return ListItem.open(
       title: const Text('Hosts'),
       subtitle: Text(
@@ -114,7 +119,13 @@ class HostsItem extends ConsumerWidget {
         keyMaxLength: TextInputLimits.domain,
         valueMaxLength: TextInputLimits.hostValue,
         titleBuilder: (item) => Text(item.key),
-        subtitleBuilder: (item) => Text(item.value),
+        subtitleBuilder: (item) => Text(
+          [
+            item.value,
+            if (taken[item.key] case final module?)
+              appLocalizations.mitmChangeReplacedBy(module),
+          ].join('\n'),
+        ),
       ),
       onChanged: (value) {
         if (value is! Map<String, String>) {
@@ -321,10 +332,12 @@ class GeneralView extends ConsumerWidget {
     return [
       const DelayTestTimeoutItem(),
       _clashToggle(
-        title: (l) => l.findProcessMode,
+        title: (l) => l.alwaysFindProcess,
         select: (state) => state.findProcessMode == FindProcessMode.always,
         update: (state, value) => state.copyWith(
-          findProcessMode: value ? FindProcessMode.always : FindProcessMode.off,
+          findProcessMode: value
+              ? FindProcessMode.always
+              : FindProcessMode.strict,
         ),
       ),
       _appSettingToggle(
@@ -406,11 +419,7 @@ class GeneralView extends ConsumerWidget {
           generateSection(
             title: appLocalizations.startupAndBackground,
             items: _startupItems(appLocalizations),
-            footer: [
-              if (system.isDesktop) appLocalizations.silentLaunchDesc,
-              appLocalizations.autoRunDesc,
-              appLocalizations.onDemandDesc,
-            ].join('\n'),
+            footer: appLocalizations.autoRunDesc,
           ),
           generateSection(
             title: appLocalizations.requestsAndUpdates,
@@ -423,15 +432,11 @@ class GeneralView extends ConsumerWidget {
               authentication: authentication,
               externalController: externalController,
             ),
-            footer: [
-              appLocalizations.externalControllerDesc,
-              appLocalizations.authenticationDesc,
-            ].join('\n'),
+            footer: appLocalizations.externalControllerDesc,
           ),
           generateSection(
             title: appLocalizations.connection,
             items: _connectionItems(),
-            footer: appLocalizations.autoCloseConnectionsDesc,
           ),
           OverrideSection(
             title: appLocalizations.core,

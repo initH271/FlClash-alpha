@@ -7,17 +7,12 @@ FlClash-alpha 是 [chen08209/FlClash](https://github.com/chen08209/FlClash) 的�
 ## 和官方版的区别
 
 - **持久化诊断日志**：日志跨重启保存在本地，排查问题时可以一键导出。
-- **双渠道发布**：版本同时发布到 GitHub 和 CNB，使用固定签名。应用会检查两个渠道，校验安装包和签名后在应用内更新。
+- **应用内更新**：版本发布在 GitHub，使用固定签名。应用会检查新版本，校验安装包和签名后在应用内更新。
 - **按网络环境自动化**：可根据所在网络自动暂停、恢复代理。
 
 ## 下载
 
-| 渠道 | 源码 | 安装包 |
-| --- | --- | --- |
-| GitHub | [FlClash-alpha](https://github.com/initH271/FlClash-alpha) | [最新版本](https://github.com/initH271/FlClash-alpha/releases/latest) |
-| CNB | [FlClash-alpha](https://cnb.cool/507space/FlClash-alpha) | [最新 APK](https://cnb.cool/507space/FlClash-alpha/-/releases/latest/download/FlClash-alpha-arm64-v8a.apk) |
-
-两个渠道发布的是字节一致、同一签名的 APK，Release 中附有 `SHA256SUMS.txt` 供核对。
+到 GitHub 的 [FlClash-alpha](https://github.com/initH271/FlClash-alpha) 下载[最新版本](https://github.com/initH271/FlClash-alpha/releases/latest)，Release 中附有 `SHA256SUMS.txt` 供核对。
 
 ## 安装与升级
 
@@ -33,12 +28,11 @@ FlClash-alpha 是 [chen08209/FlClash](https://github.com/chen08209/FlClash) 的�
 ## 开发与维护
 
 - [日志实现与保留策略](../ROLLING_LOG_HISTORY.md)
-- [双渠道发布和更新机制](../RELEASE_CHANNELS.md)
+- [发布和更新机制](../RELEASE_CHANNELS.md)
 - [PR、CI、发版和上游升级](../AUTOMATION.md)
-- [CNB 开发环境](../CNB_DEVELOPMENT.md)
 - [构建与测试命令](../.agents/commands.md)
 
-正式包由 GitHub 构建和签名，CNB 镜像同一份产物。签名密钥和自动化凭据不入库。
+正式包由 GitHub 构建和签名。签名密钥和自动化凭据不入库。
 
 ## 来源、贡献与协议
 

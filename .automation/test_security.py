@@ -151,7 +151,7 @@ class SecurityTests(unittest.TestCase):
     def test_osv_retries_cannot_be_used_for_platform_writes(self):
         with patch.object(scan, 'api') as api:
             with self.assertRaises(ValueError):
-                scan.osv_query('https://api.cnb.cool/repo/-/issues', 'POST', {})
+                scan.osv_query('https://api.github.com/repos/x/y/issues', 'POST', {})
             api.assert_not_called()
 
     def test_osv_unreachable_scan_marks_the_environment_and_exits_with_75(self):
@@ -248,7 +248,7 @@ class SecurityWorkflowTests(unittest.TestCase):
     def test_it_needs_nothing_a_dependabot_or_fork_pr_lacks(self):
         self.assertNotIn('secrets.', self.source)
         self.assertIn('permissions:\n  contents: read\nconcurrency:', self.source)
-        self.assertNotRegex(self.source, r'CNB|security_watch|APPROVAL')
+        self.assertNotRegex(self.source, r'security_watch|APPROVAL')
 
     def test_a_pr_still_compares_base_and_head_with_the_scanner_from_main(self):
         self.assertIn('types: [opened, reopened, synchronize]', self.source)
@@ -336,10 +336,8 @@ class DependabotTests(unittest.TestCase):
         for ecosystem in ('gradle', 'github-actions'):
             self.assertNotRegex(self.blocks[ecosystem], r'(?m)^    ignore:')
 
-    def test_pub_only_holds_back_screen_retriever_which_the_desktop_code_is_written_against(self):
-        block = self.blocks['pub']
-        self.assertEqual(['screen_retriever'], re.findall(r'(?m)^      - dependency-name: (\S+)$', block))
-        self.assertIn("update-types: ['version-update:semver-minor', 'version-update:semver-major']", block)
+    def test_pub_holds_nothing_back(self):
+        self.assertNotRegex(self.blocks['pub'], r'(?m)^    ignore:')
 
     def test_yaml_aliases_are_not_relied_on(self):
         self.assertNotRegex(self.source, r'[&*]\w+\s*$')

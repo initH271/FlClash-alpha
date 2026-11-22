@@ -7,7 +7,7 @@ on:
     inputs:
       operation:
         type: choice
-        options: [all, watch, sync, approvals, scheduler, preflight]
+        options: [all, watch, approvals, scheduler]
         default: all
 permissions:
   contents: write
@@ -23,31 +23,23 @@ jobs:
     timeout-minutes: 15
     env:
       GH_TOKEN: ${{ github.token }}
-      CNB_AUTOMATION_TOKEN: ${{ secrets.CNB_AUTOMATION_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Test trusted automation before mutations
         run: python3 -m unittest discover -s .automation -p 'test_*.py'
-      - name: Check credentials
-        id: credentials
+      - name: Set the commit identity
+        id: identity
         run: |
-          test -n "$CNB_AUTOMATION_TOKEN" || { echo 'Configure CNB_AUTOMATION_TOKEN before enabling controller'; exit 1; }
           git config user.name FlClash-Automation
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-      - name: Verify CNB integration permissions
-        if: inputs.operation == 'preflight'
-        run: python3 .automation/credentials.py
       - name: Notify new stable upstream release
-        if: always() && steps.credentials.outcome == 'success' && (github.event.schedule == '17 */6 * * *' || inputs.operation == 'all' || inputs.operation == 'watch')
+        if: always() && steps.identity.outcome == 'success' && (github.event.schedule == '17 */6 * * *' || inputs.operation == 'all' || inputs.operation == 'watch')
         run: python3 .automation/control.py watch
-      - name: Bring CNB main up to GitHub main
-        if: always() && steps.credentials.outcome == 'success' && inputs.operation != 'preflight'
-        run: python3 .automation/control.py sync
       - name: Process owner approvals
-        if: always() && steps.credentials.outcome == 'success' && (github.event.schedule == '0 * * * *' || inputs.operation == 'all' || inputs.operation == 'approvals')
+        if: always() && steps.identity.outcome == 'success' && (github.event.schedule == '0 * * * *' || inputs.operation == 'all' || inputs.operation == 'approvals')
         run: python3 .automation/control.py approvals
       - name: Reuse artifacts of stopped release builds
-        if: always() && steps.credentials.outcome == 'success' && (github.event.schedule == '0 * * * *' || inputs.operation == 'all' || inputs.operation == 'scheduler')
+        if: always() && steps.identity.outcome == 'success' && (github.event.schedule == '0 * * * *' || inputs.operation == 'all' || inputs.operation == 'scheduler')
         run: python3 .automation/scheduler.py

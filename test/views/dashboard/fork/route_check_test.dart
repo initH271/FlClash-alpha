@@ -11,11 +11,12 @@ import 'package:fl_clash/views/dashboard/fork/route_check.dart';
 import 'package:fl_clash/views/dashboard/widget_registry.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/widgets.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/glyph_finders.dart';
 import '../../../helpers/test_app.dart';
+import '../../../helpers/host_scaffold.dart';
 
 class _MockCore extends Mock implements CoreHandlerInterface {}
 
@@ -23,8 +24,6 @@ const _google = ProbeResult(
   statusCode: 204,
   delay: 85,
   chains: ['HK 01', 'Proxy'],
-  rule: 'DomainSuffix',
-  rulePayload: 'google.com',
 );
 
 void main() {
@@ -34,7 +33,7 @@ void main() {
   });
 
   late _MockCore core;
-  late Map<String, Completer<ProbeResult?>> pending;
+  late Map<String, Completer<ProbeResult>> pending;
   late List<ProbeParams> asked;
 
   setUp(() {
@@ -44,7 +43,7 @@ void main() {
     when(() => core.probe(any())).thenAnswer((invocation) {
       final params = invocation.positionalArguments.single as ProbeParams;
       asked.add(params);
-      return (pending[params.url] = Completer<ProbeResult?>()).future;
+      return (pending[params.url] = Completer<ProbeResult>()).future;
     });
     when(() => core.outboundIp(any())).thenAnswer(
       (_) async => const OutboundIpResult(
@@ -73,15 +72,15 @@ void main() {
           ),
           coreHandlerProvider.overrideWithValue(CoreController.scoped(core)),
         ],
-        child: Scaffold(body: ListView(children: const [RouteCheckCard()])),
+        child: HostScaffold(body: ListView(children: const [RouteCheckCard()])),
       ),
     );
     await tester.pumpAndSettle();
   }
 
-  void answer(String label, ProbeResult? result) {
+  void answer(String label, ProbeResult result) {
     final url = routeCheckTargets.firstWhere((t) => t.label == label).url;
-    pending[url]!.complete(result);
+    pending[url]!.complete(result.copyWith(coreEpoch: 1, routeVersion: 1));
   }
 
   test('the route check is a fork dashboard tile', () {
@@ -100,13 +99,11 @@ void main() {
     await tester.pump();
     expect(asked.map((p) => p.url), routeCheckTargets.map((t) => t.url));
     expect(asked.map((p) => p.proxyName).toSet(), {''});
-    expect(find.byType(CommonCircleLoading), findsWidgets);
+    expect(find.byType(ActivityIndicator), findsWidgets);
     expect(find.text('Not checked'), findsNothing);
   });
 
-  testWidgets('shows the delay, rule and chain, or why it failed', (
-    tester,
-  ) async {
+  testWidgets('shows the delay and chain, or why it failed', (tester) async {
     await pump(tester);
     await tester.tap(find.byGlyph(AppGlyphs.bolt));
     await tester.pump();
@@ -114,30 +111,22 @@ void main() {
     answer('Google', _google);
     answer('GitHub', const ProbeResult(error: 'timeout', chains: ['Proxy']));
     answer('OKX', const ProbeResult(error: 'failed', message: 'refused'));
-    answer('FCM', null);
+    pending[routeCheckTargets.firstWhere((t) => t.label == 'FCM').url]!
+        .completeError(StateError('core gone'));
     answer(
       'Baidu',
-      const ProbeResult(
-        statusCode: 200,
-        delay: 12,
-        chains: ['DIRECT'],
-        rule: 'GeoSite',
-        rulePayload: 'cn',
-      ),
+      const ProbeResult(statusCode: 200, delay: 12, chains: ['DIRECT']),
     );
     await tester.pumpAndSettle();
 
     expect(find.text('85 ms'), findsOneWidget);
-    expect(
-      find.text('DomainSuffix google.com · Proxy › HK 01'),
-      findsOneWidget,
-    );
+    expect(find.text('Proxy › HK 01'), findsOneWidget);
     expect(find.text('Timeout'), findsOneWidget);
     expect(find.text('Check failed'), findsNWidgets(2));
     expect(find.text('12 ms'), findsOneWidget);
-    expect(find.text('GeoSite cn · DIRECT'), findsOneWidget);
+    expect(find.text('DIRECT'), findsOneWidget);
     expect(find.textContaining('HK 01'), findsNWidgets(2));
-    expect(find.byType(CommonCircleLoading), findsNothing);
+    expect(find.byType(ActivityIndicator), findsNothing);
     expect(find.byGlyph(AppGlyphs.bolt), findsOneWidget);
   });
 

@@ -22,7 +22,7 @@ enum RouteCheckOutcome { ok, timeout, failed }
 RouteCheckOutcome routeCheckOutcomeOf(ProbeResult result) =>
     switch (result.error) {
       null when result.statusCode > 0 => RouteCheckOutcome.ok,
-      'timeout' => RouteCheckOutcome.timeout,
+      probeErrorTimeout => RouteCheckOutcome.timeout,
       _ => RouteCheckOutcome.failed,
     };
 
@@ -57,6 +57,14 @@ class RouteCheck
             timeout: probeTimeoutDuration.inMilliseconds,
           ),
         );
-    return {target: ProbeAnswer(value: result)};
+    return {
+      target: ProbeAnswer(
+        value: result,
+        coreEpoch: result.coreEpoch,
+        routeVersion: result.routeVersion,
+        hits: result.hits,
+        timedOut: result.error == probeErrorTimeout,
+      ),
+    };
   }
 }

@@ -5,7 +5,8 @@ import 'package:fl_clash/common/update_download.dart';
 import 'package:fl_clash/providers/app.dart';
 import 'package:fl_clash/widgets/app_update_dialog.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/widgets.dart';
+import 'package:fl_clash/widgets/widgets.dart';
 
 import '../helpers/test_app.dart';
 
@@ -63,11 +64,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final install = find.widgetWithText(FilledButton, 'Install update');
+    final install = find.widgetWithText(TextButton, 'Install update');
     await tester.tap(install);
     await tester.pumpAndSettle();
     expect(installer.installs, 1);
-    expect(tester.widget<FilledButton>(install).onPressed, isNotNull);
+    expect(tester.widget<TextButton>(install).onPressed, isNotNull);
     expect(find.textContaining('installer'), findsNothing);
 
     installer.result = 'opened';

@@ -244,17 +244,21 @@ func handleExportLogHistory() (string, error) {
 	}
 }
 
-func exportLogHistoryCall(*MethodCall) (any, error) {
+func exportLogHistoryCall() (string, error) {
 	path, err := handleExportLogHistory()
 	if err != nil {
-		return nil, &MethodError{Code: "log_history_export_failed", Message: err.Error()}
+		return "", &MethodError{Code: "log_history_export_failed", Message: err.Error()}
 	}
 	return path, nil
 }
 
-func setLogHistoryRetentionCall(days int) (bool, error) {
-	if err := handleSetLogHistoryRetention(days); err != nil {
-		return false, &MethodError{Code: "log_retention_update_failed", Message: err.Error()}
+type LogRetentionParams struct {
+	Days int `json:"days"`
+}
+
+func setLogHistoryRetentionCall(params LogRetentionParams) error {
+	if err := handleSetLogHistoryRetention(params.Days); err != nil {
+		return &MethodError{Code: "log_retention_update_failed", Message: err.Error()}
 	}
-	return true, nil
+	return nil
 }

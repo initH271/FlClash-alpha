@@ -7,17 +7,13 @@ FlClash-alpha is an independently maintained fork of [chen08209/FlClash](https:/
 ## How it differs from the official app
 
 - **Persistent diagnostics:** logs are kept on disk across restarts and can be exported in one step for troubleshooting.
-- **Dual-channel releases:** builds are published to both GitHub and CNB with a fixed signing key. The app checks both channels, verifies the package and signature, and updates in place.
+- **In-app updates:** builds are published on GitHub with a fixed signing key. The app checks for a new release, verifies the package and signature, and updates in place.
 - **Network-aware automation:** the proxy can pause and resume automatically depending on the network you are on.
 
 ## Download
 
-| Channel | Source | Download |
-| --- | --- | --- |
-| GitHub | [FlClash-alpha](https://github.com/initH271/FlClash-alpha) | [Latest release](https://github.com/initH271/FlClash-alpha/releases/latest) |
-| CNB | [FlClash-alpha](https://cnb.cool/507space/FlClash-alpha) | [Latest APK](https://cnb.cool/507space/FlClash-alpha/-/releases/latest/download/FlClash-alpha-arm64-v8a.apk) |
-
-Both channels publish identical APK bytes signed with the same key. Releases include `SHA256SUMS.txt`.
+Get the [latest release](https://github.com/initH271/FlClash-alpha/releases/latest) from
+[FlClash-alpha](https://github.com/initH271/FlClash-alpha) on GitHub. Releases include `SHA256SUMS.txt`.
 
 ## Install and upgrade
 
@@ -33,12 +29,11 @@ Open an issue on [GitHub Issues](https://github.com/initH271/FlClash-alpha/issue
 ## Development and maintenance
 
 - [Log storage and retention](ROLLING_LOG_HISTORY.md)
-- [Release channels and update mechanism](RELEASE_CHANNELS.md)
+- [Releases and update mechanism](RELEASE_CHANNELS.md)
 - [Pull requests, CI, releases and upstream upgrades](AUTOMATION.md)
-- [CNB development environment](CNB_DEVELOPMENT.md)
 - [Build and test commands](.agents/commands.md)
 
-GitHub builds and signs releases; CNB mirrors the same artifact. Signing keys and automation credentials are not committed.
+GitHub builds and signs releases. Signing keys and automation credentials are not committed.
 
 ## Attribution and license
 

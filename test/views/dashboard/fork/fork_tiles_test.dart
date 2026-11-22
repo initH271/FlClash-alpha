@@ -4,7 +4,7 @@ import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/views/dashboard/fork/fork_tiles.dart';
 import 'package:fl_clash/views/dashboard/widget_registry.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/widgets.dart';
 
 import '../../../helpers/test_app.dart';
 

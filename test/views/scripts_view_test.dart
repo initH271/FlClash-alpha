@@ -1,11 +1,12 @@
-import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/config/scripts.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/widgets.dart';
+import 'package:fl_clash/widgets/widgets.dart';
+import 'package:fl_clash/common/app_localizations.dart';
 
 import '../helpers/context_menu.dart';
 import '../helpers/test_app.dart';
@@ -21,7 +22,7 @@ class _RecordingScriptsAction extends ScriptsAction {
 }
 
 void main() {
-  setUpAll(() => AppLocalizations.load(const Locale('en')));
+  setUpAll(() => loadAppLocalizations(const Locale('en')));
 
   testWidgets('sync asks for no new url and the url dialog hands one over', (
     tester,

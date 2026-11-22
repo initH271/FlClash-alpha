@@ -4,7 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:fl_clash/common/update_download.dart';
 import 'package:fl_clash/providers/app.dart';
 import 'package:fl_clash/widgets/app_update_dialog.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../helpers/test_app.dart';
@@ -41,7 +41,7 @@ void main() {
             'tag_name': 'v0.8.98-alpha.13',
             'displayVersion': '0.8.98-alpha.13',
             'build': 2026094013,
-            'source': 'CNB',
+            'source': 'GitHub',
             'body': '- Readable versions',
           },
           downloader: _ReadyDownload(),
@@ -50,7 +50,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('0.8.98-alpha.13 · CNB'), findsOneWidget);
+    expect(find.text('0.8.98-alpha.13 · GitHub'), findsOneWidget);
     expect(find.text('Release date: 2026-10-06'), findsOneWidget);
     expect(find.textContaining('2026094013'), findsNothing);
     expect(find.textContaining('Readable versions'), findsOneWidget);

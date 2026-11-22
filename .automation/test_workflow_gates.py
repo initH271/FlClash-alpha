@@ -4,10 +4,9 @@ import re
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-GUARD = "always() && steps.credentials.outcome == 'success'"
+GUARD = "always() && steps.identity.outcome == 'success'"
 GUARDED_STEPS = (
     'Notify new stable upstream release',
-    'Bring CNB main up to GitHub main',
     'Process owner approvals',
     'Reuse artifacts of stopped release builds',
 )
@@ -25,10 +24,10 @@ def step_conditions():
     return found
 
 
-FORBIDDEN = ('/merge', "'PATCH'", "'PUT'", 'promote(')
+FORBIDDEN = ('/merge', "'PATCH'", "'PUT'")
 
 
-GONE = {'ci_paths', 'fallback', 'npc_recovery', 'pause', 'release_permission_probe', 'requirements', 'review_evidence',
+GONE = {'ci_paths', 'fallback', 'pause', 'release_permission_probe', 'requirements', 'review_evidence',
         'reviews', 'security_finish', 'security_groups', 'security_queue', 'security_watch', 'wake'}
 
 
@@ -83,40 +82,43 @@ class WorkflowGateTests(unittest.TestCase):
 
     def test_the_controller_steps_are_gone(self):
         source = (ROOT / '.github/workflows/upstream.yaml').read_text(encoding='utf-8')
-        for script in ('reviews.py', 'npc_recovery.py', 'security_queue.py', 'security_finish.py', 'requirements.py',
+        for script in ('reviews.py', 'security_queue.py', 'security_finish.py', 'requirements.py',
                        'FLCLASH_SECURITY_OUTCOME'):
             self.assertNotIn(script, source)
         self.assertFalse((ROOT / '.github/workflows/reviews.yaml').exists())
 
-    def test_every_scheduled_run_brings_cnb_main_up_to_date(self):
-        # A merge without a new version skips build.yaml's sync, so this is what carries it, and .cnb.yml, to CNB.
-        block = next(b for b in re.split(r'\n      - ', (ROOT / '.github/workflows/upstream.yaml').read_text(encoding='utf-8'))
-                     if 'Bring CNB main up to GitHub main' in b)
-        self.assertIn('python3 .automation/control.py sync', block)
-        self.assertEqual(GUARD + " && inputs.operation != 'preflight'", step_conditions()['Bring CNB main up to GitHub main'])
+    def test_the_guard_reads_a_step_that_a_failed_test_run_skips(self):
+        # That step has no always(), so a red test skips it and every guarded step then stays off.
+        source = (ROOT / '.github/workflows/upstream.yaml').read_text(encoding='utf-8')
+        block = next(b for b in re.split(r'\n      - ', source) if 'id: identity' in b)
+        self.assertNotIn('\n        if:', block)
+        self.assertLess(source.index('unittest discover'), source.index('id: identity'))
+
+    def test_every_manual_operation_runs_a_step(self):
+        source = (ROOT / '.github/workflows/upstream.yaml').read_text(encoding='utf-8')
+        options = re.search(r'options: \[(.+)\]', source).group(1).split(', ')
+        self.assertEqual(set(options), set(re.findall(r"inputs\.operation == '(\w+)'", source)))
 
     def test_the_upstream_workflow_keeps_its_own_schedules(self):
-        # Nothing wakes it from CNB any more: watch runs every six hours, approvals and the scheduler hourly.
+        # Watch runs every six hours, approvals and the scheduler hourly.
         source = (ROOT / '.github/workflows/upstream.yaml').read_text(encoding='utf-8')
         self.assertEqual(["17 */6 * * *", "0 * * * *"], re.findall(r"cron: '([^']+)'", source))
 
     def test_the_release_build_publishes_from_main_without_a_fallback(self):
         source = (ROOT / '.github/workflows/build.yaml').read_text(encoding='utf-8')
-        for gone in ('cnb_fallback', 'CNB_FALLBACK', 'fallback.py'):
-            self.assertNotIn(gone, source)
+        self.assertNotIn('fallback', source.lower())
         for step in ('python3 .automation/build_plan.py', 'python3 .automation/reuse.py',
-                     'bash .github/scripts/sign-apk.sh', 'python3 .automation/control.py promote',
+                     'bash .github/scripts/sign-apk.sh',
                      'python3 .automation/control.py validate', 'python3 .automation/control.py notify',
                      'python3 .automation/control.py status'):
             self.assertIn(step, source)
-        self.assertLess(source.index('control.py promote'), source.index('gh release create'))
+        self.assertLess(source.index('control.py validate'), source.index('gh release create'))
         self.assertLess(source.index('gh release create'), source.index('control.py notify'))
 
     def test_every_script_a_pipeline_runs_exists(self):
-        sources = [*(ROOT / '.github/workflows').glob('*.y*ml'), ROOT / '.cnb.yml']
         scripts = set()
-        for path in sources:
-            scripts |= set(re.findall(r'(?:tools/)?(\.(?:automation|cnb|github)/[\w./-]+\.(?:py|sh))',
+        for path in (ROOT / '.github/workflows').glob('*.y*ml'):
+            scripts |= set(re.findall(r'(?:tools/)?(\.(?:automation|github)/[\w./-]+\.(?:py|sh))',
                                       path.read_text(encoding='utf-8')))
         self.assertIn('.automation/control.py', scripts)
         for script in scripts:
@@ -153,7 +155,7 @@ class WorkflowGateTests(unittest.TestCase):
                          re.findall(r'^  (\w[\w-]*: \w+)$', source.split('permissions:\n')[1].split('jobs:')[0], re.M))
 
     def test_no_comment_or_title_text_reaches_a_shell_or_the_environment(self):
-        for name in ('upstream-approval.yml', 'npc-upstream.yml', 'upstream.yaml'):
+        for name in ('upstream-approval.yml', 'upstream.yaml'):
             source = (ROOT / '.github/workflows' / name).read_text(encoding='utf-8')
             self.assertFalse(re.search(r'\$\{\{[^}]*(comment\.body|issue\.body|issue\.title|\.title|\.body)', source), name)
             for block in re.findall(r'run: (\|\n(?:\s+.*\n)+|.*)', source):
@@ -167,17 +169,6 @@ class WorkflowGateTests(unittest.TestCase):
         source = (ROOT / '.github/workflows/upstream-approval.yml').read_text(encoding='utf-8')
         self.assertNotRegex(source, r'(?m)^concurrency:')
         self.assertIn('    concurrency:\n      group: flclash-upstream-controller', source)
-
-    def test_the_analysis_workflow_is_advice_and_uses_only_what_it_must(self):
-        source = (ROOT / '.github/workflows/npc-upstream.yml').read_text(encoding='utf-8')
-        steps = re.split(r'^      - ', source.split('steps:\n')[1], flags=re.M)[1:]
-        self.assertEqual(3, len(steps))
-        for step in steps:
-            self.assertIn('continue-on-error: true', step)
-        self.assertIn('permissions:\n  contents: read\n  issues: write\nconcurrency:', source)
-        self.assertIn('persist-credentials: false', source)
-        self.assertIn('if: cancelled()', source)
-        self.assertIn('python3 .github/scripts/npc_review.py upstream', source)
 
     def test_the_owner_ok_also_has_the_hourly_pass_behind_it(self):
         self.assertIn('python3 .automation/control.py approvals', (ROOT / '.github/workflows/upstream.yaml').read_text(encoding='utf-8'))

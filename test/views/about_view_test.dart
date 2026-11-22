@@ -1,6 +1,6 @@
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/about.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
@@ -17,7 +17,7 @@ void main() {
   });
 
   testWidgets(
-    'about credits the maintainer and exposes both project channels',
+    'about credits the maintainer and links the project on GitHub alone',
     (tester) async {
       tester.view.physicalSize = const Size(1200, 1800);
       tester.view.devicePixelRatio = 1;
@@ -33,15 +33,17 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Aharon'), findsOneWidget);
       expect(find.text('Telegram'), findsNothing);
-      expect(
-        tester
-            .widget<CircleAvatar>(find.byType(CircleAvatar).first)
-            .foregroundImage,
-        const AssetImage('assets/images/avatar/aharon.png'),
+      final avatar = find.byWidgetPredicate(
+        (widget) =>
+            widget is Container &&
+            widget.foregroundDecoration is BoxDecoration &&
+            (widget.foregroundDecoration! as BoxDecoration).image?.image ==
+                const AssetImage('assets/images/avatar/aharon.png'),
       );
+      expect(avatar, findsOneWidget);
       expect(find.textContaining('initH271'), findsNothing);
-      expect(find.textContaining('· GitHub'), findsOneWidget);
-      expect(find.textContaining('· CNB'), findsOneWidget);
+      expect(find.text('Project · GitHub'), findsOneWidget);
+      expect(find.textContaining('Project ·'), findsOneWidget);
       expect(find.text('FlClash · chen08209'), findsOneWidget);
       expect(find.text('0.8.97 (42)'), findsOneWidget);
       expect(find.text('June2'), findsOneWidget);
@@ -63,7 +65,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(
       find.text(
-        'FlClash-alpha 由 Aharon 维护，基于 chen08209/FlClash。支持滚动日志，并可从 GitHub 与 CNB 更新。',
+        'FlClash-alpha 由 Aharon 维护，基于 chen08209/FlClash。支持滚动日志，并可从 GitHub 更新。',
       ),
       findsOneWidget,
     );

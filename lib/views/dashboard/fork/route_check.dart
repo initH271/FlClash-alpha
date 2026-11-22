@@ -9,7 +9,7 @@ import 'package:fl_clash/views/dashboard/style.dart';
 import 'package:fl_clash/views/dashboard/widgets/card.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/widgets.dart';
 
 class RouteCheckCard extends ConsumerStatefulWidget {
   const RouteCheckCard({super.key});
@@ -64,7 +64,7 @@ class _RouteCheckCardState extends ConsumerState<RouteCheckCard> {
               if (loading)
                 const SizedBox.square(
                   dimension: DashboardIconButton.size,
-                  child: Center(child: CommonCircleLoading(size: 18)),
+                  child: Center(child: ActivityIndicator(size: 18)),
                 )
               else
                 DashboardIconButton(
@@ -109,21 +109,13 @@ class _TargetRow extends StatelessWidget {
     final failed =
         entry.phase == ProbePhase.failed && outcome != RouteCheckOutcome.ok;
     final Widget status = switch ((entry.phase, outcome)) {
-      (ProbePhase.probing, _) => const CommonCircleLoading(size: 14),
+      (ProbePhase.probing, _) => const ActivityIndicator(size: 14),
       (_, RouteCheckOutcome.ok) => Text('${result!.delay} ms'),
       (_, RouteCheckOutcome.timeout) => Text(appLocalizations.timeout),
       _ when failed => Text(appLocalizations.serviceFailed),
       _ => Text(appLocalizations.forkRouteCheckIdle),
     };
-    final route = result == null
-        ? ''
-        : [
-            [
-              result.rule,
-              result.rulePayload,
-            ].where((s) => s.isNotEmpty).join(' '),
-            result.chains.reversed.join(' › '),
-          ].where((part) => part.isNotEmpty).join(' · ');
+    final route = result == null ? '' : result.chains.reversed.join(' › ');
     return DashboardBlock(
       radius: DashboardCorner.mobileBlock,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),

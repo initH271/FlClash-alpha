@@ -6,7 +6,6 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:fl_clash/common/common.dart';
-import 'package:fl_clash/common/app_update.dart';
 import 'package:fl_clash/common/release_identity.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/state.dart';
@@ -16,6 +15,11 @@ class Request {
   late final Dio dio;
   late final ReleaseDateClient releaseDates = ReleaseDateClient(dio);
   late final Dio _clashDio;
+
+  /// Refuses an untrusted certificate even with the certificate check turned
+  /// off, because what it fetches is installed, on Windows as administrator.
+  @visibleForTesting
+  late final Dio releaseDio;
   String? userAgent;
 
   ProviderReader? _read;
@@ -32,15 +36,27 @@ class Request {
         final client = HttpClient();
         client.findProxy = (Uri uri) {
           client.userAgent = globalState.ua;
-          final read = _read;
-          if (read == null) {
-            return 'DIRECT';
-          }
-          return FlClashHttpOverrides.findProxyForReader(read, uri);
+          return _findProxy(uri);
         };
         return client;
       },
     );
+    releaseDio = Dio(BaseOptions(headers: {'User-Agent': browserUa}));
+    releaseDio.httpClientAdapter = IOHttpClientAdapter(
+      createHttpClient: () {
+        return HttpClient()
+          ..badCertificateCallback = ((_, _, _) => false)
+          ..findProxy = _findProxy;
+      },
+    );
+  }
+
+  String _findProxy(Uri uri) {
+    final read = _read;
+    if (read == null) {
+      return 'DIRECT';
+    }
+    return FlClashHttpOverrides.findProxyForReader(read, uri);
   }
 
   Future<Response<T>> _download<T>(String url, ResponseType responseType) {
@@ -104,7 +120,6 @@ class Request {
   }
 
   /// The release page redirect still answers once the hourly API quota is spent.
-  @visibleForTesting
   Future<Map<String, dynamic>> latestRelease() async {
     try {
       final response = await dio.get<Map<String, dynamic>>(

@@ -109,7 +109,7 @@ def package_version(identity):
 
 
 def stamp(root=ROOT):
-    """flutter_distributor and the Windows runner take the version only from pubspec.yaml, not from --build-name."""
+    """The packager and the Windows runner take the version only from pubspec.yaml, not from --build-name."""
     path = root / 'pubspec.yaml'
     text, count = re.subn(r'^version: .*$', 'version: ' + package_version(local_identity(root)),
                           path.read_text(encoding='utf-8'), count=1, flags=re.M)
@@ -152,10 +152,10 @@ def verify(directory, identity):
 
 
 def package(root=ROOT):
-    """Give flutter_distributor's versioned names the fixed ones the Release uses, and check the result."""
+    """Give the packager's versioned names the fixed ones the Release uses, and check the result."""
     out = root / OUTPUT
     out.mkdir(exist_ok=True)
-    for pattern, name in (('*-windows-amd64-setup.exe', SETUP), ('*-windows-amd64.zip', ARCHIVE)):
+    for pattern, name in (('*-windows-amd64-setup.exe', SETUP), ('*-windows-amd64-portable.zip', ARCHIVE)):
         found = sorted((root / 'dist').glob(pattern))
         if len(found) != 1:
             raise ValueError(f'Expected one {pattern} in dist, found {[path.name for path in found]}')
@@ -173,7 +173,7 @@ def sha256(path):
 
 
 def merge_checksums(existing, digests):
-    """The APK line stays first and unchanged: the CNB mirror and anyone checking by hand read it there."""
+    """The APK line stays first and unchanged: anyone checking by hand reads it there."""
     kept = [line for line in existing.splitlines() if line.strip() and line.split()[-1] not in digests]
     if not kept:
         raise ValueError(f'{CHECKSUMS} has no line for the APK')
@@ -313,5 +313,5 @@ def report():
 
 
 if __name__ == '__main__':
-    commands = {'plan': plan, 'stamp': stamp, 'package': package, 'publish': publish, 'report': report}
+    commands = {'plan': plan, 'stamp': stamp, 'tag': lambda: print(local_identity()['tag']), 'package': package, 'publish': publish, 'report': report}
     commands[sys.argv[1]]()
