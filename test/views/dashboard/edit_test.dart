@@ -216,13 +216,15 @@ void main() {
     tester,
   ) async {
     seed(const [
+      // Leaves Network speed the first addable row, as the offset assumes.
+      DashboardWidget.forkPushChannel,
+      DashboardWidget.forkRouteCheck,
+      DashboardWidget.forkAutoPause,
       DashboardWidget.currentOutbound,
       DashboardWidget.outboundMode,
       DashboardWidget.profiles,
       DashboardWidget.proxyGroups,
       DashboardWidget.serviceStatus,
-      // Keeps two addable rows above Network speed, as the offset assumes.
-      DashboardWidget.forkAutoPause,
     ]);
     await pumpEditor(tester, size: const Size(412, 700));
     final position = positionOf(tester);

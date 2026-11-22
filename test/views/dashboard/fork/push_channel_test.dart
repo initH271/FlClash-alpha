@@ -8,10 +8,10 @@ import 'package:fl_clash/views/dashboard/widget_registry.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/widgets.dart';
 import 'package:mocktail/mocktail.dart';
-import 'package:fl_clash/widgets/widgets.dart';
 
 import '../../../helpers/test_app.dart';
 import '../../../helpers/core_connections.dart';
+import '../../../helpers/host_scaffold.dart';
 
 class _MockCore extends Mock implements CoreHandlerInterface {}
 
@@ -64,7 +64,9 @@ void main() {
           coreHandlerProvider.overrideWithValue(CoreController.scoped(core)),
           coreStatusProvider.overrideWithBuild((_, _) => CoreStatus.connected),
         ],
-        child: Scaffold(body: ListView(children: const [PushChannelCard()])),
+        child: HostScaffold(
+          body: ListView(children: const [PushChannelCard()]),
+        ),
       ),
     );
     await tester.pump();

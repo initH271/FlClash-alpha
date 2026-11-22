@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/widgets.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import '../helpers/test_app.dart';
+import '../helpers/host_scaffold.dart';
 
 Future<ProviderContainer> mount(WidgetTester tester) async {
   final c = ProviderContainer(
@@ -19,7 +20,7 @@ Future<ProviderContainer> mount(WidgetTester tester) async {
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: c,
-      child: const TestApp(child: Scaffold(body: LogRetentionItem())),
+      child: const TestApp(child: HostScaffold(body: LogRetentionItem())),
     ),
   );
   await tester.pumpAndSettle();

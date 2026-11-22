@@ -12,7 +12,13 @@ import 'package:mocktail/mocktail.dart';
 
 class _MockCore extends Mock implements CoreHandlerInterface {}
 
-const _ok = ProbeResult(statusCode: 204, delay: 85, chains: ['HK 01', 'Proxy']);
+const _ok = ProbeResult(
+  statusCode: 204,
+  delay: 85,
+  chains: ['HK 01', 'Proxy'],
+  coreEpoch: 1,
+  routeVersion: 1,
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -112,7 +118,7 @@ void main() {
     final container = await ask(containerOf());
     void answer(String label, ProbeResult result) =>
         pending[routeCheckTargets.firstWhere((t) => t.label == label).url]!
-            .complete(result);
+            .complete(result.copyWith(coreEpoch: 1, routeVersion: 1));
 
     answer('Google', _ok);
     answer('GitHub', const ProbeResult(error: 'timeout'));

@@ -64,11 +64,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final install = find.widgetWithText(FilledButton, 'Install update');
+    final install = find.widgetWithText(TextButton, 'Install update');
     await tester.tap(install);
     await tester.pumpAndSettle();
     expect(installer.installs, 1);
-    expect(tester.widget<FilledButton>(install).onPressed, isNotNull);
+    expect(tester.widget<TextButton>(install).onPressed, isNotNull);
     expect(find.textContaining('installer'), findsNothing);
 
     installer.result = 'opened';

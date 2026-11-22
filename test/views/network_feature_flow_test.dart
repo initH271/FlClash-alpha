@@ -8,6 +8,7 @@ import 'package:flutter/widgets.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 
 import '../helpers/test_app.dart';
+import '../helpers/host_scaffold.dart';
 
 void main() {
   testWidgets(
@@ -17,7 +18,7 @@ void main() {
         TestApp(
           locale: const Locale('zh', 'CN'),
           wrapInProviderScope: true,
-          homeBuilder: (child) => Scaffold(body: child),
+          homeBuilder: (child) => HostScaffold(body: child),
           child: const NetworkFeaturesView(),
         ),
       );
@@ -97,7 +98,7 @@ void main() {
       TestApp(
         locale: const Locale('zh', 'CN'),
         wrapInProviderScope: true,
-        homeBuilder: (child) => Scaffold(body: child),
+        homeBuilder: (child) => HostScaffold(body: child),
         child: const NetworkFeaturesView(),
       ),
     );

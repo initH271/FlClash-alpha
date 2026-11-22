@@ -167,7 +167,7 @@ void main() {
 
     test('the headings stay in step with the zh_CN group titles', () {
       final arb =
-          jsonDecode(File('arb/intl_zh_CN.arb').readAsStringSync())
+          jsonDecode(File('arb/intl_zh.arb').readAsStringSync())
               as Map<String, dynamic>;
 
       expect(manualGroupTitles, {

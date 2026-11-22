@@ -14,6 +14,7 @@ import 'package:flutter/widgets.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 
 import '../../../helpers/test_app.dart';
+import '../../../helpers/host_scaffold.dart';
 
 const _rule = 'gateway:192.168.1.1';
 const _office = NetworkSnapshot(
@@ -90,7 +91,9 @@ void main() {
         UncontrolledProviderScope(
           container: container,
           child: TestApp(
-            child: Scaffold(body: ListView(children: const [AutoPauseCard()])),
+            child: HostScaffold(
+              body: ListView(children: const [AutoPauseCard()]),
+            ),
           ),
         ),
       );
@@ -203,7 +206,9 @@ void main() {
         container: container,
         child: TestApp(
           child: _AutomationHost(
-            child: Scaffold(body: ListView(children: const [AutoPauseCard()])),
+            child: HostScaffold(
+              body: ListView(children: const [AutoPauseCard()]),
+            ),
           ),
         ),
       ),

@@ -22,7 +22,11 @@ class FloatingFootAction extends StatelessWidget {
       fit: StackFit.expand,
       children: [
         BottomInsetScope(
-          inset: BottomInsetScope.of(context) + _margin + actionSide,
+          inset:
+              context.bottomInset -
+              MediaQuery.paddingOf(context).bottom +
+              _margin +
+              actionSide,
           child: body,
         ),
         Align(

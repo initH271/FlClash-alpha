@@ -16,6 +16,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/glyph_finders.dart';
 import '../../../helpers/test_app.dart';
+import '../../../helpers/host_scaffold.dart';
 
 class _MockCore extends Mock implements CoreHandlerInterface {}
 
@@ -71,7 +72,7 @@ void main() {
           ),
           coreHandlerProvider.overrideWithValue(CoreController.scoped(core)),
         ],
-        child: Scaffold(body: ListView(children: const [RouteCheckCard()])),
+        child: HostScaffold(body: ListView(children: const [RouteCheckCard()])),
       ),
     );
     await tester.pumpAndSettle();
@@ -79,7 +80,7 @@ void main() {
 
   void answer(String label, ProbeResult result) {
     final url = routeCheckTargets.firstWhere((t) => t.label == label).url;
-    pending[url]!.complete(result);
+    pending[url]!.complete(result.copyWith(coreEpoch: 1, routeVersion: 1));
   }
 
   test('the route check is a fork dashboard tile', () {

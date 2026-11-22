@@ -288,6 +288,7 @@ void main() {
     expect(handler.calls[CoreMethod.coreInit], {
       'home-dir': '/tmp/flclash',
       'version': 35,
+      'log-retention-days': 14,
     });
     expect(json.decode(json.encode(handler.calls[CoreMethod.configSetup])), {
       'selected-map': {'GLOBAL': 'DIRECT'},
