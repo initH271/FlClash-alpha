@@ -118,7 +118,9 @@ jobs:
           curl -fsSL --retry 3 -o "$bundle" "https://curl.se/ca/$CA_BUNDLE"
           echo "$CA_BUNDLE_SHA256  $bundle" | sha256sum -c -
       - name: Build installer and archive
-        run: dart tool/package.dart windows --env stable -v
+        shell: bash
+        # Without a tag the packager names a nightly, and the fork's version already has a suffix.
+        run: dart tool/package.dart windows --env stable --tag "$(python .automation/windows_release.py tag)" -v
       - name: Check and name the packages
         run: python .automation/windows_release.py package
       - name: Install, run and remove the package

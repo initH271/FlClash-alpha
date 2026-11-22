@@ -313,5 +313,5 @@ def report():
 
 
 if __name__ == '__main__':
-    commands = {'plan': plan, 'stamp': stamp, 'package': package, 'publish': publish, 'report': report}
+    commands = {'plan': plan, 'stamp': stamp, 'tag': lambda: print(local_identity()['tag']), 'package': package, 'publish': publish, 'report': report}
     commands[sys.argv[1]]()
