@@ -9,8 +9,8 @@ Two things watch the dependencies. Neither of them merges anything: the owner do
 `core/Clash.Meta`, and on a push or schedule always. The scan reads the resolved Go module graph of `core`, mihomo's
 dependencies included, and both Rust lockfiles, and queries OSV.
 
-On a pull request it compares complete scans of base and head, and a new advisory match fails the job, whatever its
-severity. The job is the required check `Dependency vulnerability scan`. The scanner comes from main, so PR code cannot
+On a pull request it compares complete scans of base and head, and a new advisory match is written to the report, whatever its
+severity. The job is the required check `Dependency vulnerability scan`, and it reports only: a finding does not fail it, so read the `dependency-security-report` artifact. The scanner comes from main, so PR code cannot
 change it, and it uses no secrets. A scan that cannot reach OSV exits 75 and leaves no report, so it never reads as
 clean. Reports stay as workflow artifacts for 14 days.
 
